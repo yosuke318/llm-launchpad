@@ -1,0 +1,32 @@
+locals {
+  project = "llm-launchpad"
+
+  # 1 workspace = 1 環境。env_id を明示しなければ workspace 名を使う
+  env_id = coalesce(var.env_id, terraform.workspace)
+
+  # Name タグ用
+  name = "${local.project}-${local.env_id}"
+
+  # IAM の name_prefix は38文字までのため短い接頭辞を使う
+  iam_name_prefix = "llm-lp-${local.env_id}-"
+
+  ollama_port = 11434
+
+  # 管理用タグは extra_tags で上書きできないよう後ろに置く
+  default_tags = merge(var.extra_tags, {
+    Project   = local.project
+    EnvId     = local.env_id
+    ManagedBy = "terraform"
+  })
+
+  # CreatedAt は plan のたびに変わらないよう time_static から取る。
+  # provider の default_tags はリソースに依存できないため、各リソースの tags で付ける
+  resource_tags = {
+    CreatedAt = time_static.created.rfc3339
+  }
+
+  # direct モードで allowed_cidrs が空なら、実行したマシンのグローバルIPを使う
+  allowed_cidrs = var.access_mode != "direct" ? [] : (
+    length(var.allowed_cidrs) > 0 ? var.allowed_cidrs : ["${chomp(data.http.my_ip[0].response_body)}/32"]
+  )
+}

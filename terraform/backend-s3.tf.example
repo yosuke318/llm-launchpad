@@ -1,0 +1,18 @@
+# state を S3 に置く場合は、このファイルを backend.tf にコピーして値を書き換え、
+# terraform init -migrate-state を実行する。
+# バケットは事前に作っておく(バージョニングを有効にしておくと安全)。
+
+terraform {
+  backend "s3" {
+    bucket = "your-tfstate-bucket"
+    key    = "llm-launchpad/terraform.tfstate"
+    region = "ap-northeast-1"
+
+    # workspace ごとの state は env/<workspace名>/llm-launchpad/terraform.tfstate に置かれる
+    workspace_key_prefix = "env"
+
+    # DynamoDB を使わない S3 ネイティブのロック(Terraform 1.10 以上)
+    use_lockfile = true
+    encrypt      = true
+  }
+}
