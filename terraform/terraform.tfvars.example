@@ -18,6 +18,15 @@ model = "qwen3:8b"
 # インスタンス型を手で指定する場合(catalog/instance_types.yaml にある型)。収まらない場合は警告を出す
 # instance_type = "g5.xlarge"
 
+# spot: スポット(中断されると停止し、在庫が戻ると再開する) / on-demand: オンデマンド
+# purchase_option = "spot"
+
+# 起動するAZ。未指定ならインスタンス型を提供しているAZから選ぶ
+# availability_zone = "ap-northeast-1a"
+
+# ルートボリュームの大きさ(GiB)。未指定なら AMI + モデルの配布サイズの2倍 + 10 GiB
+# root_volume_size_gib = 200
+
 # 未指定なら terraform workspace 名を環境IDとして使う
 # env_id = "qwen-test"
 

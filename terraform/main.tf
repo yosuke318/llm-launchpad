@@ -59,3 +59,18 @@ module "iam" {
   model_bucket_name = var.model_bucket_name
   tags              = local.resource_tags
 }
+
+module "instance" {
+  source = "./modules/instance"
+
+  name                  = local.name
+  instance_type         = module.sizing.instance_type
+  purchase_option       = var.purchase_option
+  subnet_ids            = module.network.subnet_ids
+  availability_zone     = var.availability_zone
+  security_group_id     = module.security.security_group_id
+  instance_profile_name = module.iam.instance_profile_name
+  model_file_size_gb    = module.sizing.model.file_size_gb
+  root_volume_size_gib  = var.root_volume_size_gib
+  tags                  = local.resource_tags
+}
