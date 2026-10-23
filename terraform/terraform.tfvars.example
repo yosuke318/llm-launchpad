@@ -31,7 +31,7 @@ access_mode = "ssm"
 # vpc_cidr = "10.42.0.0/16"
 # az_count = 3
 
-# モデル置き場のS3バケット(YOSUKE-172 で作成)。指定するとインスタンスロールに読み取り権限を付ける
+# モデル置き場のS3バケット。指定するとインスタンスロールに読み取り権限を付ける
 # model_bucket_name = "llm-launchpad-models-xxxxxxxx"
 
 # extra_tags = {

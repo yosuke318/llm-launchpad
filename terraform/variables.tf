@@ -80,7 +80,7 @@ variable "az_count" {
 }
 
 variable "model_bucket_name" {
-  description = "モデルを置くS3バケット名。指定するとインスタンスロールに読み取り権限を付ける(バケット自体は YOSUKE-172 で作る)"
+  description = "モデルを置くS3バケット名。指定するとインスタンスロールに読み取り権限を付ける(バケット自体はモデルの置き場所の対応で作る)"
   type        = string
   default     = null
 

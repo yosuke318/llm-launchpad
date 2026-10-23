@@ -1,7 +1,7 @@
 # Terraform 構成
 
 モデル指定でGPUインスタンスを立ち上げる構成の、土台(ネットワーク・セキュリティグループ・IAM)と、モデルに合うインスタンス型の自動選択。
-GPUインスタンス本体や Ollama の導入は後続の Issue(YOSUKE-170 以降)で足す。
+GPUインスタンス本体や Ollama の導入は後から足す。
 
 ## ファイル構成
 
@@ -35,30 +35,33 @@ catalog/                      # リポジトリ直下。WebUI からも読む
 
 ```
 必要VRAM(GiB) = 重み + KVキャッシュ + 余裕
-  重み         = パラメータ数(B) x 1e9 x 1パラメータあたりのバイト数(q4_K_M は 0.6) / 2^30
-  KVキャッシュ = 2(K と V) x 層数 x KVヘッド数 x ヘッド次元 x コンテキスト長 x 要素のバイト数(f16 は 2) / 2^30
+  重み         = 配布サイズ(GB) x 1e9 / 2^30
+  KVキャッシュ = 2(K と V) x 注意層の数 x KVヘッド数 x ヘッド次元 x コンテキスト長 x 要素のバイト数(f16 は 2) / 2^30
   余裕         = vram_overhead_gib(既定 1.5)
 ```
 
 * 型は合計VRAM(GPU枚数 x 1枚のVRAM)の小さい順に見て、最初に収まるものを選ぶ。同じVRAMなら表で上のもの(概ね安いもの)
 * VRAMは nvidia-smi で見える値(T4 は 15 GiB など)で持つ。カタログ値の 16GB では判定しない
-* MoE(gpt-oss など)は全エキスパートをVRAMに載せるため、総パラメータ数で見積もる
+* 重みは「パラメータ数 x 0.6」ではなく配布サイズから出す。量子化の方式によっては一部の層を高い精度のまま残すため、パラメータ数からの計算は小さく出ることがある(nemotron-3-super は 72GB に対し実際は 87GB)
+* MoE(gpt-oss など)も全エキスパートをVRAMに載せるため、配布サイズがそのまま重みになる
+* Mamba や線形注意を混ぜたモデル(nemotron-3-super、qwen3-next、qwen3.5)は、KVキャッシュを持つ注意層の数(`attention_layers`)だけで計算する
 * Ollama の同時リクエスト数(`OLLAMA_NUM_PARALLEL`)は 1 を前提にしている。増やすとKVキャッシュはその倍数になる
 * `instance_type` で型を手で指定できる。収まらない場合は止めずに警告だけ出す(実測で確かめたい場合があるため)
 * モデルがカタログにない、コンテキスト長がモデルの上限を超える、収まる型がない場合は plan で止める
-* 料金は変わるためカタログに持たない(YOSUKE-179 で Price List API から取る)
+* 料金は変わるためカタログに持たない(Price List API から取る)
 
 例:
 
 | model | context_length | 見積もり(GiB) | 選ばれる型 |
 |---|---|---|---|
-| `qwen3:8b` | 8192 | 4.58 + 1.13 + 1.5 = 7.21 | g4dn.xlarge(T4 15 GiB) |
-| `qwen3:32b` | 8192 | 18.33 + 2.0 + 1.5 = 21.83 | g6.xlarge(L4 22.5 GiB) |
-| `llama3.3:70b` | 8192 | 39.45 + 2.5 + 1.5 = 43.45 | g6e.xlarge(L40S 45 GiB) |
-| `llama3.3:70b` | 32768 | 39.45 + 10 + 1.5 = 50.95 | g6.12xlarge(L4 x4 90 GiB) |
-| `gpt-oss:120b` | 8192 | 65.38 + 0.56 + 1.5 = 67.44 | g6.12xlarge(L4 x4 90 GiB) |
+| `qwen3:8b` | 8192 | 4.84 + 1.13 + 1.5 = 7.47 | g4dn.xlarge(T4 15 GiB) |
+| `qwen3:32b` | 8192 | 18.63 + 2.0 + 1.5 = 22.13 | g6.xlarge(L4 22.5 GiB) |
+| `llama3.3:70b` | 8192 | 40.05 + 2.5 + 1.5 = 44.05 | g6e.xlarge(L40S 45 GiB) |
+| `llama3.3:70b` | 32768 | 40.05 + 10 + 1.5 = 51.55 | g6.12xlarge(L4 x4 90 GiB) |
+| `qwen3.5:122b` | 32768 | 75.44 + 0.75 + 1.5 = 77.69 | g6.12xlarge(L4 x4 90 GiB) |
+| `nemotron-3-super:120b` | 32768 | 81.03 + 0.25 + 1.5 = 82.78 | g6.12xlarge(L4 x4 90 GiB) |
 
-見積もりと実測の差は YOSUKE-184 で確かめる。
+見積もりと実測の差は、GPUインスタンスで nvidia-smi の値と比べて確かめる。
 
 ### VPC: 環境ごとに専用VPCを作る
 
@@ -84,7 +87,7 @@ catalog/                      # リポジトリ直下。WebUI からも読む
 
 * すぐ試せるよう、既定はローカルの state(`terraform.tfstate.d/<workspace名>/`)にする
 * 環境ごとに workspace を分ける。workspace 名がそのまま環境ID(`EnvId` タグ、リソース名)になる
-* ローカルの state は消えるとリソースだけが残るため、長く使うなら S3 backend に移す(`backend-s3.tf.example`)。消えた場合に備えて、消し忘れ検出(YOSUKE-174)でタグから探せるようにしてある
+* ローカルの state は消えるとリソースだけが残るため、長く使うなら S3 backend に移す(`backend-s3.tf.example`)。消えた場合に備えて、消し忘れ検出でタグから探せるようにしてある
 
 ### タグ
 
@@ -102,7 +105,7 @@ catalog/                      # リポジトリ直下。WebUI からも読む
 ### IAM
 
 * `AmazonSSMManagedInstanceCore`: SSM でのシェル接続とポートフォワードに使う
-* `model_bucket_name` を指定したときだけ、そのバケットの読み取り権限(`s3:ListBucket`、`s3:GetObject`)を付ける。バケット自体は YOSUKE-172 で作る
+* `model_bucket_name` を指定したときだけ、そのバケットの読み取り権限(`s3:ListBucket`、`s3:GetObject`)を付ける。バケット自体はモデルの置き場所の対応で作る
 
 ## 使い方
 

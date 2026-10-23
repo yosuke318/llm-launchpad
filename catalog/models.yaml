@@ -1,26 +1,25 @@
-# モデル定義。Terraform(terraform/modules/sizing)と WebUI(YOSUKE-176)の両方から読む。
+# モデル定義。Terraform(terraform/modules/sizing)と WebUI の両方から読む。
 #
 # キーは Ollama のタグ(ollama pull に渡す名前)。各項目の意味:
 #   vendor            提供元(会社)
 #   name              表示名
-#   params_b          パラメータ数(B)。MoE は総パラメータ数
-#   quantization      Ollama library の既定タグの量子化。bytes_per_param の表(quantizations)のキー
-#   file_size_gb      Ollama library での配布サイズ(GB)。ディスク容量の見積もり(YOSUKE-170)に使う
-#   max_context       モデルが対応する最大コンテキスト長(トークン)
-#   layers            トランスフォーマーの層数        ┐
-#   kv_heads          KV ヘッド数(GQA のグループ数)  ├ KVキャッシュの見積もりに使う
-#   head_dim          ヘッドあたりの次元数            ┘
+#   params_b          パラメータ数(B)。MoE は総パラメータ数。表示用
+#   quantization      Ollama library の既定タグの量子化。表示用
+#   file_size_gb      Ollama library での配布サイズ(GB)。重みのVRAMとディスク容量の見積もりに使う
+#   max_context       Ollama で使える最大コンテキスト長(トークン)
+#   layers            層の総数                                    ┐
+#   attention_layers  KVキャッシュを持つ注意層の数。省略時は layers ├ KVキャッシュの見積もりに使う
+#   kv_heads          注意層の KV ヘッド数(GQA のグループ数)      │
+#   head_dim          注意層のヘッドあたりの次元数                ┘
 #   license           ライセンス
 #
+# 重みは「パラメータ数 x 0.6」ではなく配布サイズから見積もる。量子化の方式によっては一部の層を高い精度のまま残すため、
+# パラメータ数からの計算は実際のファイルより小さく出ることがある(例: nemotron-3-super は 120B x 0.6 = 72GB に対し 87GB)。
+#
+# Mamba や線形注意を混ぜたモデルは、KVキャッシュを持つのが一部の注意層だけなので attention_layers を書く。
+#
 # 数値は各モデルの config.json(Hugging Face)と Ollama library の表示から取った。
-# 見積もりと実測の差は YOSUKE-184 で確かめる。
-
-quantizations:
-  # 1パラメータあたりのバイト数の目安。q4_K_M の 0.6 はプロジェクトの見積もり式「パラメータ数(B) x 0.6」に合わせた値
-  q4_K_M: 0.6
-  mxfp4: 0.6
-  q8_0: 1.07
-  f16: 2.0
+# 見積もりと実測の差は、GPUインスタンスで nvidia-smi の値と比べて確かめる。
 
 models:
   # Meta
@@ -117,6 +116,44 @@ models:
     kv_heads: 8
     head_dim: 128
     license: Apache-2.0
+  # Qwen2.5 72B は Apache-2.0 ではなく Qwen 独自のライセンス(月間アクティブユーザー1億人を超える場合は別途許諾が必要)
+  "qwen2.5:72b":
+    vendor: Alibaba
+    name: Qwen2.5 72B
+    params_b: 72.7
+    quantization: q4_K_M
+    file_size_gb: 47
+    max_context: 32768
+    layers: 80
+    kv_heads: 8
+    head_dim: 128
+    license: Qwen License Agreement
+  # Qwen3-Next は Gated DeltaNet(線形注意)と通常の注意を 3:1 で重ねた MoE。KVキャッシュを持つのは 48 層のうち 12 層
+  "qwen3-next:80b":
+    vendor: Alibaba
+    name: Qwen3-Next 80B-A3B
+    params_b: 80
+    quantization: q4_K_M
+    file_size_gb: 50
+    max_context: 262144
+    layers: 48
+    attention_layers: 12
+    kv_heads: 2
+    head_dim: 256
+    license: Apache-2.0
+  # Qwen3.5 122B も線形注意と通常の注意を 3:1 で重ねた MoE。画像入力にも対応する
+  "qwen3.5:122b":
+    vendor: Alibaba
+    name: Qwen3.5 122B-A10B
+    params_b: 122
+    quantization: q4_K_M
+    file_size_gb: 81
+    max_context: 262144
+    layers: 48
+    attention_layers: 12
+    kv_heads: 2
+    head_dim: 256
+    license: Apache-2.0
 
   # OpenAI
   # gpt-oss は MoE。重みは総パラメータ数で見積もる(全エキスパートをVRAMに載せるため)
@@ -142,6 +179,44 @@ models:
     kv_heads: 8
     head_dim: 64
     license: Apache-2.0
+
+  # NVIDIA
+  # Llama 3.1 70B を NVIDIA が追加学習したモデル。構造は Llama 3.1 70B と同じ
+  "nemotron:70b":
+    vendor: NVIDIA
+    name: Llama 3.1 Nemotron 70B
+    params_b: 70.6
+    quantization: q4_K_M
+    file_size_gb: 43
+    max_context: 131072
+    layers: 80
+    kv_heads: 8
+    head_dim: 128
+    license: Llama 3.1 Community License
+  "nemotron-mini:4b":
+    vendor: NVIDIA
+    name: Nemotron Mini 4B
+    params_b: 4.2
+    quantization: q4_K_M
+    file_size_gb: 2.7
+    max_context: 4096
+    layers: 32
+    kv_heads: 8
+    head_dim: 128
+    license: NVIDIA Community Model License
+  # Mamba-2、MoE、注意層を混ぜた構造。KVキャッシュを持つのは 88 層のうち 8 層だけ
+  "nemotron-3-super:120b":
+    vendor: NVIDIA
+    name: Nemotron 3 Super 120B-A12B
+    params_b: 120
+    quantization: q4_K_M
+    file_size_gb: 87
+    max_context: 262144
+    layers: 88
+    attention_layers: 8
+    kv_heads: 2
+    head_dim: 128
+    license: NVIDIA Nemotron Open Model License
 
   # Mistral
   "mistral:7b":
