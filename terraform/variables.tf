@@ -134,6 +134,34 @@ variable "instance_type" {
   default     = null
 }
 
+variable "purchase_option" {
+  description = "GPUインスタンスの購入方法。spot: スポット(中断されると停止し、在庫が戻ると再開する) / on-demand: オンデマンド"
+  type        = string
+  default     = "spot"
+
+  validation {
+    condition     = contains(["spot", "on-demand"], var.purchase_option)
+    error_message = "purchase_option は spot か on-demand を指定してください。"
+  }
+}
+
+variable "availability_zone" {
+  description = "GPUインスタンスを起動するAZ。null ならインスタンス型を提供しているAZから選ぶ"
+  type        = string
+  default     = null
+}
+
+variable "root_volume_size_gib" {
+  description = "ルートボリュームの大きさ(GiB)。null なら AMI の大きさ + モデルの配布サイズの2倍 + 10 GiB"
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.root_volume_size_gib == null || try(var.root_volume_size_gib <= 16384 && floor(var.root_volume_size_gib) == var.root_volume_size_gib, false)
+    error_message = "root_volume_size_gib は 16384 以下の整数で指定してください。"
+  }
+}
+
 variable "extra_tags" {
   description = "全リソースに追加で付けるタグ。Project / EnvId / ManagedBy は上書きできない"
   type        = map(string)

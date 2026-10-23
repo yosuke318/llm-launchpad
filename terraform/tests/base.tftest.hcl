@@ -23,6 +23,39 @@ override_data {
 }
 
 override_data {
+  target = module.instance.data.aws_ami.dlami
+  values = {
+    id               = "ami-0123456789abcdef0"
+    name             = "Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 24.04) 20261016"
+    root_device_name = "/dev/sda1"
+    block_device_mappings = [
+      {
+        device_name  = "/dev/sda1"
+        ebs          = { volume_size = "75" }
+        no_device    = ""
+        virtual_name = ""
+      },
+    ]
+  }
+}
+
+# g4dn.xlarge(qwen3:8b で選ばれる型)は 1a と 1c だけで提供されている、という想定
+override_data {
+  target = module.instance.data.aws_ec2_instance_type_offerings.this
+  values = {
+    locations = ["ap-northeast-1c", "ap-northeast-1a"]
+  }
+}
+
+override_resource {
+  target = module.instance.aws_instance.this
+  values = {
+    id        = "i-0123456789abcdef0"
+    public_ip = "198.51.100.20"
+  }
+}
+
+override_data {
   target = data.http.my_ip
   values = {
     status_code   = 200
@@ -236,4 +269,106 @@ run "rejects_invalid_env_id" {
   }
 
   expect_failures = [time_static.created]
+}
+
+run "spot_instance_by_default" {
+  # スポットの設定は plan の時点では値が決まらないため、mock で apply して確かめる
+  command = apply
+
+  assert {
+    condition     = output.purchase_option == "spot" && module.instance.spot_options.instance_interruption_behavior == "stop" && module.instance.spot_options.spot_instance_type == "persistent"
+    error_message = "既定はスポットで、中断時は停止すること"
+  }
+
+  assert {
+    condition     = output.availability_zone == "ap-northeast-1a"
+    error_message = "インスタンス型を提供しているAZのうち、名前の昇順で最初のAZを選ぶこと"
+  }
+
+  # AMI 75 GiB + qwen3:8b の 5.2GB x 2 を切り上げた 11 GiB + 余裕 10 GiB
+  assert {
+    condition     = output.root_volume_size_gib == 96
+    error_message = "ルートボリュームの既定は AMI + モデル x 2 + 10 GiB であること"
+  }
+}
+
+run "on_demand_has_no_spot_options" {
+  command = apply
+
+  variables {
+    purchase_option = "on-demand"
+  }
+
+  assert {
+    condition     = module.instance.spot_options == null
+    error_message = "on-demand ではスポットの設定を付けないこと"
+  }
+}
+
+run "explicit_az_and_volume_size" {
+  command = plan
+
+  variables {
+    availability_zone    = "ap-northeast-1c"
+    root_volume_size_gib = 200
+  }
+
+  assert {
+    condition     = output.availability_zone == "ap-northeast-1c" && output.root_volume_size_gib == 200
+    error_message = "指定したAZとボリュームの大きさを使うこと"
+  }
+}
+
+run "connection_info_for_ssm" {
+  command = apply
+
+  assert {
+    condition     = output.ollama_endpoint == "http://localhost:11434"
+    error_message = "ssm モードではポートフォワード先の localhost をエンドポイントにすること"
+  }
+
+  assert {
+    condition     = output.ssm_port_forward_command == "aws ssm start-session --target i-0123456789abcdef0 --region ap-northeast-1 --document-name AWS-StartPortForwardingSession --parameters '{\"portNumber\":[\"11434\"],\"localPortNumber\":[\"11434\"]}'"
+    error_message = "SSM のポートフォワードのコマンドを出すこと"
+  }
+
+  assert {
+    condition     = strcontains(output.curl_example, "http://localhost:11434/api/generate") && strcontains(output.curl_example, "\"model\":\"qwen3:8b\"")
+    error_message = "curl の例にエンドポイントとモデル名が入ること"
+  }
+
+  assert {
+    condition     = strcontains(output.openai_api_example, "http://localhost:11434/v1/chat/completions")
+    error_message = "OpenAI 互換API の例を出すこと"
+  }
+}
+
+run "connection_info_for_direct" {
+  command = apply
+
+  variables {
+    access_mode   = "direct"
+    allowed_cidrs = ["198.51.100.7/32"]
+    aws_profile   = "my-profile"
+  }
+
+  assert {
+    condition     = output.ollama_endpoint == "http://198.51.100.20:11434" && output.ssm_port_forward_command == null
+    error_message = "direct モードではパブリックIPに直接つなぐこと"
+  }
+
+  assert {
+    condition     = output.ssm_session_command == "aws ssm start-session --target i-0123456789abcdef0 --region ap-northeast-1 --profile my-profile"
+    error_message = "aws_profile を指定したらコマンドに --profile を付けること"
+  }
+}
+
+run "rejects_unknown_purchase_option" {
+  command = plan
+
+  variables {
+    purchase_option = "reserved"
+  }
+
+  expect_failures = [var.purchase_option]
 }

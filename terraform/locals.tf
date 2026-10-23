@@ -25,6 +25,12 @@ locals {
     CreatedAt = time_static.created.rfc3339
   }
 
+  # 接続のしかたに出す AWS CLI の共通オプション
+  aws_cli_options = join(" ", compact(["--region ${var.region}", var.aws_profile == null ? "" : "--profile ${var.aws_profile}"]))
+
+  # ssm モードは SSM のポートフォワードで手元の localhost に転送する
+  ollama_endpoint = var.access_mode == "ssm" ? "http://localhost:${local.ollama_port}" : "http://${module.instance.public_ip}:${local.ollama_port}"
+
   # direct モードで allowed_cidrs が空なら、実行したマシンのグローバルIPを使う
   allowed_cidrs = var.access_mode != "direct" ? [] : (
     length(var.allowed_cidrs) > 0 ? var.allowed_cidrs : ["${chomp(data.http.my_ip[0].response_body)}/32"]

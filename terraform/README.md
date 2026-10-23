@@ -19,7 +19,8 @@ terraform/
 │   ├── sizing/               # VRAM見積もりとインスタンス型の選択(リソースは作らない)
 │   ├── network/              # VPC、パブリックサブネット、IGW、S3 ゲートウェイエンドポイント
 │   ├── security/             # インスタンス用セキュリティグループ
-│   └── iam/                  # インスタンスロール(SSM、モデルバケット読み取り)
+│   ├── iam/                  # インスタンスロール(SSM、モデルバケット読み取り)
+│   └── instance/             # GPUインスタンス(スポット / オンデマンド)
 └── tests/                    # terraform test(mock provider で AWS に接続せず確認)
 
 catalog/                      # リポジトリ直下。WebUI からも読む
@@ -62,6 +63,16 @@ catalog/                      # リポジトリ直下。WebUI からも読む
 | `nemotron-3-super:120b` | 32768 | 81.03 + 0.25 + 1.5 = 82.78 | g6.12xlarge(L4 x4 90 GiB) |
 
 見積もりと実測の差は、GPUインスタンスで nvidia-smi の値と比べて確かめる。
+
+### GPUインスタンス
+
+* AMI は Deep Learning Base OSS Nvidia Driver GPU AMI(Ubuntu 24.04)の、リージョンごとの最新版を使う。NVIDIA ドライバ、CUDA、SSM エージェントが入っている
+* 既定はスポット(`purchase_option = "spot"`)。中断されたら停止し、在庫が戻ると同じディスクのまま再開する(persistent のスポットリクエスト)
+* destroy のときは、aws provider がスポットリクエストをキャンセルしてからインスタンスを終了する。リクエストだけが残って再起動されることはない
+* AZ は、サブネットのあるAZのうちインスタンス型を提供しているAZから、名前の昇順で最初のものを選ぶ。東京では g5 / g6 / g6e は 1d で提供されていない
+* ルートボリュームは gp3 で暗号化する。既定の大きさは AMI(75 GiB)+ モデルの配布サイズの2倍 + 10 GiB。2倍にしているのは、取得中の一時ファイルや S3 からのコピーの分
+* SSH の鍵は作らない。シェルもポートフォワードも SSM で行う
+* IMDSv2 を必須にする
 
 ### VPC: 環境ごとに専用VPCを作る
 
@@ -120,15 +131,25 @@ terraform workspace new qwen-test
 terraform plan
 terraform apply
 
+# 接続のしかたを表示する
+terraform output ssm_session_command        # シェルで入る
+terraform output -raw ssm_port_forward_command | sh   # 別の端末で実行したままにする
+terraform output -raw curl_example | sh
+terraform output -raw openai_api_example | sh
+
 # 使い終わったら必ず消す
 terraform destroy
 terraform workspace select default
 terraform workspace delete qwen-test
 ```
 
+* GPUインスタンスを起動するには、G系インスタンスの vCPU クォータ(オンデマンドとスポットは別枠)が必要
+* SSM のポートフォワードには、手元に Session Manager プラグインが要る
+* Ollama の導入とモデルの取得は、まだこの構成に入っていない。curl の例は、Ollama を入れたあとに使える
+
 ## テスト
 
-AWS に接続せず、mock provider で plan の結果を確かめる。
+AWS に接続せず、mock provider で plan の結果を確かめる(一部は mock のまま apply して出力を確かめる)。
 
 ```sh
 terraform test
@@ -143,6 +164,9 @@ terraform test
 | `kv_cache_type` | `f16` | KVキャッシュの型(`f16` / `q8_0` / `q4_0`) |
 | `vram_overhead_gib` | `1.5` | 重みとKVキャッシュのほかに見込む余裕(GiB) |
 | `instance_type` | `null`(自動) | インスタンス型を手で指定する |
+| `purchase_option` | `spot` | `spot` / `on-demand` |
+| `availability_zone` | `null`(自動) | GPUインスタンスを起動するAZ |
+| `root_volume_size_gib` | `null`(自動) | ルートボリュームの大きさ(GiB) |
 | `region` | `ap-northeast-1` | リージョン |
 | `aws_profile` | `null` | AWS CLI のプロファイル名 |
 | `env_id` | `null`(workspace 名) | 環境ID。英小文字・数字・ハイフンの20文字以内 |
