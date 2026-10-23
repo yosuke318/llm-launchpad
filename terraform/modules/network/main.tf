@@ -78,7 +78,7 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
-# S3 のゲートウェイエンドポイントは無料。モデル取得(YOSUKE-172)の通信をVPC内で完結させる
+# S3 のゲートウェイエンドポイントは無料。S3からのモデル取得の通信をVPC内で完結させる
 resource "aws_vpc_endpoint" "s3" {
   vpc_id            = aws_vpc.this.id
   service_name      = "com.amazonaws.${var.region}.s3"

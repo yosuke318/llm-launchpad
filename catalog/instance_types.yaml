@@ -1,10 +1,10 @@
 # GPUインスタンス型の表。Terraform(terraform/modules/sizing)と WebUI の両方から読む。
 #
 # 必要VRAMが収まる型のうち、合計VRAMが最も小さいものを選ぶ。合計VRAMが同じ型は、この表で上にあるものを選ぶ。
-# 料金は変わるためここには持たず(YOSUKE-179 で Price List API から取る)、同じVRAMの型は概ね安い順に並べてある。
+# 料金は変わるためここには持たず(Price List API から取る)、同じVRAMの型は概ね安い順に並べてある。
 #
 #   vram_gib_per_gpu  nvidia-smi で見える1枚あたりの総メモリ(GiB)。カタログ値(16GB など)より少し小さい
-#   vcpu              vCPUクォータ(G and VT)の消費量。申請済みの上限は 48(YOSUKE-167)
+#   vcpu              vCPUクォータ(G and VT)の消費量。東京で申請済みの上限は 48
 #
 # 複数GPUの型では、Ollama がモデルの層を各GPUに分けて載せる。合計VRAMで判定する。
 

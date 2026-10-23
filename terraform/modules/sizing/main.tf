@@ -8,17 +8,21 @@ locals {
 
   # カタログにないモデルでも後続の式がエラーにならないよう、空の値で埋めておく(出力の precondition で止める)
   model = merge({
-    vendor       = ""
-    name         = ""
-    params_b     = 0
-    quantization = ""
-    file_size_gb = 0
-    max_context  = 0
-    layers       = 0
-    kv_heads     = 0
-    head_dim     = 0
-    license      = ""
+    vendor           = ""
+    name             = ""
+    params_b         = 0
+    quantization     = ""
+    file_size_gb     = 0
+    max_context      = 0
+    layers           = 0
+    attention_layers = null
+    kv_heads         = 0
+    head_dim         = 0
+    license          = ""
   }, try(local.catalog.models[var.model], {}))
+
+  # Mamba や線形注意を混ぜたモデルは、注意層だけがKVキャッシュを持つ
+  attention_layers = coalesce(local.model.attention_layers, local.model.layers)
 
   gib = 1024 * 1024 * 1024
 
@@ -29,11 +33,11 @@ locals {
     q4_0 = 0.5
   }
 
-  # 重み: パラメータ数 x 1パラメータあたりのバイト数
-  weights_gib = local.model.params_b * 1e9 * try(local.catalog.quantizations[local.model.quantization], 0) / local.gib
+  # 重み: 配布サイズ(GB)を GiB に直す。GGUF はほぼそのままVRAMに載る
+  weights_gib = local.model.file_size_gb * 1e9 / local.gib
 
-  # KVキャッシュ: K と V の2つ x 層数 x KVヘッド数 x ヘッド次元 x コンテキスト長 x 要素のバイト数
-  kv_cache_gib = 2 * local.model.layers * local.model.kv_heads * local.model.head_dim * var.context_length * local.kv_cache_bytes[var.kv_cache_type] / local.gib
+  # KVキャッシュ: K と V の2つ x 注意層の数 x KVヘッド数 x ヘッド次元 x コンテキスト長 x 要素のバイト数
+  kv_cache_gib = 2 * local.attention_layers * local.model.kv_heads * local.model.head_dim * var.context_length * local.kv_cache_bytes[var.kv_cache_type] / local.gib
 
   required_gib = local.weights_gib + local.kv_cache_gib + var.vram_overhead_gib
 

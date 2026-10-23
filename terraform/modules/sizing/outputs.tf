@@ -42,7 +42,7 @@ output "instance" {
 
 output "model" {
   description = "モデルの定義"
-  value       = merge(local.model, { tag = var.model })
+  value       = merge(local.model, { tag = var.model, attention_layers = local.attention_layers })
 }
 
 output "vram_estimate" {
