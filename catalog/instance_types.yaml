@@ -1,0 +1,54 @@
+# GPUインスタンス型の表。Terraform(terraform/modules/sizing)と WebUI の両方から読む。
+#
+# 必要VRAMが収まる型のうち、合計VRAMが最も小さいものを選ぶ。合計VRAMが同じ型は、この表で上にあるものを選ぶ。
+# 料金は変わるためここには持たず(YOSUKE-179 で Price List API から取る)、同じVRAMの型は概ね安い順に並べてある。
+#
+#   vram_gib_per_gpu  nvidia-smi で見える1枚あたりの総メモリ(GiB)。カタログ値(16GB など)より少し小さい
+#   vcpu              vCPUクォータ(G and VT)の消費量。申請済みの上限は 48(YOSUKE-167)
+#
+# 複数GPUの型では、Ollama がモデルの層を各GPUに分けて載せる。合計VRAMで判定する。
+
+instance_types:
+  - type: g4dn.xlarge
+    gpu_model: NVIDIA T4
+    gpu_count: 1
+    vram_gib_per_gpu: 15.0
+    vcpu: 4
+    memory_gib: 16
+  # L4 と A10G は同じVRAM。L4(g6)のほうが安く、A10G(g5)のほうがメモリ帯域が広く速い
+  - type: g6.xlarge
+    gpu_model: NVIDIA L4
+    gpu_count: 1
+    vram_gib_per_gpu: 22.5
+    vcpu: 4
+    memory_gib: 16
+  - type: g5.xlarge
+    gpu_model: NVIDIA A10G
+    gpu_count: 1
+    vram_gib_per_gpu: 22.5
+    vcpu: 4
+    memory_gib: 16
+  - type: g6e.xlarge
+    gpu_model: NVIDIA L40S
+    gpu_count: 1
+    vram_gib_per_gpu: 45.0
+    vcpu: 4
+    memory_gib: 32
+  - type: g6.12xlarge
+    gpu_model: NVIDIA L4
+    gpu_count: 4
+    vram_gib_per_gpu: 22.5
+    vcpu: 48
+    memory_gib: 192
+  - type: g5.12xlarge
+    gpu_model: NVIDIA A10G
+    gpu_count: 4
+    vram_gib_per_gpu: 22.5
+    vcpu: 48
+    memory_gib: 192
+  - type: g6e.12xlarge
+    gpu_model: NVIDIA L40S
+    gpu_count: 4
+    vram_gib_per_gpu: 45.0
+    vcpu: 48
+    memory_gib: 384

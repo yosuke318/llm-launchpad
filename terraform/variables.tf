@@ -90,6 +90,50 @@ variable "model_bucket_name" {
   }
 }
 
+variable "model" {
+  description = "動かすモデル。Ollama のタグで指定する(catalog/models.yaml のキー。例: qwen3:8b)"
+  type        = string
+}
+
+variable "context_length" {
+  description = "コンテキスト長(トークン)。KVキャッシュの見積もりに使う"
+  type        = number
+  default     = 8192
+
+  validation {
+    condition     = var.context_length >= 512 && floor(var.context_length) == var.context_length
+    error_message = "context_length は 512 以上の整数で指定してください。"
+  }
+}
+
+variable "kv_cache_type" {
+  description = "KVキャッシュの型(Ollama の OLLAMA_KV_CACHE_TYPE)。q8_0 / q4_0 にすると必要VRAMが減る"
+  type        = string
+  default     = "f16"
+
+  validation {
+    condition     = contains(["f16", "q8_0", "q4_0"], var.kv_cache_type)
+    error_message = "kv_cache_type は f16 / q8_0 / q4_0 のどれかを指定してください。"
+  }
+}
+
+variable "vram_overhead_gib" {
+  description = "重みとKVキャッシュのほかに見込む余裕(GiB)。CUDAコンテキストや計算用バッファの分"
+  type        = number
+  default     = 1.5
+
+  validation {
+    condition     = var.vram_overhead_gib >= 0 && var.vram_overhead_gib <= 8
+    error_message = "vram_overhead_gib は 0〜8 の範囲で指定してください。"
+  }
+}
+
+variable "instance_type" {
+  description = "インスタンス型を手で指定する(catalog/instance_types.yaml にある型)。null なら見積もりから自動で選ぶ"
+  type        = string
+  default     = null
+}
+
 variable "extra_tags" {
   description = "全リソースに追加で付けるタグ。Project / EnvId / ManagedBy は上書きできない"
   type        = map(string)

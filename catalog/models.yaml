@@ -1,0 +1,168 @@
+# モデル定義。Terraform(terraform/modules/sizing)と WebUI(YOSUKE-176)の両方から読む。
+#
+# キーは Ollama のタグ(ollama pull に渡す名前)。各項目の意味:
+#   vendor            提供元(会社)
+#   name              表示名
+#   params_b          パラメータ数(B)。MoE は総パラメータ数
+#   quantization      Ollama library の既定タグの量子化。bytes_per_param の表(quantizations)のキー
+#   file_size_gb      Ollama library での配布サイズ(GB)。ディスク容量の見積もり(YOSUKE-170)に使う
+#   max_context       モデルが対応する最大コンテキスト長(トークン)
+#   layers            トランスフォーマーの層数        ┐
+#   kv_heads          KV ヘッド数(GQA のグループ数)  ├ KVキャッシュの見積もりに使う
+#   head_dim          ヘッドあたりの次元数            ┘
+#   license           ライセンス
+#
+# 数値は各モデルの config.json(Hugging Face)と Ollama library の表示から取った。
+# 見積もりと実測の差は YOSUKE-184 で確かめる。
+
+quantizations:
+  # 1パラメータあたりのバイト数の目安。q4_K_M の 0.6 はプロジェクトの見積もり式「パラメータ数(B) x 0.6」に合わせた値
+  q4_K_M: 0.6
+  mxfp4: 0.6
+  q8_0: 1.07
+  f16: 2.0
+
+models:
+  # Meta
+  "llama3.2:3b":
+    vendor: Meta
+    name: Llama 3.2 3B
+    params_b: 3.2
+    quantization: q4_K_M
+    file_size_gb: 2.0
+    max_context: 131072
+    layers: 28
+    kv_heads: 8
+    head_dim: 128
+    license: Llama 3.2 Community License
+  "llama3.1:8b":
+    vendor: Meta
+    name: Llama 3.1 8B
+    params_b: 8.0
+    quantization: q4_K_M
+    file_size_gb: 4.9
+    max_context: 131072
+    layers: 32
+    kv_heads: 8
+    head_dim: 128
+    license: Llama 3.1 Community License
+  "llama3.3:70b":
+    vendor: Meta
+    name: Llama 3.3 70B
+    params_b: 70.6
+    quantization: q4_K_M
+    file_size_gb: 43
+    max_context: 131072
+    layers: 80
+    kv_heads: 8
+    head_dim: 128
+    license: Llama 3.3 Community License
+
+  # Google
+  # Gemma 3 は一部の層がスライディングウィンドウ注意のため、KVキャッシュは実際より大きめに見積もられる
+  "gemma3:12b":
+    vendor: Google
+    name: Gemma 3 12B
+    params_b: 12.2
+    quantization: q4_K_M
+    file_size_gb: 8.1
+    max_context: 131072
+    layers: 48
+    kv_heads: 8
+    head_dim: 256
+    license: Gemma Terms of Use
+  "gemma3:27b":
+    vendor: Google
+    name: Gemma 3 27B
+    params_b: 27.4
+    quantization: q4_K_M
+    file_size_gb: 17
+    max_context: 131072
+    layers: 62
+    kv_heads: 16
+    head_dim: 128
+    license: Gemma Terms of Use
+
+  # Alibaba (Qwen)
+  "qwen3:8b":
+    vendor: Alibaba
+    name: Qwen3 8B
+    params_b: 8.2
+    quantization: q4_K_M
+    file_size_gb: 5.2
+    max_context: 40960
+    layers: 36
+    kv_heads: 8
+    head_dim: 128
+    license: Apache-2.0
+  "qwen3:14b":
+    vendor: Alibaba
+    name: Qwen3 14B
+    params_b: 14.8
+    quantization: q4_K_M
+    file_size_gb: 9.3
+    max_context: 40960
+    layers: 40
+    kv_heads: 8
+    head_dim: 128
+    license: Apache-2.0
+  "qwen3:32b":
+    vendor: Alibaba
+    name: Qwen3 32B
+    params_b: 32.8
+    quantization: q4_K_M
+    file_size_gb: 20
+    max_context: 40960
+    layers: 64
+    kv_heads: 8
+    head_dim: 128
+    license: Apache-2.0
+
+  # OpenAI
+  # gpt-oss は MoE。重みは総パラメータ数で見積もる(全エキスパートをVRAMに載せるため)
+  "gpt-oss:20b":
+    vendor: OpenAI
+    name: gpt-oss 20B
+    params_b: 21
+    quantization: mxfp4
+    file_size_gb: 14
+    max_context: 131072
+    layers: 24
+    kv_heads: 8
+    head_dim: 64
+    license: Apache-2.0
+  "gpt-oss:120b":
+    vendor: OpenAI
+    name: gpt-oss 120B
+    params_b: 117
+    quantization: mxfp4
+    file_size_gb: 65
+    max_context: 131072
+    layers: 36
+    kv_heads: 8
+    head_dim: 64
+    license: Apache-2.0
+
+  # Mistral
+  "mistral:7b":
+    vendor: Mistral
+    name: Mistral 7B
+    params_b: 7.2
+    quantization: q4_K_M
+    file_size_gb: 4.4
+    max_context: 32768
+    layers: 32
+    kv_heads: 8
+    head_dim: 128
+    license: Apache-2.0
+  "mistral-small3.2:24b":
+    vendor: Mistral
+    name: Mistral Small 3.2 24B
+    params_b: 24
+    quantization: q4_K_M
+    file_size_gb: 15
+    max_context: 131072
+    layers: 40
+    kv_heads: 8
+    head_dim: 128
+    license: Apache-2.0

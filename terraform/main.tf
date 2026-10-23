@@ -20,6 +20,18 @@ data "http" "my_ip" {
   }
 }
 
+module "sizing" {
+  source = "./modules/sizing"
+
+  models_file         = "${path.module}/../catalog/models.yaml"
+  instance_types_file = "${path.module}/../catalog/instance_types.yaml"
+  model               = var.model
+  context_length      = var.context_length
+  kv_cache_type       = var.kv_cache_type
+  vram_overhead_gib   = var.vram_overhead_gib
+  instance_type       = var.instance_type
+}
+
 module "network" {
   source = "./modules/network"
 

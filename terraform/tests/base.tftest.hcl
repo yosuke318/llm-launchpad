@@ -11,6 +11,10 @@ mock_provider "aws" {
 mock_provider "http" {}
 mock_provider "time" {}
 
+variables {
+  model = "qwen3:8b"
+}
+
 override_data {
   target = module.network.data.aws_availability_zones.available
   values = {
@@ -52,6 +56,11 @@ run "defaults_use_ssm_without_ingress" {
   assert {
     condition     = output.region == "ap-northeast-1"
     error_message = "既定リージョンは東京であること"
+  }
+
+  assert {
+    condition     = output.instance_type == "g4dn.xlarge" && output.vram_estimate.context_length == 8192
+    error_message = "モデル定義から見積もったインスタンス型が出力されること"
   }
 }
 

@@ -1,0 +1,8 @@
+# 収まる型がない場合のテスト用(sizing.tftest.hcl)
+instance_types:
+  - type: g4dn.xlarge
+    gpu_model: NVIDIA T4
+    gpu_count: 1
+    vram_gib_per_gpu: 15.0
+    vcpu: 4
+    memory_gib: 16
