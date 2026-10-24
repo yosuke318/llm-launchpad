@@ -10,7 +10,11 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "httpx2>=2.16.0",
+    # fastapi.testclient(中身は starlette.testclient)が使う HTTP クライアント。Starlette は 1.2.0 から
+    # httpx2 を優先し、httpx を使うと非推奨の警告を出す(Kludex/starlette PR 3291)。
+    # httpx2 は httpx の作者が書き、Pydantic が管理する後継(https://github.com/pydantic/httpx2)。
+    # 名前の似たパッケージと取り違えないよう、確かめた版に固定する
+    "httpx2==2.16.0",
     "pytest",
 ]
 
