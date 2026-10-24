@@ -66,6 +66,21 @@ output "root_volume_size_gib" {
   value       = module.instance.root_volume_size_gib
 }
 
+output "status_parameter_name" {
+  description = "起動処理の進み具合を書く SSM パラメータの名前"
+  value       = module.bootstrap.status_parameter_name
+}
+
+output "status_command" {
+  description = "起動処理の進み具合を読むコマンド。stage が ready になれば使える"
+  value       = "aws ssm get-parameter --name ${module.bootstrap.status_parameter_name} ${local.aws_cli_options} --query Parameter.Value --output text"
+}
+
+output "bootstrap_log_path" {
+  description = "インスタンス上の起動処理のログ。失敗したときは ssm_session_command で入って確かめる"
+  value       = "/var/log/llm-launchpad-bootstrap.log"
+}
+
 output "ollama_endpoint" {
   description = "Ollama API のエンドポイント。ssm モードでは、ssm_port_forward_command を実行している間だけ使える"
   value       = local.ollama_endpoint

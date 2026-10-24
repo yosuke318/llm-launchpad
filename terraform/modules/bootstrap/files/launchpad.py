@@ -1,0 +1,267 @@
+#!/usr/bin/env python3
+"""GPUインスタンスの起動処理の進み具合を SSM Parameter Store に書き、Ollama でモデルを取得・確認する。
+
+user data(user_data.sh.tftpl)から呼ぶ。標準ライブラリと AWS CLI だけを使う。
+
+    launchpad.py status <stage> [--state running|ready|failed] [--error MSG] [--log PATH]
+    launchpad.py wait-server
+    launchpad.py pull <model>
+    launchpad.py verify <model>
+
+設定は環境変数で渡す。
+    LAUNCHPAD_REGION             パラメータのあるリージョン
+    LAUNCHPAD_STATUS_PARAMETER   状態を書くパラメータ名。空なら手元のファイルにだけ書く
+    LAUNCHPAD_STATE_FILE         手元の状態ファイル(既定 /var/lib/llm-launchpad/status.json)
+    OLLAMA_URL                   Ollama API(既定 http://127.0.0.1:11434)
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+
+REGION = os.environ.get("LAUNCHPAD_REGION", "")
+STATUS_PARAMETER = os.environ.get("LAUNCHPAD_STATUS_PARAMETER", "")
+STATE_FILE = os.environ.get("LAUNCHPAD_STATE_FILE", "/var/lib/llm-launchpad/status.json")
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
+
+# 取得中の進み具合は、この秒数か、この割合(%)だけ進むごとに書く。PutParameter の回数を抑えるため
+PUBLISH_INTERVAL_SEC = 10
+PUBLISH_STEP_PERCENT = 5
+
+
+def now():
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def log(msg):
+    print(f"[launchpad {now()}] {msg}", flush=True)
+
+
+def load_state():
+    try:
+        with open(STATE_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def save_state(state):
+    os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+    tmp = STATE_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, STATE_FILE)
+
+    if not STATUS_PARAMETER:
+        return
+
+    # 書けなくても起動処理は止めない(状態は手元のファイルにも残る)
+    cmd = [
+        "aws", "ssm", "put-parameter",
+        "--name", STATUS_PARAMETER,
+        "--type", "String",
+        "--overwrite",
+        "--value", json.dumps(state, ensure_ascii=False, separators=(",", ":")),
+    ]
+    if REGION:
+        cmd += ["--region", REGION]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        log(f"状態をパラメータに書けませんでした: {result.stderr.strip()}")
+
+
+def set_status(stage, state="running", **fields):
+    s = load_state()
+    ts = now()
+    s.setdefault("started_at", ts)
+    s.setdefault("stages", {})
+
+    # 段階ごとの開始時刻を残す(コールドスタートの計測に使う)。同じ段階を何度書いても最初の時刻のまま
+    s["stages"].setdefault(stage, ts)
+    if state == "ready":
+        s["ready_at"] = s.get("ready_at", ts)
+
+    s["stage"] = stage
+    s["state"] = state
+    s["updated_at"] = ts
+
+    if state != "failed":
+        s.pop("error", None)
+    elif s.get("state") == "failed" and s.get("error"):
+        # Python 側で書いた具体的なエラーを、あとから bash のトラップが行番号だけのエラーで上書きしない
+        fields["error"] = None
+    if stage != "pulling_model":
+        s.pop("pull", None)
+
+    for key, value in fields.items():
+        if value is not None:
+            s[key] = value
+
+    save_state(s)
+    return s
+
+
+def request(path, body=None, timeout=30):
+    data = None if body is None else json.dumps(body).encode()
+    req = urllib.request.Request(
+        OLLAMA_URL + path,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="GET" if body is None else "POST",
+    )
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
+def wait_server(timeout_sec=300):
+    deadline = time.monotonic() + timeout_sec
+    while True:
+        try:
+            with request("/api/version", timeout=5) as res:
+                version = json.load(res).get("version", "")
+                log(f"Ollama {version} が応答しました")
+                set_status("installing_ollama", ollama_version=version)
+                return
+        except (urllib.error.URLError, ConnectionError, TimeoutError, json.JSONDecodeError):
+            if time.monotonic() > deadline:
+                raise RuntimeError(f"Ollama が {timeout_sec} 秒以内に応答しませんでした")
+            time.sleep(2)
+
+
+def pull(model):
+    """/api/pull の進み具合(レイヤーごとの total / completed)を合計して割合を出す"""
+    layers = {}
+    last_publish = 0.0
+    last_percent = -PUBLISH_STEP_PERCENT
+
+    with request("/api/pull", {"model": model, "stream": True}, timeout=600) as res:
+        for line in res:
+            line = line.strip()
+            if not line:
+                continue
+            event = json.loads(line)
+            if "error" in event:
+                raise RuntimeError(f"モデルの取得に失敗しました: {event['error']}")
+
+            digest = event.get("digest")
+            if digest and event.get("total"):
+                layers[digest] = (event.get("completed", 0), event["total"])
+
+            total = sum(t for _, t in layers.values())
+            completed = sum(c for c, _ in layers.values())
+            percent = round(completed * 100 / total, 1) if total else 0.0
+
+            elapsed = time.monotonic() - last_publish
+            if percent - last_percent >= PUBLISH_STEP_PERCENT or elapsed >= PUBLISH_INTERVAL_SEC:
+                set_status("pulling_model", pull={
+                    "percent": percent,
+                    "completed_bytes": completed,
+                    "total_bytes": total,
+                    "message": event.get("status", ""),
+                })
+                last_publish = time.monotonic()
+                last_percent = percent
+
+            if event.get("status") == "success":
+                set_status("pulling_model", pull={
+                    "percent": 100.0,
+                    "completed_bytes": total,
+                    "total_bytes": total,
+                    "message": "success",
+                })
+                log(f"{model} を取得しました({total} バイト)")
+                return
+
+    raise RuntimeError("モデルの取得が完了の通知なしで終わりました")
+
+
+def gpu_memory():
+    """nvidia-smi で GPU ごとのメモリを取る。見積もりと実測の比較に使う"""
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,name,memory.used,memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, check=True,
+        ).stdout
+    except (FileNotFoundError, subprocess.CalledProcessError) as e:
+        log(f"nvidia-smi を実行できませんでした: {e}")
+        return None
+
+    gpus = []
+    for row in out.strip().splitlines():
+        index, name, used, total = [c.strip() for c in row.split(",")]
+        gpus.append({"index": int(index), "name": name, "memory_used_mib": int(used), "memory_total_mib": int(total)})
+    return gpus
+
+
+def verify(model):
+    """短いプロンプトを1回送り、応答が返るかを確かめる。大きいモデルはGPUへの読み込みに数分かかる"""
+    started = time.monotonic()
+    body = {"model": model, "prompt": "Reply with OK.", "stream": False, "options": {"num_predict": 8}}
+    with request("/api/generate", body, timeout=1800) as res:
+        result = json.load(res)
+    if "response" not in result:
+        raise RuntimeError(f"応答の形式が想定と違います: {result}")
+
+    loaded = {}
+    try:
+        with request("/api/ps") as res:
+            for m in json.load(res).get("models", []):
+                if m.get("name") == model or m.get("model") == model:
+                    loaded = {"size_bytes": m.get("size"), "size_vram_bytes": m.get("size_vram")}
+    except (urllib.error.URLError, json.JSONDecodeError):
+        pass
+
+    first_response_sec = round(time.monotonic() - started, 1)
+    log(f"{model} が {first_response_sec} 秒で応答しました: {result['response']!r}")
+    set_status("verifying", verify={
+        "first_response_sec": first_response_sec,
+        "loaded": loaded,
+        "gpus": gpu_memory(),
+    })
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("status", help="段階と状態を書く")
+    p.add_argument("stage")
+    p.add_argument("--state", choices=["running", "ready", "failed"], default="running")
+    p.add_argument("--error")
+    p.add_argument("--log")
+
+    sub.add_parser("wait-server", help="Ollama が応答するまで待つ")
+
+    p = sub.add_parser("pull", help="モデルを取得する")
+    p.add_argument("model")
+
+    p = sub.add_parser("verify", help="モデルが応答するか確かめる")
+    p.add_argument("model")
+
+    args = parser.parse_args(argv)
+
+    if args.command == "status":
+        set_status(args.stage, args.state, error=args.error, log=args.log)
+        return 0
+
+    try:
+        if args.command == "wait-server":
+            wait_server()
+        elif args.command == "pull":
+            pull(args.model)
+        elif args.command == "verify":
+            verify(args.model)
+    except Exception as e:
+        # どの段階で何が起きたかを残す。ログの場所は bash のトラップが足す
+        log(f"失敗しました: {e}")
+        set_status(load_state().get("stage", "unknown"), "failed", error=f"{type(e).__name__}: {e}")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

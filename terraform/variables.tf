@@ -162,6 +162,17 @@ variable "root_volume_size_gib" {
   }
 }
 
+variable "ollama_version" {
+  description = "GPUインスタンスに入れる Ollama のバージョン(例: 0.12.6)。null なら最新"
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.ollama_version == null || can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+(-rc[0-9]+)?$", var.ollama_version))
+    error_message = "ollama_version は 0.12.6 のような形式で指定してください。"
+  }
+}
+
 variable "extra_tags" {
   description = "全リソースに追加で付けるタグ。Project / EnvId / ManagedBy は上書きできない"
   type        = map(string)

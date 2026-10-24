@@ -27,6 +27,9 @@ model = "qwen3:8b"
 # ルートボリュームの大きさ(GiB)。未指定なら AMI + モデルの配布サイズの2倍 + 10 GiB
 # root_volume_size_gib = 200
 
+# 入れる Ollama のバージョン。未指定なら最新
+# ollama_version = "0.12.6"
+
 # 未指定なら terraform workspace 名を環境IDとして使う
 # env_id = "qwen-test"
 

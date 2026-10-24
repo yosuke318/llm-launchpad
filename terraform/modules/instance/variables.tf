@@ -45,6 +45,11 @@ variable "root_volume_size_gib" {
   default     = null
 }
 
+variable "user_data" {
+  description = "初回起動時に実行する user data。変わったらインスタンスを作り直す"
+  type        = string
+}
+
 variable "tags" {
   description = "追加で付けるタグ"
   type        = map(string)
