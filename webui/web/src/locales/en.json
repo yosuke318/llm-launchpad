@@ -1,0 +1,45 @@
+{
+  "app": {
+    "title": "llm-launchpad",
+    "subtitle": "Pick a model and launch a GPU instance for it"
+  },
+  "language": {
+    "label": "Language",
+    "ja": "日本語",
+    "en": "English"
+  },
+  "terraform": {
+    "heading": "Terraform",
+    "description": "Each button runs a command in terraform/ and streams its output here.",
+    "workspace": "Workspace (environment ID)",
+    "workspaceLoadFailed": "Could not load workspaces: {{error}}",
+    "commands": {
+      "version": "version",
+      "init": "init",
+      "validate": "validate",
+      "plan": "plan"
+    },
+    "commandHelp": {
+      "version": "Show the Terraform and provider versions",
+      "init": "Install providers and modules (run once first)",
+      "validate": "Check the configuration for errors",
+      "plan": "Preview what would be created (creates nothing)"
+    },
+    "planNeedsVars": "plan needs terraform/terraform.tfvars (or the values picked in this UI).",
+    "busy": "Another command is running",
+    "startFailed": "Could not start: {{error}}"
+  },
+  "run": {
+    "heading": "Output",
+    "empty": "Nothing has been run yet.",
+    "status": {
+      "running": "Running",
+      "succeeded": "Succeeded",
+      "failed": "Failed"
+    },
+    "exitCode": "Exit code {{code}}",
+    "lines": "{{count}} lines",
+    "autoScroll": "Follow the latest line",
+    "reconnecting": "Connection lost. Reconnecting…"
+  }
+}

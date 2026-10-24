@@ -24,3 +24,13 @@ override.tf.json
 # Python
 __pycache__/
 *.pyc
+.venv/
+.pytest_cache/
+
+# WebUI
+node_modules/
+webui/web/dist/
+
+# 画面から書く変数ファイル(*.tfvars.json で除外済み)の置き場所
+terraform/tfvars/
+*.tsbuildinfo

@@ -1,0 +1,45 @@
+{
+  "app": {
+    "title": "llm-launchpad",
+    "subtitle": "モデルを選んで GPU インスタンスを立ち上げる"
+  },
+  "language": {
+    "label": "表示言語",
+    "ja": "日本語",
+    "en": "English"
+  },
+  "terraform": {
+    "heading": "Terraform",
+    "description": "ボタンを押すと、terraform/ でコマンドを実行し、出力をここに流します。",
+    "workspace": "ワークスペース(環境ID)",
+    "workspaceLoadFailed": "ワークスペースを読み込めませんでした: {{error}}",
+    "commands": {
+      "version": "version",
+      "init": "init",
+      "validate": "validate",
+      "plan": "plan"
+    },
+    "commandHelp": {
+      "version": "Terraform と provider のバージョンを表示する",
+      "init": "provider とモジュールを用意する(最初に1回)",
+      "validate": "構成に誤りがないか確かめる",
+      "plan": "作られるものを確かめる(何も作らない)"
+    },
+    "planNeedsVars": "plan には terraform/terraform.tfvars(または画面で選んだ値)が要ります。",
+    "busy": "別のコマンドが実行中です",
+    "startFailed": "実行できませんでした: {{error}}"
+  },
+  "run": {
+    "heading": "出力",
+    "empty": "まだ何も実行していません。",
+    "status": {
+      "running": "実行中",
+      "succeeded": "成功",
+      "failed": "失敗"
+    },
+    "exitCode": "終了コード {{code}}",
+    "lines": "{{count}} 行",
+    "autoScroll": "最新の行を追う",
+    "reconnecting": "接続が切れました。つなぎ直しています…"
+  }
+}
