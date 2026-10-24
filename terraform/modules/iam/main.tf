@@ -46,26 +46,31 @@ resource "aws_iam_role_policy" "status_parameter_write" {
   })
 }
 
-resource "aws_iam_role_policy" "model_bucket_read" {
+# S3キャッシュ。ollama/ の下のモデルを読み、なかったモデルを保存する
+resource "aws_iam_role_policy" "model_bucket" {
   count = var.model_bucket_name == null ? 0 : 1
 
-  name = "model-bucket-read"
+  name = "model-bucket"
   role = aws_iam_role.instance.id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
+        # ListBucket がないと、無いオブジェクトの head-object が 404 ではなく 403 になる
         Sid      = "ListModelBucket"
         Effect   = "Allow"
         Action   = ["s3:ListBucket"]
         Resource = "arn:${data.aws_partition.current.partition}:s3:::${var.model_bucket_name}"
+        Condition = {
+          StringLike = { "s3:prefix" = ["ollama/*"] }
+        }
       },
       {
-        Sid      = "ReadModelObjects"
+        Sid      = "ReadWriteModelObjects"
         Effect   = "Allow"
-        Action   = ["s3:GetObject"]
-        Resource = "arn:${data.aws_partition.current.partition}:s3:::${var.model_bucket_name}/*"
+        Action   = ["s3:GetObject", "s3:PutObject", "s3:AbortMultipartUpload"]
+        Resource = "arn:${data.aws_partition.current.partition}:s3:::${var.model_bucket_name}/ollama/*"
       },
     ]
   })

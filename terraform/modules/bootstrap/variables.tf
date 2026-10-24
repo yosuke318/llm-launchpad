@@ -44,6 +44,23 @@ variable "ollama_port" {
   type        = number
 }
 
+variable "model_storage" {
+  description = "モデルの置き場所(s3_cache / ebs / download)"
+  type        = string
+}
+
+variable "model_bucket_name" {
+  description = "s3_cache でモデルを置く S3 バケット名"
+  type        = string
+  default     = null
+}
+
+variable "model_volume_id" {
+  description = "ebs でモデルを置く EBS ボリュームのID"
+  type        = string
+  default     = null
+}
+
 variable "tags" {
   description = "追加で付けるタグ"
   type        = map(string)

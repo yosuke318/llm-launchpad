@@ -63,6 +63,29 @@ override_data {
   }
 }
 
+override_data {
+  target = data.aws_caller_identity.current
+  values = {
+    account_id = "123456789012"
+  }
+}
+
+# EBS永続のボリュームは 1c にある、という想定
+override_data {
+  target = data.aws_ebs_volumes.models
+  values = {
+    ids = ["vol-0abc123"]
+  }
+}
+
+override_data {
+  target = data.aws_ebs_volume.models
+  values = {
+    volume_id         = "vol-0abc123"
+    availability_zone = "ap-northeast-1c"
+  }
+}
+
 run "defaults_use_ssm_without_ingress" {
   command = plan
 
@@ -186,26 +209,137 @@ run "explicit_env_id_is_used_for_tags" {
   }
 }
 
-run "model_bucket_read_policy_is_optional" {
+run "s3_cache_by_default" {
   command = plan
 
   assert {
-    condition     = module.iam.model_bucket_read_enabled == false
-    error_message = "バケット未指定なら読み取り権限を付けないこと"
+    condition     = output.model_storage.type == "s3_cache" && output.model_storage.bucket == "llm-launchpad-models-123456789012-ap-northeast-1"
+    error_message = "既定は S3キャッシュで、model-store と同じ規則のバケット名を使うこと"
+  }
+
+  assert {
+    condition     = module.iam.model_bucket_access_enabled == true && output.model_storage.volume_id == null
+    error_message = "S3キャッシュではバケットの権限を付け、EBSボリュームは付けないこと"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "lp restore-s3 \"qwen3:8b\" \"llm-launchpad-models-123456789012-ap-northeast-1\"") && strcontains(module.bootstrap.user_data, "lp save-s3")
+    error_message = "S3 からのコピーと、S3 への保存を user data に入れること"
+  }
+
+  assert {
+    condition     = output.model_storage.models_dir == "/usr/share/ollama/.ollama/models" && strcontains(module.bootstrap.user_data, "OLLAMA_MODELS=/usr/share/ollama/.ollama/models")
+    error_message = "S3キャッシュではルートボリュームの Ollama の既定の場所に置くこと"
   }
 }
 
-run "model_bucket_read_policy_when_bucket_given" {
+run "s3_cache_with_given_bucket" {
   command = plan
 
   variables {
-    model_bucket_name = "llm-launchpad-models-example"
+    model_bucket_name = "my-models-bucket"
   }
 
   assert {
-    condition     = module.iam.model_bucket_read_enabled == true
-    error_message = "バケットを指定したら読み取り権限を付けること"
+    condition     = output.model_storage.bucket == "my-models-bucket"
+    error_message = "model_bucket_name を指定したらそのバケットを使うこと"
   }
+}
+
+run "download_uses_no_bucket_or_volume" {
+  command = plan
+
+  variables {
+    model_storage = "download"
+  }
+
+  assert {
+    condition     = output.model_storage.bucket == null && output.model_storage.volume_id == null && module.iam.model_bucket_access_enabled == false
+    error_message = "毎回ダウンロードではバケットもボリュームも使わないこと"
+  }
+
+  assert {
+    condition     = !strcontains(module.bootstrap.user_data, "lp restore-s3") && !strcontains(module.bootstrap.user_data, "lp mount-ebs")
+    error_message = "毎回ダウンロードでは S3 や EBS の処理を入れないこと"
+  }
+}
+
+run "ebs_attaches_volume_in_its_az" {
+  command = plan
+
+  variables {
+    model_storage = "ebs"
+  }
+
+  assert {
+    condition     = output.model_storage.volume_id == "vol-0abc123" && output.model_storage.bucket == null
+    error_message = "EBS永続では model-store のボリュームを使うこと"
+  }
+
+  assert {
+    condition     = output.availability_zone == "ap-northeast-1c"
+    error_message = "EBS永続ではボリュームのあるAZに起動すること"
+  }
+
+  # モデルはボリュームに置くので、ルートは AMI 75 GiB + 余裕 10 GiB だけ
+  assert {
+    condition     = output.root_volume_size_gib == 85
+    error_message = "EBS永続ではルートボリュームにモデルの分を足さないこと"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "lp mount-ebs \"vol-0abc123\" \"/mnt/llm-models\"") && output.model_storage.models_dir == "/mnt/llm-models/ollama"
+    error_message = "EBSボリュームを付けて、その中にモデルを置くこと"
+  }
+}
+
+run "ebs_rejects_other_az" {
+  command = plan
+
+  variables {
+    model_storage     = "ebs"
+    availability_zone = "ap-northeast-1a"
+  }
+
+  expect_failures = [data.aws_ebs_volume.models]
+}
+
+run "ebs_rejects_missing_volume" {
+  command = plan
+
+  variables {
+    model_storage = "ebs"
+  }
+
+  override_data {
+    target = data.aws_ebs_volumes.models
+    values = {
+      ids = []
+    }
+  }
+
+  expect_failures = [data.aws_ebs_volume.models]
+}
+
+run "rejects_unknown_model_storage" {
+  command = plan
+
+  variables {
+    model_storage = "efs"
+  }
+
+  expect_failures = [var.model_storage]
+}
+
+run "rejects_throughput_over_iops_limit" {
+  command = plan
+
+  variables {
+    root_volume_throughput = 1000
+    root_volume_iops       = 3000
+  }
+
+  expect_failures = [var.root_volume_iops]
 }
 
 run "rejects_open_to_world" {
@@ -444,10 +578,10 @@ run "user_data_fits_size_limit" {
     model = "nemotron-3-super:120b"
   }
 
-  # EC2 の user data は 16KB まで
+  # EC2 の user data は(base64 にする前で)16KB まで。圧縮しないと超えるため gzip で渡す
   assert {
-    condition     = length(module.bootstrap.user_data) < 16384
-    error_message = "user data は 16KB 未満であること"
+    condition     = length(module.bootstrap.user_data_base64) * 3 / 4 < 16384
+    error_message = "gzip で圧縮した user data は 16KB 未満であること"
   }
 }
 

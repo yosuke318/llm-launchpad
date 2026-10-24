@@ -25,6 +25,13 @@ locals {
     CreatedAt = time_static.created.rfc3339
   }
 
+  # モデルの置き場所(model_storage)ごとのバケットとボリューム。使わない方式では null
+  model_bucket_name = var.model_storage == "s3_cache" ? data.aws_s3_bucket.models[0].bucket : null
+  model_volume_id   = var.model_storage == "ebs" ? data.aws_ebs_volume.models[0].volume_id : null
+
+  # EBS永続では、ボリュームのあるAZに起動する
+  availability_zone = var.model_storage == "ebs" ? data.aws_ebs_volume.models[0].availability_zone : var.availability_zone
+
   # 接続のしかたに出す AWS CLI の共通オプション
   aws_cli_options = join(" ", compact(["--region ${var.region}", var.aws_profile == null ? "" : "--profile ${var.aws_profile}"]))
 

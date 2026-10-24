@@ -24,8 +24,12 @@ model = "qwen3:8b"
 # 起動するAZ。未指定ならインスタンス型を提供しているAZから選ぶ
 # availability_zone = "ap-northeast-1a"
 
-# ルートボリュームの大きさ(GiB)。未指定なら AMI + モデルの配布サイズの2倍 + 10 GiB
+# ルートボリュームの大きさ(GiB)。未指定なら AMI + モデルの配布サイズの2倍 + 10 GiB(ebs では AMI + 10 GiB)
 # root_volume_size_gib = 200
+
+# ルートボリュームの速さ。スループット(MiB/s)は IOPS x 0.25 まで。125 MiB/s を超える分は動かしている間だけ料金がかかる
+# root_volume_throughput = 1000
+# root_volume_iops       = 4000
 
 # 入れる Ollama のバージョン。未指定なら最新
 # ollama_version = "0.12.6"
@@ -43,8 +47,15 @@ access_mode = "ssm"
 # vpc_cidr = "10.42.0.0/16"
 # az_count = 3
 
-# モデル置き場のS3バケット。指定するとインスタンスロールに読み取り権限を付ける
-# model_bucket_name = "llm-launchpad-models-xxxxxxxx"
+# モデルの置き場所。s3_cache: S3 からコピーし、なければ取得して S3 に保存する(先に model-store でバケットを作る)
+# ebs: model-store で作った EBS ボリュームを付ける / download: 毎回 Ollama library から取得する
+# model_storage = "s3_cache"
+
+# s3_cache のバケット名。未指定なら model-store と同じ規則の名前(llm-launchpad-models-<アカウントID>-<リージョン>)
+# model_bucket_name = "my-models-bucket"
+
+# ebs で付けるボリュームの名前(model-store の model_volumes のキー)
+# model_volume_name = "default"
 
 # extra_tags = {
 #   Owner = "your-name"

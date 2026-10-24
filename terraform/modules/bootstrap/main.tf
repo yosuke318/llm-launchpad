@@ -18,6 +18,16 @@ resource "aws_ssm_parameter" "status" {
 
   lifecycle {
     ignore_changes = [value]
+
+    precondition {
+      condition     = var.model_storage != "s3_cache" || var.model_bucket_name != null
+      error_message = "model_storage = s3_cache には model_bucket_name が要ります。"
+    }
+
+    precondition {
+      condition     = var.model_storage != "ebs" || var.model_volume_id != null
+      error_message = "model_storage = ebs には model_volume_id が要ります。"
+    }
   }
 }
 
@@ -32,5 +42,15 @@ locals {
     ollama_version   = var.ollama_version == null ? "" : var.ollama_version
     ollama_host      = var.ollama_listen_all ? "0.0.0.0" : "127.0.0.1"
     ollama_port      = var.ollama_port
+    model_storage    = var.model_storage
+    models_dir       = local.models_dir
+    bucket           = var.model_bucket_name == null ? "" : var.model_bucket_name
+    volume_id        = var.model_volume_id == null ? "" : var.model_volume_id
+    mount_point      = local.ebs_mount_point
   })
+
+  ebs_mount_point = "/mnt/llm-models"
+
+  # EBS永続ではボリュームの中に置き、それ以外はルートボリュームの Ollama の既定の場所に置く
+  models_dir = var.model_storage == "ebs" ? "${local.ebs_mount_point}/ollama" : "/usr/share/ollama/.ollama/models"
 }

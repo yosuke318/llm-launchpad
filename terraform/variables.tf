@@ -79,8 +79,52 @@ variable "az_count" {
   }
 }
 
+variable "model_storage" {
+  description = "モデルの置き場所。s3_cache: S3 からコピーし、なければ取得して S3 に保存する / ebs: モデル用の EBS ボリュームを付ける / download: 毎回 Ollama library から取得する"
+  type        = string
+  default     = "s3_cache"
+
+  validation {
+    condition     = contains(["s3_cache", "ebs", "download"], var.model_storage)
+    error_message = "model_storage は s3_cache / ebs / download のどれかを指定してください。"
+  }
+}
+
+variable "model_volume_name" {
+  description = "model_storage = ebs で付ける EBS ボリュームの名前(terraform/model-store の model_volumes のキー)"
+  type        = string
+  default     = "default"
+}
+
+variable "root_volume_throughput" {
+  description = "ルートボリューム(gp3)のスループット(MiB/s)。S3 からのコピーとGPUへの読み込みが速くなる。125 を超える分は動かしている間だけ料金がかかる"
+  type        = number
+  default     = 1000
+
+  validation {
+    condition     = var.root_volume_throughput >= 125 && var.root_volume_throughput <= 1000
+    error_message = "root_volume_throughput は 125〜1000 MiB/s の範囲で指定してください。"
+  }
+}
+
+variable "root_volume_iops" {
+  description = "ルートボリューム(gp3)の IOPS。スループット(MiB/s)は IOPS x 0.25 までしか出ないため、1000 MiB/s には 4000 IOPS が要る"
+  type        = number
+  default     = 4000
+
+  validation {
+    condition     = var.root_volume_iops >= 3000 && var.root_volume_iops <= 16000
+    error_message = "root_volume_iops は 3000〜16000 の範囲で指定してください。"
+  }
+
+  validation {
+    condition     = var.root_volume_throughput <= var.root_volume_iops * 0.25
+    error_message = "root_volume_throughput は root_volume_iops x 0.25 以下にしてください(gp3 の制約)。"
+  }
+}
+
 variable "model_bucket_name" {
-  description = "モデルを置くS3バケット名。指定するとインスタンスロールに読み取り権限を付ける(バケット自体はモデルの置き場所の対応で作る)"
+  description = "model_storage = s3_cache でモデルを置く S3 バケット名。null なら llm-launchpad-models-<アカウントID>-<リージョン>(terraform/model-store で作る名前)"
   type        = string
   default     = null
 
