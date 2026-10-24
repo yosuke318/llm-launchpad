@@ -237,7 +237,10 @@ def aws(*args, check=True):
     cmd = ["aws", *args]
     if REGION:
         cmd += ["--region", REGION]
-    return subprocess.run(cmd, capture_output=True, text=True, check=check)
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if check and result.returncode != 0:
+        raise RuntimeError(f"aws {' '.join(args)} が失敗しました: {result.stderr.strip()}")
+    return result
 
 
 def manifest_path(model):
