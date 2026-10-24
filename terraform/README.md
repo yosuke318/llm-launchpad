@@ -186,7 +186,7 @@ Ollama は見積もりと同じ条件で動かす(systemd の設定で渡す)。
 
 * すぐ試せるよう、既定はローカルの state(`terraform.tfstate.d/<workspace名>/`)にする
 * 環境ごとに workspace を分ける。workspace 名がそのまま環境ID(`EnvId` タグ、リソース名)になる
-* ローカルの state は消えるとリソースだけが残るため、長く使うなら S3 backend に移す(`backend-s3.tf.example`)。消えた場合に備えて、消し忘れ検出でタグから探せるようにしてある
+* ローカルの state は消えるとリソースだけが残るため、長く使うなら S3 backend に移す(`backend-s3.tf.example`)。消えた場合に備えて、`scripts/find_leftovers.py` でタグから探せるようにしてある
 
 ### タグ
 
@@ -260,6 +260,32 @@ terraform workspace delete qwen-test
 * GPUインスタンスを起動するには、G系インスタンスの vCPU クォータ(オンデマンドとスポットは別枠)が必要
 * SSM のポートフォワードには、手元に Session Manager プラグインが要る
 * S3キャッシュでバケットを作っていないと、plan が `reading S3 Bucket (llm-launchpad-models-...): couldn't find resource` で止まる。先に `model-store` を apply する
+
+## 消し忘れの確認
+
+`scripts/find_leftovers.py` が、全リージョンから llm-launchpad のリソースを探し、手元の state に載っていないものを一覧にする。読み取りだけで、リソースは変えない。
+
+```sh
+python3 scripts/find_leftovers.py                         # 全リージョン(1分ほどかかる)
+python3 scripts/find_leftovers.py --regions ap-northeast-1
+python3 scripts/find_leftovers.py --profile my-profile --json
+```
+
+| 探すもの | 見分け方 |
+|---|---|
+| EC2インスタンス、EBSボリューム、VPC、SSM パラメータ | `Project=llm-launchpad` タグ |
+| スポットリクエスト | 見つけたインスタンスのリクエストか、インスタンスプロファイルの名前が `llm-lp-` で始まる(インスタンスがなく、リクエストだけ残ったものも見つける) |
+| EventBridge Scheduler のスケジュール、IAM ロール | 名前が `llm-lp-` で始まる |
+| S3 バケット | `Project=llm-launchpad` タグか、名前が `llm-launchpad-` で始まる |
+
+* 各サービスの API で直接探す。Resource Groups Tagging API は、消したあともしばらく一覧に残ることがあるため使わない
+* `terraform/` の下の state(環境の workspace、`model-store`、`budget`)にIDや名前があれば「state にある」とする。S3 backend の state は読まないので、`--state-dir` に `terraform state pull` で取り出した state を置いたディレクトリを渡す
+* `Persistent=true` のタグ(`model-store` と `budget` が付ける)が付いたものは、state になくても消し忘れとは数えない
+* 料金の目安は、インスタンスはスポット価格の履歴か Price List API の時間単価 x 今回の起動からの時間、EBS と S3 は月額で出す。単価はスクリプトに書かず、その都度問い合わせる
+* 終了コードは、消し忘れなしで `0`、消し忘れは見つからなかったが調べられなかった種類やリージョンがあれば `1`、state にないリソースがあれば `2`(調べられなかったものがあっても `2` にする)
+* 種類ごとに調べるので、1つの種類で失敗しても(権限がない、そのリージョンにサービスがないなど)、ほかの種類の結果は出す。失敗は `[エラー]` として出す
+* 料金やバケットの大きさを取れなかっただけなら、`[注意]` を出して料金を `-` にする。リソースの一覧と終了コードには影響しない
+* テストは `python3 -B -m unittest discover -s scripts/tests`(AWS に接続しない)
 
 ## テスト
 
