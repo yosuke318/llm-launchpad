@@ -1,0 +1,15 @@
+# terraform.tfvars にコピーして使う(terraform.tfvars は .gitignore 済み)
+
+# aws_profile = "default"
+
+notification_emails = ["you@example.com"]
+
+# 月の予算(USD)
+monthly_limit_usd = 50
+
+# 実際の料金が予算のこの割合(%)を超えたら知らせる。予測が予算を超えそうなときも知らせる
+# actual_thresholds_percent = [50, 80, 100]
+
+# Project=llm-launchpad のタグが付いた料金だけを数える。
+# 先に Billing のコンソールで Project をコスト配分タグとして有効にしておく
+# filter_by_project_tag = true

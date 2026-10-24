@@ -61,6 +61,12 @@ variable "model_volume_id" {
   default     = null
 }
 
+variable "idle_stop_minutes" {
+  description = "Ollama へのリクエストがこの分数なければインスタンスを止める。0 なら止めない"
+  type        = number
+  default     = 0
+}
+
 variable "tags" {
   description = "追加で付けるタグ"
   type        = map(string)

@@ -44,6 +44,36 @@ if ! command -v aws > /dev/null; then
 fi
 
 stage instance_started
+%{ if idle_stop_minutes > 0 ~}
+
+# アイドル停止: 5分ごとに、Ollama へのリクエストが ${idle_stop_minutes} 分なければインスタンスを止める。
+# 起動処理の途中では止めない(止まったまま進まない場合は、最大稼働時間で止まる)
+cat > /etc/systemd/system/llm-launchpad-idle-stop.service <<'UNIT'
+[Unit]
+Description=Stop this instance when Ollama has been idle for ${idle_stop_minutes} minutes
+
+[Service]
+Type=oneshot
+Environment="LAUNCHPAD_REGION=${region}"
+Environment="LAUNCHPAD_STATUS_PARAMETER=${status_parameter}"
+Environment="LAUNCHPAD_STATE_FILE=/var/lib/llm-launchpad/status.json"
+Environment="HOME=/root"
+ExecStart=/usr/bin/python3 /opt/llm-launchpad/launchpad.py idle-check --minutes ${idle_stop_minutes}
+UNIT
+cat > /etc/systemd/system/llm-launchpad-idle-stop.timer <<'UNIT'
+[Unit]
+Description=Check every 5 minutes whether Ollama is idle
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now llm-launchpad-idle-stop.timer
+%{ endif ~}
 
 stage installing_ollama
 %{ if ollama_version == "" ~}

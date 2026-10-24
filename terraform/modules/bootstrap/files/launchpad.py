@@ -10,18 +10,22 @@ user data(user_data.sh.tftpl)から呼ぶ。標準ライブラリと AWS CLI だ
     launchpad.py restore-s3 <model> <bucket> <models_dir>
     launchpad.py save-s3 <model> <bucket> <models_dir>
     launchpad.py mount-ebs <volume_id> <mount_point>
+    launchpad.py idle-check --minutes N [--dry-run]
 
 設定は環境変数で渡す。
     LAUNCHPAD_REGION             パラメータのあるリージョン
     LAUNCHPAD_STATUS_PARAMETER   状態を書くパラメータ名。空なら手元のファイルにだけ書く
     LAUNCHPAD_STATE_FILE         手元の状態ファイル(既定 /var/lib/llm-launchpad/status.json)
     LAUNCHPAD_FSTAB              EBSボリュームを書く fstab(既定 /etc/fstab)
+    LAUNCHPAD_UPTIME_FILE        起動からの秒数を読むファイル(既定 /proc/uptime)
     OLLAMA_URL                   Ollama API(既定 http://127.0.0.1:11434)
 """
 
 import argparse
+import calendar
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -33,6 +37,7 @@ STATUS_PARAMETER = os.environ.get("LAUNCHPAD_STATUS_PARAMETER", "")
 STATE_FILE = os.environ.get("LAUNCHPAD_STATE_FILE", "/var/lib/llm-launchpad/status.json")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
 FSTAB = os.environ.get("LAUNCHPAD_FSTAB", "/etc/fstab")
+UPTIME_FILE = os.environ.get("LAUNCHPAD_UPTIME_FILE", "/proc/uptime")
 
 # 取得中の進み具合は、この秒数か、この割合(%)だけ進むごとに書く。PutParameter の回数を抑えるため
 PUBLISH_INTERVAL_SEC = 10
@@ -358,6 +363,63 @@ def mount_ebs(volume_id, mount_point):
     record_cache(volume_id=volume_id, formatted=formatted)
 
 
+# 起動処理や状態の確認で使うリクエスト。使っている人のリクエストとは数えない
+IGNORED_PATHS = ("/api/version", "/api/ps", "/api/tags")
+
+
+def parse_time(ts):
+    return calendar.timegm(time.strptime(ts, "%Y-%m-%dT%H:%M:%SZ"))
+
+
+def ollama_requests_since(minutes):
+    """Ollama のログ(journald)にある、直近 minutes 分のリクエストの数。ログは [GIN] ... | POST "/api/chat" の形"""
+    out = subprocess.run(
+        ["journalctl", "-u", "ollama", "--since", f"-{minutes}min", "--no-pager", "-o", "cat"],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    count = 0
+    for line in out.splitlines():
+        if "[GIN]" not in line:
+            continue
+        m = re.search(r'"(/[^"]*)"', line)
+        if m and m.group(1) != "/" and not m.group(1).startswith(IGNORED_PATHS):
+            count += 1
+    return count
+
+
+def bootstrap_running():
+    """user data(cloud-init)がまだ動いているか。S3 への保存は ready のあとも続くため、終わるまでは止めない"""
+    result = subprocess.run(["cloud-init", "status"], capture_output=True, text=True)
+    return "running" in result.stdout
+
+
+def idle_check(minutes, dry_run=False):
+    """Ollama へのリクエストが minutes 分なければインスタンスを止める。systemd のタイマーから数分ごとに呼ぶ"""
+    s = load_state()
+    if s.get("state") not in ("ready", "failed") or bootstrap_running():
+        log("起動処理の途中なので止めません")
+        return
+
+    window = minutes * 60
+    with open(UPTIME_FILE, encoding="utf-8") as f:
+        uptime = float(f.read().split()[0])
+    # 起動処理が終わってから、また今回の起動(停止からの再開を含む)から minutes 分は止めない
+    finished_at = parse_time(s.get("ready_at") or s["updated_at"])
+    if uptime < window or time.time() - finished_at < window:
+        return
+
+    requests = ollama_requests_since(minutes)
+    if requests:
+        log(f"直近 {minutes} 分に {requests} 件のリクエストがありました")
+        return
+
+    log(f"直近 {minutes} 分 Ollama へのリクエストがないため、インスタンスを止めます")
+    set_status(s["stage"], s["state"], auto_stop={"reason": "idle", "idle_minutes": minutes, "at": now()})
+    if not dry_run:
+        # OS から止めると、EBS のインスタンスは停止になる(終了ではない)。スポットもリクエストは残り、あとで再開できる
+        subprocess.run(["systemctl", "poweroff"], check=True)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -386,10 +448,18 @@ def main(argv=None):
     p.add_argument("volume_id")
     p.add_argument("mount_point")
 
+    p = sub.add_parser("idle-check", help="リクエストがなければインスタンスを止める")
+    p.add_argument("--minutes", type=int, required=True)
+    p.add_argument("--dry-run", action="store_true")
+
     args = parser.parse_args(argv)
 
     if args.command == "status":
         set_status(args.stage, args.state, error=args.error, log=args.log)
+        return 0
+    if args.command == "idle-check":
+        # 起動処理とは別に動くので、失敗しても状態を failed にしない
+        idle_check(args.minutes, args.dry_run)
         return 0
 
     try:

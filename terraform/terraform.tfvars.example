@@ -31,6 +31,10 @@ model = "qwen3:8b"
 # root_volume_throughput = 1000
 # root_volume_iops       = 4000
 
+# 自動停止。Ollama へのリクエストが idle_stop_minutes 分なければ止め、起動から max_lifetime_hours 時間で止める(0 で止めない)
+# idle_stop_minutes  = 30
+# max_lifetime_hours = 8
+
 # 入れる Ollama のバージョン。未指定なら最新
 # ollama_version = "0.12.6"
 

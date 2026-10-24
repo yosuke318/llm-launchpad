@@ -33,20 +33,21 @@ resource "aws_ssm_parameter" "status" {
 
 locals {
   user_data = templatefile("${path.module}/templates/user_data.sh.tftpl", {
-    region           = var.region
-    status_parameter = aws_ssm_parameter.status.name
-    launchpad_py     = trimsuffix(file("${path.module}/files/launchpad.py"), "\n")
-    model            = var.model
-    context_length   = var.context_length
-    kv_cache_type    = var.kv_cache_type
-    ollama_version   = var.ollama_version == null ? "" : var.ollama_version
-    ollama_host      = var.ollama_listen_all ? "0.0.0.0" : "127.0.0.1"
-    ollama_port      = var.ollama_port
-    model_storage    = var.model_storage
-    models_dir       = local.models_dir
-    bucket           = var.model_bucket_name == null ? "" : var.model_bucket_name
-    volume_id        = var.model_volume_id == null ? "" : var.model_volume_id
-    mount_point      = local.ebs_mount_point
+    region            = var.region
+    status_parameter  = aws_ssm_parameter.status.name
+    launchpad_py      = trimsuffix(file("${path.module}/files/launchpad.py"), "\n")
+    model             = var.model
+    context_length    = var.context_length
+    kv_cache_type     = var.kv_cache_type
+    ollama_version    = var.ollama_version == null ? "" : var.ollama_version
+    ollama_host       = var.ollama_listen_all ? "0.0.0.0" : "127.0.0.1"
+    ollama_port       = var.ollama_port
+    model_storage     = var.model_storage
+    models_dir        = local.models_dir
+    bucket            = var.model_bucket_name == null ? "" : var.model_bucket_name
+    volume_id         = var.model_volume_id == null ? "" : var.model_volume_id
+    mount_point       = local.ebs_mount_point
+    idle_stop_minutes = var.idle_stop_minutes
   })
 
   ebs_mount_point = "/mnt/llm-models"

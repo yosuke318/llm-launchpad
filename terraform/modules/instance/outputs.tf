@@ -3,6 +3,11 @@ output "instance_id" {
   value       = aws_instance.this.id
 }
 
+output "instance_arn" {
+  description = "インスタンスのARN"
+  value       = aws_instance.this.arn
+}
+
 output "availability_zone" {
   description = "起動したAZ"
   value       = local.availability_zone

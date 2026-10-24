@@ -55,6 +55,22 @@ override_resource {
   }
 }
 
+# 最大稼働時間を数え始める時刻。mock のままだと時刻の形にならないため決めておく
+override_resource {
+  target = module.lifetime[0].time_static.launched
+  values = {
+    rfc3339 = "2026-10-24T03:00:00Z"
+  }
+}
+
+# EventBridge Scheduler は role_arn が ARN の形かを確かめるため決めておく
+override_resource {
+  target = module.lifetime[0].aws_iam_role.scheduler
+  values = {
+    arn = "arn:aws:iam::123456789012:role/llm-lp-default-ttl-0123"
+  }
+}
+
 override_data {
   target = data.http.my_ip
   values = {
@@ -593,4 +609,63 @@ run "rejects_invalid_ollama_version" {
   }
 
   expect_failures = [var.ollama_version]
+}
+
+run "auto_stop_defaults" {
+  # 停止の時刻は time_static から決まるため、mock のまま apply して確かめる
+  command = apply
+
+  assert {
+    condition     = output.auto_stop.idle_stop_minutes == 30 && output.auto_stop.stop_at == "2026-10-24T11:00:00Z"
+    error_message = "既定はアイドル30分で止め、起動から8時間で止めること"
+  }
+
+  assert {
+    condition     = module.lifetime[0].schedule_expression == "at(2026-10-24T11:00:00)"
+    error_message = "EventBridge Scheduler の1回だけのスケジュールで止めること"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "llm-launchpad-idle-stop.timer") && strcontains(module.bootstrap.user_data, "idle-check --minutes 30")
+    error_message = "アイドル停止のタイマーを user data に入れること"
+  }
+}
+
+run "auto_stop_can_be_disabled" {
+  command = plan
+
+  variables {
+    idle_stop_minutes  = 0
+    max_lifetime_hours = 0
+  }
+
+  assert {
+    condition     = length(module.lifetime) == 0 && output.auto_stop.stop_at == null
+    error_message = "max_lifetime_hours = 0 なら最大稼働時間で止めないこと"
+  }
+
+  assert {
+    condition     = !strcontains(module.bootstrap.user_data, "llm-launchpad-idle-stop")
+    error_message = "idle_stop_minutes = 0 ならアイドル停止のタイマーを入れないこと"
+  }
+}
+
+run "rejects_too_short_idle_stop" {
+  command = plan
+
+  variables {
+    idle_stop_minutes = 5
+  }
+
+  expect_failures = [var.idle_stop_minutes]
+}
+
+run "rejects_too_long_lifetime" {
+  command = plan
+
+  variables {
+    max_lifetime_hours = 1000
+  }
+
+  expect_failures = [var.max_lifetime_hours]
 }
