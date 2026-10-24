@@ -372,3 +372,91 @@ run "rejects_unknown_purchase_option" {
 
   expect_failures = [var.purchase_option]
 }
+
+run "bootstrap_status_parameter_and_command" {
+  command = apply
+
+  assert {
+    condition     = output.status_parameter_name == "/llm-launchpad/default/status"
+    error_message = "状態を書くパラメータは /llm-launchpad/<環境ID>/status であること"
+  }
+
+  assert {
+    condition     = output.status_command == "aws ssm get-parameter --name /llm-launchpad/default/status --region ap-northeast-1 --query Parameter.Value --output text"
+    error_message = "状態を読むコマンドを出すこと"
+  }
+}
+
+run "user_data_for_ssm_mode" {
+  command = plan
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "OLLAMA_HOST=127.0.0.1:11434")
+    error_message = "ssm モードでは Ollama を 127.0.0.1 だけで待ち受けること"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "lp pull \"qwen3:8b\"") && strcontains(module.bootstrap.user_data, "OLLAMA_CONTEXT_LENGTH=8192")
+    error_message = "モデルとコンテキスト長を user data に渡すこと"
+  }
+
+  assert {
+    condition     = !strcontains(module.bootstrap.user_data, "OLLAMA_FLASH_ATTENTION") && strcontains(module.bootstrap.user_data, "curl -fsSL https://ollama.com/install.sh | sh")
+    error_message = "f16 では Flash Attention を指定せず、バージョン未指定なら最新の Ollama を入れること"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "LAUNCHPAD_STATUS_PARAMETER=\"/llm-launchpad/default/status\"")
+    error_message = "状態を書くパラメータ名を user data に渡すこと"
+  }
+}
+
+run "user_data_for_direct_mode_and_options" {
+  command = plan
+
+  variables {
+    access_mode    = "direct"
+    allowed_cidrs  = ["198.51.100.7/32"]
+    kv_cache_type  = "q8_0"
+    ollama_version = "0.12.6"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "OLLAMA_HOST=0.0.0.0:11434")
+    error_message = "direct モードでは全てのアドレスで待ち受けること"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "OLLAMA_KV_CACHE_TYPE=q8_0") && strcontains(module.bootstrap.user_data, "OLLAMA_FLASH_ATTENTION=1")
+    error_message = "KVキャッシュを量子化するときは Flash Attention を有効にすること"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "OLLAMA_VERSION=\"0.12.6\" sh")
+    error_message = "ollama_version を指定したらそのバージョンを入れること"
+  }
+}
+
+run "user_data_fits_size_limit" {
+  command = plan
+
+  variables {
+    model = "nemotron-3-super:120b"
+  }
+
+  # EC2 の user data は 16KB まで
+  assert {
+    condition     = length(module.bootstrap.user_data) < 16384
+    error_message = "user data は 16KB 未満であること"
+  }
+}
+
+run "rejects_invalid_ollama_version" {
+  command = plan
+
+  variables {
+    ollama_version = "latest"
+  }
+
+  expect_failures = [var.ollama_version]
+}

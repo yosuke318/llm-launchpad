@@ -52,12 +52,28 @@ module "security" {
   tags          = local.resource_tags
 }
 
+module "bootstrap" {
+  source = "./modules/bootstrap"
+
+  name                  = local.name
+  region                = var.region
+  status_parameter_name = "/${local.project}/${local.env_id}/status"
+  model                 = var.model
+  context_length        = var.context_length
+  kv_cache_type         = var.kv_cache_type
+  ollama_version        = var.ollama_version
+  ollama_listen_all     = var.access_mode == "direct"
+  ollama_port           = local.ollama_port
+  tags                  = local.resource_tags
+}
+
 module "iam" {
   source = "./modules/iam"
 
-  name_prefix       = local.iam_name_prefix
-  model_bucket_name = var.model_bucket_name
-  tags              = local.resource_tags
+  name_prefix          = local.iam_name_prefix
+  model_bucket_name    = var.model_bucket_name
+  status_parameter_arn = module.bootstrap.status_parameter_arn
+  tags                 = local.resource_tags
 }
 
 module "instance" {
@@ -72,5 +88,6 @@ module "instance" {
   instance_profile_name = module.iam.instance_profile_name
   model_file_size_gb    = module.sizing.model.file_size_gb
   root_volume_size_gib  = var.root_volume_size_gib
+  user_data             = module.bootstrap.user_data
   tags                  = local.resource_tags
 }

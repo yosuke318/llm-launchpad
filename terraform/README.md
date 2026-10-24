@@ -20,7 +20,8 @@ terraform/
 │   ├── network/              # VPC、パブリックサブネット、IGW、S3 ゲートウェイエンドポイント
 │   ├── security/             # インスタンス用セキュリティグループ
 │   ├── iam/                  # インスタンスロール(SSM、モデルバケット読み取り)
-│   └── instance/             # GPUインスタンス(スポット / オンデマンド)
+│   ├── instance/             # GPUインスタンス(スポット / オンデマンド)
+│   └── bootstrap/            # user data(Ollama の導入とモデルの取得)と、進み具合を書く SSM パラメータ
 └── tests/                    # terraform test(mock provider で AWS に接続せず確認)
 
 catalog/                      # リポジトリ直下。WebUI からも読む
@@ -73,6 +74,40 @@ catalog/                      # リポジトリ直下。WebUI からも読む
 * ルートボリュームは gp3 で暗号化する。既定の大きさは AMI(75 GiB)+ モデルの配布サイズの2倍 + 10 GiB。2倍にしているのは、取得中の一時ファイルや S3 からのコピーの分
 * SSH の鍵は作らない。シェルもポートフォワードも SSM で行う
 * IMDSv2 を必須にする
+
+### 起動処理: user data で Ollama を入れ、進み具合を SSM Parameter Store に書く
+
+初回起動時に user data(`modules/bootstrap/templates/user_data.sh.tftpl`)が次の順に進め、段階ごとの状態を SSM パラメータ `/llm-launchpad/<環境ID>/status` に JSON で書く。
+
+| stage | 内容 |
+|---|---|
+| `instance_started` | user data が動き始めた |
+| `installing_ollama` | Ollama を入れてサービスとして起動し、応答を待つ |
+| `pulling_model` | Ollama library からモデルを取得する。`pull.percent` に何%かが入る |
+| `verifying` | 短いプロンプトを1回送り、応答が返るかを確かめる。GPUへの読み込み時間と、nvidia-smi のメモリ使用量を記録する |
+| `ready` | 使える状態(`state` も `ready`) |
+
+* 状態は `terraform output -raw status_command | sh` で読める
+* `stages` に各段階の開始時刻、`ready_at` に使える状態になった時刻が入る。コールドスタートの計測に使う
+* 失敗すると `state` が `failed` になり、止まった `stage`、`error`(原因)、`log`(インスタンス上のログの場所)が入る
+* 状態は手元の `/var/lib/llm-launchpad/status.json` にも書くので、パラメータに書けなくても起動処理は止まらない
+* 取得中の進み具合は、10秒ごとか 5% 進むごとに書く(PutParameter の回数を抑えるため)
+* インスタンスには、その環境のパラメータにだけ書ける権限(`ssm:PutParameter`、`ssm:GetParameter`)を付ける
+* パラメータは Terraform が作るときの値だけを持ち、あとはインスタンスが書き換える(`ignore_changes`)。destroy で消える
+* 補助スクリプト(`modules/bootstrap/files/launchpad.py`)は標準ライブラリと AWS CLI だけを使い、user data に埋め込む。user data は 16KB までなので、テストで大きさを確かめている
+
+Ollama は見積もりと同じ条件で動かす(systemd の設定で渡す)。
+
+| 環境変数 | 値 |
+|---|---|
+| `OLLAMA_HOST` | ssm モードは `127.0.0.1:11434`、direct モードは `0.0.0.0:11434` |
+| `OLLAMA_CONTEXT_LENGTH` | `context_length` |
+| `OLLAMA_KV_CACHE_TYPE` | `kv_cache_type`。f16 以外では `OLLAMA_FLASH_ATTENTION=1` も付ける |
+| `OLLAMA_NUM_PARALLEL` | `1`(同時リクエスト数。見積もりの前提) |
+| `OLLAMA_KEEP_ALIVE` | `-1`(モデルをGPUに載せたままにする) |
+
+* user data は初回起動時にしか動かないため、モデルなどを変えたらインスタンスを作り直す(`user_data_replace_on_change`)
+* モデルは毎回 Ollama library から取得する。S3 や EBS に置いて起動を速くする方式は、モデルの置き場所の対応で足す
 
 ### VPC: 環境ごとに専用VPCを作る
 
@@ -131,8 +166,11 @@ terraform workspace new qwen-test
 terraform plan
 terraform apply
 
+# 起動処理の進み具合を見る(stage が ready になるまで待つ)
+terraform output -raw status_command | sh
+
 # 接続のしかたを表示する
-terraform output ssm_session_command        # シェルで入る
+terraform output ssm_session_command        # シェルで入る(失敗したときは /var/log/llm-launchpad-bootstrap.log を見る)
 terraform output -raw ssm_port_forward_command | sh   # 別の端末で実行したままにする
 terraform output -raw curl_example | sh
 terraform output -raw openai_api_example | sh
@@ -145,7 +183,6 @@ terraform workspace delete qwen-test
 
 * GPUインスタンスを起動するには、G系インスタンスの vCPU クォータ(オンデマンドとスポットは別枠)が必要
 * SSM のポートフォワードには、手元に Session Manager プラグインが要る
-* Ollama の導入とモデルの取得は、まだこの構成に入っていない。curl の例は、Ollama を入れたあとに使える
 
 ## テスト
 
@@ -167,6 +204,7 @@ terraform test
 | `purchase_option` | `spot` | `spot` / `on-demand` |
 | `availability_zone` | `null`(自動) | GPUインスタンスを起動するAZ |
 | `root_volume_size_gib` | `null`(自動) | ルートボリュームの大きさ(GiB) |
+| `ollama_version` | `null`(最新) | 入れる Ollama のバージョン |
 | `region` | `ap-northeast-1` | リージョン |
 | `aws_profile` | `null` | AWS CLI のプロファイル名 |
 | `env_id` | `null`(workspace 名) | 環境ID。英小文字・数字・ハイフンの20文字以内 |

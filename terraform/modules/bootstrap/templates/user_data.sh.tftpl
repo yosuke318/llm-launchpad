@@ -1,0 +1,76 @@
+#!/bin/bash
+# GPUインスタンスの初回起動時に cloud-init が root で実行する。
+# Ollama を入れてモデルを取得し、段階ごとの状態を SSM Parameter Store(${status_parameter})に書く。
+# -E は、関数(lp や stage)の中で失敗したときにも ERR トラップを動かすため
+set -Eeuo pipefail
+
+LOG_FILE=/var/log/llm-launchpad-bootstrap.log
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+export LAUNCHPAD_REGION="${region}"
+export LAUNCHPAD_STATUS_PARAMETER="${status_parameter}"
+export LAUNCHPAD_STATE_FILE=/var/lib/llm-launchpad/status.json
+
+mkdir -p /opt/llm-launchpad /var/lib/llm-launchpad
+cat > /opt/llm-launchpad/launchpad.py <<'PY'
+${launchpad_py}
+PY
+
+lp() {
+  python3 /opt/llm-launchpad/launchpad.py "$@"
+}
+
+current_stage=instance_started
+
+# 失敗したら、止まった段階・行番号・ログの場所を書く
+on_error() {
+  lp status "$current_stage" --state failed --error "line $1 exited with $2" --log "$LOG_FILE" || true
+}
+trap 'on_error $LINENO $?' ERR
+
+stage() {
+  current_stage=$1
+  lp status "$1"
+}
+
+# 状態を書くのに AWS CLI を使う。Deep Learning Base AMI には入っているが、念のため確かめる
+if ! command -v aws > /dev/null; then
+  snap install aws-cli --classic
+fi
+
+stage instance_started
+
+stage installing_ollama
+%{ if ollama_version == "" ~}
+curl -fsSL https://ollama.com/install.sh | sh
+%{ else ~}
+curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION="${ollama_version}" sh
+%{ endif ~}
+
+# 見積もりと同じ条件で動かす(コンテキスト長、KVキャッシュの型、同時リクエスト数 1)
+mkdir -p /etc/systemd/system/ollama.service.d
+cat > /etc/systemd/system/ollama.service.d/llm-launchpad.conf <<'CONF'
+[Service]
+Environment="OLLAMA_HOST=${ollama_host}:${ollama_port}"
+Environment="OLLAMA_CONTEXT_LENGTH=${context_length}"
+Environment="OLLAMA_KV_CACHE_TYPE=${kv_cache_type}"
+Environment="OLLAMA_NUM_PARALLEL=1"
+Environment="OLLAMA_KEEP_ALIVE=-1"
+%{ if kv_cache_type != "f16" ~}
+# KVキャッシュの量子化には Flash Attention が要る
+Environment="OLLAMA_FLASH_ATTENTION=1"
+%{ endif ~}
+CONF
+systemctl daemon-reload
+systemctl enable ollama
+systemctl restart ollama
+lp wait-server
+
+stage pulling_model
+lp pull "${model}"
+
+stage verifying
+lp verify "${model}"
+
+lp status ready --state ready
+echo "llm-launchpad: ${model} is ready"

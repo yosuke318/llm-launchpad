@@ -30,6 +30,22 @@ resource "aws_iam_role_policy_attachment" "ssm" {
   policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+# 起動処理の進み具合を、その環境のパラメータにだけ書ける
+resource "aws_iam_role_policy" "status_parameter_write" {
+  name = "status-parameter-write"
+  role = aws_iam_role.instance.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid      = "WriteBootstrapStatus"
+      Effect   = "Allow"
+      Action   = ["ssm:PutParameter", "ssm:GetParameter"]
+      Resource = var.status_parameter_arn
+    }]
+  })
+}
+
 resource "aws_iam_role_policy" "model_bucket_read" {
   count = var.model_bucket_name == null ? 0 : 1
 

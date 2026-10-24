@@ -14,6 +14,11 @@ variable "model_bucket_name" {
   default     = null
 }
 
+variable "status_parameter_arn" {
+  description = "起動処理の進み具合を書く SSM パラメータの ARN。インスタンスに書き込み権限を付ける"
+  type        = string
+}
+
 variable "tags" {
   description = "各リソースに追加で付けるタグ"
   type        = map(string)

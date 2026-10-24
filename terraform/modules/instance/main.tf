@@ -64,6 +64,10 @@ resource "aws_instance" "this" {
   # SSH の鍵は使わず、SSM で接続する
   key_name = null
 
+  # user data は初回起動時にしか実行されないため、モデルなどを変えたら作り直す
+  user_data                   = var.user_data
+  user_data_replace_on_change = true
+
   dynamic "instance_market_options" {
     for_each = var.purchase_option == "spot" ? [1] : []
 
