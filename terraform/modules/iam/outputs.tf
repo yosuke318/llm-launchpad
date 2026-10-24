@@ -13,7 +13,7 @@ output "instance_profile_name" {
   value       = aws_iam_instance_profile.instance.name
 }
 
-output "model_bucket_read_enabled" {
-  description = "モデルバケットの読み取り権限を付けているか"
-  value       = length(aws_iam_role_policy.model_bucket_read) > 0
+output "model_bucket_access_enabled" {
+  description = "モデルバケットの読み書きの権限を付けているか"
+  value       = length(aws_iam_role_policy.model_bucket) > 0
 }

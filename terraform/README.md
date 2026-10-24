@@ -19,9 +19,10 @@ terraform/
 │   ├── sizing/               # VRAM見積もりとインスタンス型の選択(リソースは作らない)
 │   ├── network/              # VPC、パブリックサブネット、IGW、S3 ゲートウェイエンドポイント
 │   ├── security/             # インスタンス用セキュリティグループ
-│   ├── iam/                  # インスタンスロール(SSM、モデルバケット読み取り)
-│   ├── instance/             # GPUインスタンス(スポット / オンデマンド)
-│   └── bootstrap/            # user data(Ollama の導入とモデルの取得)と、進み具合を書く SSM パラメータ
+│   ├── iam/                  # インスタンスロール(SSM、進み具合の書き込み、モデルバケットの読み書き)
+│   ├── instance/             # GPUインスタンス(スポット / オンデマンド)と、モデル用EBSボリュームの付け外し
+│   └── bootstrap/            # user data(Ollama の導入とモデルの用意)と、進み具合を書く SSM パラメータ
+├── model-store/              # モデルの置き場所(S3バケット、EBSボリューム)。環境とは別の state で管理する
 └── tests/                    # terraform test(mock provider で AWS に接続せず確認)
 
 catalog/                      # リポジトリ直下。WebUI からも読む
@@ -71,7 +72,8 @@ catalog/                      # リポジトリ直下。WebUI からも読む
 * 既定はスポット(`purchase_option = "spot"`)。中断されたら停止し、在庫が戻ると同じディスクのまま再開する(persistent のスポットリクエスト)
 * destroy のときは、aws provider がスポットリクエストをキャンセルしてからインスタンスを終了する。リクエストだけが残って再起動されることはない
 * AZ は、サブネットのあるAZのうちインスタンス型を提供しているAZから、名前の昇順で最初のものを選ぶ。東京では g5 / g6 / g6e は 1d で提供されていない
-* ルートボリュームは gp3 で暗号化する。既定の大きさは AMI(75 GiB)+ モデルの配布サイズの2倍 + 10 GiB。2倍にしているのは、取得中の一時ファイルや S3 からのコピーの分
+* ルートボリュームは gp3 で暗号化する。既定の大きさは AMI(75 GiB)+ モデルの配布サイズの2倍 + 10 GiB。2倍にしているのは、取得中の一時ファイルや S3 からのコピーの分。EBS永続ではモデルをルートに置かないため、AMI + 10 GiB
+* ルートボリュームのスループットは既定で 1000 MiB/s(IOPS 4000)にする。gp3 の既定の 125 MiB/s では、87GB のモデルのコピーとGPUへの読み込みに12分ほどかかるため。上げた分は、インスタンスを動かしている間だけ料金がかかる
 * SSH の鍵は作らない。シェルもポートフォワードも SSM で行う
 * IMDSv2 を必須にする
 
@@ -82,8 +84,9 @@ catalog/                      # リポジトリ直下。WebUI からも読む
 | stage | 内容 |
 |---|---|
 | `instance_started` | user data が動き始めた |
-| `installing_ollama` | Ollama を入れてサービスとして起動し、応答を待つ |
-| `pulling_model` | Ollama library からモデルを取得する。`pull.percent` に何%かが入る |
+| `installing_ollama` | Ollama を入れる |
+| `preparing_storage` | モデルの置き場所を用意する(S3 からコピー、EBSボリュームを付ける)。そのあと Ollama を起動し、応答を待つ |
+| `pulling_model` | Ollama library からモデルを取得する。`pull.percent` に何%かが入る。S3 や EBS にあったモデルは、manifest を確かめるだけで取り直さない |
 | `verifying` | 短いプロンプトを1回送り、応答が返るかを確かめる。GPUへの読み込み時間と、nvidia-smi のメモリ使用量を記録する |
 | `ready` | 使える状態(`state` も `ready`) |
 
@@ -94,12 +97,14 @@ catalog/                      # リポジトリ直下。WebUI からも読む
 * 取得中の進み具合は、10秒ごとか 5% 進むごとに書く(PutParameter の回数を抑えるため)
 * インスタンスには、その環境のパラメータにだけ書ける権限(`ssm:PutParameter`、`ssm:GetParameter`)を付ける
 * パラメータは Terraform が作るときの値だけを持ち、あとはインスタンスが書き換える(`ignore_changes`)。destroy で消える
-* 補助スクリプト(`modules/bootstrap/files/launchpad.py`)は標準ライブラリと AWS CLI だけを使い、user data に埋め込む。user data は 16KB までなので、テストで大きさを確かめている
+* 補助スクリプト(`modules/bootstrap/files/launchpad.py`)は標準ライブラリと AWS CLI だけを使い、user data に埋め込む
+* user data は 16KB までで、そのままでは約20KBになるため、gzip で圧縮して渡す(cloud-init が展開して実行する)。テストで圧縮後の大きさを確かめている
 
 Ollama は見積もりと同じ条件で動かす(systemd の設定で渡す)。
 
 | 環境変数 | 値 |
 |---|---|
+| `OLLAMA_MODELS` | モデルの置き場所。EBS永続は `/mnt/llm-models/ollama`、それ以外は `/usr/share/ollama/.ollama/models` |
 | `OLLAMA_HOST` | ssm モードは `127.0.0.1:11434`、direct モードは `0.0.0.0:11434` |
 | `OLLAMA_CONTEXT_LENGTH` | `context_length` |
 | `OLLAMA_KV_CACHE_TYPE` | `kv_cache_type`。f16 以外では `OLLAMA_FLASH_ATTENTION=1` も付ける |
@@ -107,7 +112,24 @@ Ollama は見積もりと同じ条件で動かす(systemd の設定で渡す)。
 | `OLLAMA_KEEP_ALIVE` | `-1`(モデルをGPUに載せたままにする) |
 
 * user data は初回起動時にしか動かないため、モデルなどを変えたらインスタンスを作り直す(`user_data_replace_on_change`)
-* モデルは毎回 Ollama library から取得する。S3 や EBS に置いて起動を速くする方式は、モデルの置き場所の対応で足す
+
+### モデルの置き場所: 3つの方式を `model_storage` で切り替える
+
+| model_storage | 起動時の動き | 停止中の固定費 | 使う前に |
+|---|---|---|---|
+| `s3_cache`(既定) | S3 からルートボリュームにコピーする。S3 になければ Ollama library から取得し、使える状態になったあとで S3 に保存する | S3 の保管料金(東京の Standard で約 $0.025/GB/月) | model-store でバケットを作る |
+| `ebs` | モデル用の EBS ボリュームを付ける。初めて使うボリュームは初期化し、モデルがなければ取得する | EBS の保管料金(gp3 の東京で $0.096/GB/月 + 上げたスループットの分) | model-store でボリュームを作る |
+| `download` | 毎回 Ollama library から取得する | なし | なし |
+
+* S3 とEBSボリュームは、環境と一緒に destroy すると残せないため、別の構成 `model-store/` で管理する(リージョンごとに1回 apply する)
+* S3 には Ollama の models ディレクトリと同じ構成(`manifests/` と `blobs/`)で、`ollama/models/` の下に置く。blob は内容のハッシュで名前が決まるので、同じ blob を共有するモデルは1回分しか置かない
+* S3 への保存は blob を先に、manifest を最後に置く。manifest があれば、そのモデルは揃っているとみなす
+* S3 からのコピーには AWS CLI の CRT 転送クライアントを使う
+* S3 を直接マウントして読む方式(Mountpoint for Amazon S3 など)は、GPUへの読み込みが遅いため使わない
+* EBS は作ったAZのインスタンスにしか付けられないため、EBS永続ではボリュームのあるAZに起動する(`availability_zone` を別のAZにすると plan で止める)
+* EBSボリュームは fstab に `nofail` で書くので、スポットの中断で停止・再開しても付いたまま。destroy のときは、インスタンスを止めてから外す(マウントしたまま外すと中身が壊れることがあるため)
+* バケットもボリュームも同じリージョンに置く。リージョンを変えると、そのリージョンの S3 やボリュームにモデルを置き直すことになる
+* `status` の `cache` に、S3 にあったか(`hit`)、コピーや保存にかかった秒数、EBS を初期化したかが入る。コールドスタートを方式ごとに比べるときに使う
 
 ### VPC: 環境ごとに専用VPCを作る
 
@@ -151,9 +173,23 @@ Ollama は見積もりと同じ条件で動かす(systemd の設定で渡す)。
 ### IAM
 
 * `AmazonSSMManagedInstanceCore`: SSM でのシェル接続とポートフォワードに使う
-* `model_bucket_name` を指定したときだけ、そのバケットの読み取り権限(`s3:ListBucket`、`s3:GetObject`)を付ける。バケット自体はモデルの置き場所の対応で作る
+* 起動処理の進み具合を書くため、その環境の SSM パラメータにだけ `ssm:PutParameter`、`ssm:GetParameter` を付ける
+* S3キャッシュのときだけ、モデルバケットの `ollama/` の下に `s3:GetObject`、`s3:PutObject`、`s3:AbortMultipartUpload` と、`ollama/` で絞った `s3:ListBucket` を付ける(ListBucket がないと、無いオブジェクトを確かめたときに 404 ではなく 403 になる)
 
 ## 使い方
+
+最初に一度だけ、モデルの置き場所を作る(`model_storage = "download"` なら不要)。
+
+```sh
+cd terraform/model-store
+cp terraform.tfvars.example terraform.tfvars   # EBS永続を使うなら model_volumes を書く
+terraform init
+terraform apply
+```
+
+`model-store` は環境を destroy しても残る。要らなくなったら `model-store` で destroy する(バケットにモデルが残っていると消せないので、先に空にする)。
+
+環境ごとの手順:
 
 ```sh
 cd terraform
@@ -183,6 +219,7 @@ terraform workspace delete qwen-test
 
 * GPUインスタンスを起動するには、G系インスタンスの vCPU クォータ(オンデマンドとスポットは別枠)が必要
 * SSM のポートフォワードには、手元に Session Manager プラグインが要る
+* S3キャッシュでバケットを作っていないと、plan が `reading S3 Bucket (llm-launchpad-models-...): couldn't find resource` で止まる。先に `model-store` を apply する
 
 ## テスト
 
@@ -190,6 +227,7 @@ AWS に接続せず、mock provider で plan の結果を確かめる(一部は 
 
 ```sh
 terraform test
+(cd model-store && terraform test)
 ```
 
 ## 主な変数
@@ -203,7 +241,12 @@ terraform test
 | `instance_type` | `null`(自動) | インスタンス型を手で指定する |
 | `purchase_option` | `spot` | `spot` / `on-demand` |
 | `availability_zone` | `null`(自動) | GPUインスタンスを起動するAZ |
+| `model_storage` | `s3_cache` | モデルの置き場所(`s3_cache` / `ebs` / `download`) |
+| `model_bucket_name` | `null`(model-store と同じ規則の名前) | S3キャッシュのバケット名 |
+| `model_volume_name` | `default` | EBS永続で付けるボリュームの名前(model-store の `model_volumes` のキー) |
 | `root_volume_size_gib` | `null`(自動) | ルートボリュームの大きさ(GiB) |
+| `root_volume_throughput` | `1000` | ルートボリュームのスループット(MiB/s) |
+| `root_volume_iops` | `4000` | ルートボリュームの IOPS(スループットの4倍以上) |
 | `ollama_version` | `null`(最新) | 入れる Ollama のバージョン |
 | `region` | `ap-northeast-1` | リージョン |
 | `aws_profile` | `null` | AWS CLI のプロファイル名 |
@@ -212,5 +255,4 @@ terraform test
 | `allowed_cidrs` | `[]` | `direct` のときに許可するIPv4 CIDR。空なら自分のIP |
 | `vpc_cidr` | `10.42.0.0/16` | VPCのCIDR(/16〜/24) |
 | `az_count` | `3` | サブネットを作るAZの数 |
-| `model_bucket_name` | `null` | モデル置き場のS3バケット名 |
 | `extra_tags` | `{}` | 追加のタグ |

@@ -48,8 +48,9 @@ locals {
     if b.device_name == data.aws_ami.dlami.root_device_name
   ]))
 
-  # AMI の大きさ + モデル2つ分(取得中の一時ファイルや、S3からのコピーの分) + 余裕 10 GiB
-  default_root_volume_size_gib = local.ami_root_size_gib + ceil(var.model_file_size_gb * 2) + 10
+  # AMI の大きさ + モデル2つ分(取得中の一時ファイルや、S3からのコピーの分) + 余裕 10 GiB。
+  # モデルを別の EBS ボリュームに置くときは、ルートにはモデルを置かない
+  default_root_volume_size_gib = local.ami_root_size_gib + (var.models_on_root_volume ? ceil(var.model_file_size_gb * 2) : 0) + 10
 
   root_volume_size_gib = coalesce(var.root_volume_size_gib, local.default_root_volume_size_gib)
 }
@@ -65,7 +66,7 @@ resource "aws_instance" "this" {
   key_name = null
 
   # user data は初回起動時にしか実行されないため、モデルなどを変えたら作り直す
-  user_data                   = var.user_data
+  user_data_base64            = var.user_data_base64
   user_data_replace_on_change = true
 
   dynamic "instance_market_options" {
@@ -84,8 +85,11 @@ resource "aws_instance" "this" {
   }
 
   root_block_device {
-    volume_type           = "gp3"
-    volume_size           = local.root_volume_size_gib
+    volume_type = "gp3"
+    volume_size = local.root_volume_size_gib
+    # S3 からのコピーやGPUへの読み込みはディスクの速さで決まる。gp3 の既定(125 MiB/s)では 87GB のモデルに12分ほどかかる
+    throughput            = var.root_volume_throughput
+    iops                  = var.root_volume_iops
     encrypted             = true
     delete_on_termination = true
 
@@ -120,4 +124,16 @@ resource "aws_instance" "this" {
       error_message = "root_volume_size_gib は AMI のルートボリューム(${local.ami_root_size_gib} GiB)以上にしてください。"
     }
   }
+}
+
+# EBS永続。ボリュームは model-store で作ったもので、環境を destroy すると付け外しだけをして残す
+resource "aws_volume_attachment" "models" {
+  count = var.model_volume_id == null ? 0 : 1
+
+  device_name = "/dev/sdf"
+  volume_id   = var.model_volume_id
+  instance_id = aws_instance.this.id
+
+  # マウントしたまま外すと中身が壊れることがあるため、インスタンスを止めてから外す
+  stop_instance_before_detaching = true
 }

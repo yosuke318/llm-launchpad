@@ -9,7 +9,7 @@ variable "name_prefix" {
 }
 
 variable "model_bucket_name" {
-  description = "モデルを置くS3バケット名。null なら読み取り権限を付けない"
+  description = "モデルを置くS3バケット名。null なら権限を付けない"
   type        = string
   default     = null
 }

@@ -1,0 +1,15 @@
+# terraform.tfvars にコピーして使う(terraform.tfvars は .gitignore 済み)
+
+region = "ap-northeast-1"
+# aws_profile = "default"
+
+# S3キャッシュ用のバケットを作る(model_storage = "s3_cache" で使う)
+create_bucket = true
+
+# EBS永続用のボリューム(model_storage = "ebs" で使う)。停止中も保管料金がかかる
+# model_volumes = {
+#   default = {
+#     availability_zone = "ap-northeast-1a"
+#     size_gib          = 200
+#   }
+# }

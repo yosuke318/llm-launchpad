@@ -38,7 +38,7 @@ variables {
   security_group_id     = "sg-0123"
   instance_profile_name = "llm-lp-test"
   model_file_size_gb    = 20
-  user_data             = "#!/bin/bash\ntrue\n"
+  user_data_base64      = "IyEvYmluL2Jhc2gKdHJ1ZQo="
 }
 
 run "picks_first_offered_az" {

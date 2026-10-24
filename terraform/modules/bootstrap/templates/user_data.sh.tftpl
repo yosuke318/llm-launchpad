@@ -11,6 +11,10 @@ export LAUNCHPAD_REGION="${region}"
 export LAUNCHPAD_STATUS_PARAMETER="${status_parameter}"
 export LAUNCHPAD_STATE_FILE=/var/lib/llm-launchpad/status.json
 export OLLAMA_URL="http://127.0.0.1:${ollama_port}"
+# cloud-init の実行中は HOME が無いことがある。AWS CLI の設定ファイルの置き場所に使う
+export HOME=/root
+
+MODELS_DIR="${models_dir}"
 
 mkdir -p /opt/llm-launchpad /var/lib/llm-launchpad
 cat > /opt/llm-launchpad/launchpad.py <<'PY'
@@ -48,10 +52,24 @@ curl -fsSL https://ollama.com/install.sh | sh
 curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION="${ollama_version}" sh
 %{ endif ~}
 
+# モデルの置き場所を用意する(model_storage = ${model_storage})
+stage preparing_storage
+%{ if model_storage == "ebs" ~}
+lp mount-ebs "${volume_id}" "${mount_point}"
+%{ endif ~}
+mkdir -p "$MODELS_DIR"
+%{ if model_storage == "s3_cache" ~}
+# 大きいファイルのコピーを速くする(AWS CLI v2 の CRT 転送クライアント)
+aws configure set default.s3.preferred_transfer_client crt
+lp restore-s3 "${model}" "${bucket}" "$MODELS_DIR"
+%{ endif ~}
+chown -R ollama:ollama "$MODELS_DIR"
+
 # 見積もりと同じ条件で動かす(コンテキスト長、KVキャッシュの型、同時リクエスト数 1)
 mkdir -p /etc/systemd/system/ollama.service.d
 cat > /etc/systemd/system/ollama.service.d/llm-launchpad.conf <<'CONF'
 [Service]
+Environment="OLLAMA_MODELS=${models_dir}"
 Environment="OLLAMA_HOST=${ollama_host}:${ollama_port}"
 Environment="OLLAMA_CONTEXT_LENGTH=${context_length}"
 Environment="OLLAMA_KV_CACHE_TYPE=${kv_cache_type}"
@@ -67,6 +85,7 @@ systemctl enable ollama
 systemctl restart ollama
 lp wait-server
 
+# S3 や EBS からコピー済みなら、Ollama は manifest を確かめるだけで、blob は取り直さない
 stage pulling_model
 lp pull "${model}"
 
@@ -75,3 +94,9 @@ lp verify "${model}"
 
 lp status ready --state ready
 echo "llm-launchpad: ${model} is ready"
+%{ if model_storage == "s3_cache" ~}
+
+# 使える状態にしてから、S3 になかったモデルを保存する(次の起動から S3 からコピーできる)
+current_stage=ready
+lp save-s3 "${model}" "${bucket}" "$MODELS_DIR"
+%{ endif ~}

@@ -66,6 +66,16 @@ output "root_volume_size_gib" {
   value       = module.instance.root_volume_size_gib
 }
 
+output "model_storage" {
+  description = "モデルの置き場所(s3_cache / ebs / download)と、使うバケット・ボリューム"
+  value = {
+    type       = var.model_storage
+    bucket     = local.model_bucket_name
+    volume_id  = local.model_volume_id
+    models_dir = module.bootstrap.models_dir
+  }
+}
+
 output "status_parameter_name" {
   description = "起動処理の進み具合を書く SSM パラメータの名前"
   value       = module.bootstrap.status_parameter_name
