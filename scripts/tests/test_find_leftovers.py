@@ -100,6 +100,20 @@ def responses():
     }
 
 
+def without_leftovers(res):
+    """state にない2つ(vol-old と sir-orphan)を除いた応答"""
+    res[("ec2", "describe-volumes", REGION)] = {"Volumes": [v for v in res[("ec2", "describe-volumes", REGION)]["Volumes"] if v["VolumeId"] != "vol-old"]}
+    res[("ec2", "describe-spot-instance-requests", REGION)]["SpotInstanceRequests"].pop(1)
+    return res
+
+
+def fail(message):
+    """呼ばれると AwsError を出す応答"""
+    def raise_error(args):
+        raise fl.AwsError(message)
+    return raise_error
+
+
 def write_state(dir_path, resources):
     path = os.path.join(dir_path, "terraform.tfstate.d", "qwen-test", "terraform.tfstate")
     os.makedirs(os.path.dirname(path))
@@ -162,10 +176,7 @@ class FindLeftoversTest(unittest.TestCase):
         self.assertEqual((bucket["region"], bucket["monthly_usd"]), (REGION, 1.25), "50GB x $0.025")
 
     def test_no_leftovers_exit_zero(self):
-        res = responses()
-        res[("ec2", "describe-volumes", REGION)] = {"Volumes": [v for v in res[("ec2", "describe-volumes", REGION)]["Volumes"] if v["VolumeId"] != "vol-old"]}
-        res[("ec2", "describe-spot-instance-requests", REGION)]["SpotInstanceRequests"].pop(1)
-        code, _ = self.resources(FakeAws(res))
+        code, _ = self.resources(FakeAws(without_leftovers(responses())))
         self.assertEqual(code, 0, "state にないのが残す設定のものだけなら終了コード 0")
 
     def test_stopped_instance_has_no_hourly_cost(self):
@@ -188,16 +199,43 @@ class FindLeftoversTest(unittest.TestCase):
         run(fake, self.tmp.name, "--regions", REGION)
         self.assertNotIn(("ec2", "describe-regions"), [(c[0], c[1]) for c in fake.calls])
 
-    def test_aws_error_is_reported(self):
+    def test_failed_service_keeps_other_resources(self):
         res = responses()
-
-        def fail(args):
-            raise fl.AwsError("aws ec2 describe-vpcs が失敗しました(ap-northeast-1): UnauthorizedOperation")
-
-        res[("ec2", "describe-vpcs", REGION)] = fail
+        res[("ec2", "describe-vpcs", REGION)] = fail("aws ec2 describe-vpcs が失敗しました(ap-northeast-1): UnauthorizedOperation")
         code, out = run(FakeAws(res), self.tmp.name)
-        self.assertEqual(code, 1, "調べられなかったリージョンがあれば終了コード 1")
         self.assertIn("[エラー] aws ec2 describe-vpcs", out)
+        self.assertIn("vol-old", out, "VPC を調べられなくても、同じリージョンのほかのリソースは出す")
+        self.assertNotIn("vpc-0aaa", out)
+        self.assertEqual(code, 2, "調べられなかったものがあっても、消し忘れが見つかれば終了コード 2")
+
+    def test_failed_service_without_leftovers_exit_one(self):
+        res = without_leftovers(responses())
+        res[("ec2", "describe-vpcs", REGION)] = fail("aws ec2 describe-vpcs が失敗しました(ap-northeast-1): UnauthorizedOperation")
+        code, _ = run(FakeAws(res), self.tmp.name)
+        self.assertEqual(code, 1, "消し忘れが見つからなくても、調べられなかったものがあれば終了コード 1")
+
+    def test_price_failure_does_not_hide_resources(self):
+        res = responses()
+        res[("ec2", "describe-spot-price-history", REGION)] = fail("aws ec2 describe-spot-price-history が失敗しました: AccessDenied")
+        res[("pricing", "get-products", "us-east-1")] = fail("aws pricing get-products が失敗しました: ThrottlingException")
+        code, out = run(FakeAws(res), self.tmp.name, "--json")
+        data = json.loads(out)
+        found = {r["id"]: r for r in data["resources"]}
+        self.assertIn("i-0aaa", found, "料金を取れなくても、インスタンスは出す")
+        self.assertIn("vol-old", found, "料金を取れなくても、消し忘れのボリュームは出す")
+        self.assertIsNone(found["i-0aaa"]["hourly_usd"])
+        self.assertIsNone(found["vol-old"]["monthly_usd"])
+        self.assertEqual(data["errors"], [], "料金の失敗はエラーにしない")
+        self.assertTrue(any("料金を取れませんでした" in w for w in data["warnings"]))
+        self.assertEqual(code, 2)
+
+    def test_bucket_size_failure_keeps_bucket(self):
+        res = responses()
+        res[("cloudwatch", "get-metric-statistics", REGION)] = fail("aws cloudwatch get-metric-statistics が失敗しました: AccessDenied")
+        code, out = run(FakeAws(res), self.tmp.name)
+        self.assertIn("s3-bucket      llm-launchpad-models-123-ap-northeast-1", out)
+        self.assertIn("[注意] バケット llm-launchpad-models-123-ap-northeast-1 の大きさを取れませんでした", out)
+        self.assertEqual(code, 2)
 
     def test_nested_ids_in_state(self):
         ids = set(fl.strings_in({"a": [{"b": "vol-x"}], "c": "i-y", "n": 3}))

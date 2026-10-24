@@ -8,7 +8,9 @@
     python3 scripts/find_leftovers.py --regions ap-northeast-1 us-east-1
     python3 scripts/find_leftovers.py --profile my-profile --json
 
-終了コード: 0 = 消し忘れなし / 1 = 実行に失敗した / 2 = state に載っていないリソースがある
+終了コード: 0 = 消し忘れなし / 1 = 消し忘れは見つからなかったが、調べられなかった種類やリージョンがある /
+           2 = state に載っていないリソースがある(調べられなかったものがあっても 2 にする)
+料金の目安を取れなかっただけなら、[注意] を出すだけで終了コードは変えない。
 
 AWS CLI v2 と標準ライブラリだけを使う。読み取りだけで、リソースを変えたり消したりはしない。
 """
@@ -71,11 +73,25 @@ def hours_since(value, now):
 
 
 class Prices:
-    """料金の目安。単価は持たず、Price List API とスポット価格の履歴から取る(同じ問い合わせは覚えておく)"""
+    """料金の目安。単価は持たず、Price List API とスポット価格の履歴から取る(同じ問い合わせは覚えておく)。
+
+    料金は目安でしかないので、問い合わせに失敗しても(権限がない、回数制限など)リソースを探すのは止めない。
+    単価を None にして、warnings に理由を残す
+    """
 
     def __init__(self, aws):
         self.aws = aws
         self.cache = {}
+        self.warnings = []
+
+    def _lookup(self, key, fetch):
+        if key not in self.cache:
+            try:
+                self.cache[key] = fetch()
+            except AwsError as e:
+                self.warnings.append(f"料金を取れませんでした: {e}")
+                self.cache[key] = None
+        return self.cache[key]
 
     def _on_demand(self, region, filters):
         args = ["--service-code", "AmazonEC2", "--filters"]
@@ -90,43 +106,40 @@ class Prices:
         return None
 
     def instance_hourly(self, region, instance_type, availability_zone, spot):
+        def spot_price():
+            res = self.aws(
+                "ec2", "describe-spot-price-history",
+                "--instance-types", instance_type,
+                "--availability-zone", availability_zone,
+                "--product-descriptions", "Linux/UNIX",
+                "--max-items", "1",
+                region=region,
+            )
+            history = res.get("SpotPriceHistory", [])
+            return float(history[0]["SpotPrice"]) if history else None
+
+        def on_demand_price():
+            return self._on_demand(region, {
+                "instanceType": instance_type,
+                "regionCode": region,
+                "operatingSystem": "Linux",
+                "tenancy": "Shared",
+                "preInstalledSw": "NA",
+                "capacitystatus": "Used",
+            })
+
         key = ("instance", region, instance_type, availability_zone if spot else None)
-        if key not in self.cache:
-            if spot:
-                res = self.aws(
-                    "ec2", "describe-spot-price-history",
-                    "--instance-types", instance_type,
-                    "--availability-zone", availability_zone,
-                    "--product-descriptions", "Linux/UNIX",
-                    "--max-items", "1",
-                    region=region,
-                )
-                history = res.get("SpotPriceHistory", [])
-                self.cache[key] = float(history[0]["SpotPrice"]) if history else None
-            else:
-                self.cache[key] = self._on_demand(region, {
-                    "instanceType": instance_type,
-                    "regionCode": region,
-                    "operatingSystem": "Linux",
-                    "tenancy": "Shared",
-                    "preInstalledSw": "NA",
-                    "capacitystatus": "Used",
-                })
-        return self.cache[key]
+        return self._lookup(key, spot_price if spot else on_demand_price)
 
     def volume_monthly_per_gb(self, region, volume_type):
-        key = ("volume", region, volume_type)
-        if key not in self.cache:
-            self.cache[key] = self._on_demand(region, {
-                "volumeApiName": volume_type,
-                "regionCode": region,
-                "productFamily": "Storage",
-            })
-        return self.cache[key]
+        return self._lookup(("volume", region, volume_type), lambda: self._on_demand(region, {
+            "volumeApiName": volume_type,
+            "regionCode": region,
+            "productFamily": "Storage",
+        }))
 
     def s3_standard_monthly_per_gb(self, region):
-        key = ("s3", region)
-        if key not in self.cache:
+        def fetch():
             res = self.aws(
                 "pricing", "get-products", "--service-code", "AmazonS3", "--filters",
                 f"Type=TERM_MATCH,Field=regionCode,Value={region}",
@@ -142,8 +155,9 @@ class Prices:
                     for dim in term["priceDimensions"].values():
                         if dim.get("beginRange") == "0":
                             price = float(dim["pricePerUnit"]["USD"])
-            self.cache[key] = price
-        return self.cache[key]
+            return price
+
+        return self._lookup(("s3", region), fetch)
 
 
 def resource(region, kind, rid, tags, **fields):
@@ -283,10 +297,19 @@ def find_buckets(aws, prices):
         tags = tags_of(tagging or {})
         if tags.get("Project") != PROJECT and not name.startswith(BUCKET_PREFIX):
             continue
-        loc = aws("s3api", "get-bucket-location", "--bucket", name, ok_errors=("NoSuchBucket",)) or {}
-        region = loc.get("LocationConstraint") or "us-east-1"
+        try:
+            loc = aws("s3api", "get-bucket-location", "--bucket", name, ok_errors=("NoSuchBucket",)) or {}
+            region = loc.get("LocationConstraint") or "us-east-1"
+        except AwsError as e:
+            # リージョンが分からなくても、バケットがあることは出す
+            prices.warnings.append(f"バケット {name} のリージョンを取れませんでした: {e}")
+            region = "unknown"
         r = resource(region, "s3-bucket", name, tags, note="")
-        size = bucket_size_bytes(aws, region, name)
+        try:
+            size = bucket_size_bytes(aws, region, name) if region != "unknown" else None
+        except AwsError as e:
+            prices.warnings.append(f"バケット {name} の大きさを取れませんでした: {e}")
+            size = None
         if size is not None:
             gb = size / 1e9
             r["state"] = f"{gb:.1f} GB"
@@ -294,7 +317,7 @@ def find_buckets(aws, prices):
             if per_gb is not None:
                 r["monthly_usd"] = round(per_gb * gb, 2)
         else:
-            r["state"] = "大きさは不明(CloudWatch のメトリクスが1日1回しか出ないため、作った直後は出ない)"
+            r["state"] = "大きさは不明(CloudWatch のメトリクスは1日1回しか出ないため、作った直後は出ない。取れなかった場合は注意を見る)"
         found.append(r)
     return found
 
@@ -324,16 +347,24 @@ def find_iam_roles(aws):
 
 
 def find_in_region(aws, prices, region, now):
-    instances = find_instances(aws, prices, region, now)
-    instance_ids = {i["id"] for i in instances}
-    return (
-        instances
-        + find_volumes(aws, prices, region, now)
-        + find_spot_requests(aws, region, instance_ids)
-        + find_vpcs(aws, region)
-        + find_parameters(aws, region)
-        + find_schedules(aws, region)
-    )
+    """リージョンのリソースを種類ごとに探す。1つの種類で失敗しても(権限がない、サービスがないなど)、ほかの種類の結果は残す"""
+    found, errors = [], []
+
+    def collect(finder):
+        try:
+            found.extend(finder())
+        except AwsError as e:
+            errors.append(str(e))
+
+    collect(lambda: find_instances(aws, prices, region, now))
+    instance_ids = {r["id"] for r in found if r["type"] == "ec2-instance"}
+    collect(lambda: find_volumes(aws, prices, region, now))
+    # インスタンスを探せなかった場合も、インスタンスプロファイルの名前でリクエストを見つける
+    collect(lambda: find_spot_requests(aws, region, instance_ids))
+    collect(lambda: find_vpcs(aws, region))
+    collect(lambda: find_parameters(aws, region))
+    collect(lambda: find_schedules(aws, region))
+    return found, errors
 
 
 def strings_in(value):
@@ -374,7 +405,7 @@ def money(v):
     return "-" if v is None else f"${v:,.2f}"
 
 
-def print_report(resources, regions, state_files, errors, out=None):
+def print_report(resources, regions, state_files, errors, warnings=(), out=None):
     out = out or sys.stdout
     print(f"llm-launchpad のリソース({len(regions)} リージョンを確認)", file=out)
     print(f"照らし合わせた state: {len(state_files)} 個" + "".join(f"\n  {p}" for p in state_files), file=out)
@@ -413,6 +444,10 @@ def print_report(resources, regions, state_files, errors, out=None):
     print("料金は目安。スループットや IOPS を上げた分、データ転送、リクエストの料金は含めない", file=out)
     if unmanaged:
         print("state にないリソースは消し忘れの可能性がある。消すときは AWS のコンソールか CLI で確かめてから消す", file=out)
+    # 料金などの目安を取れなかったもの。リソースの一覧には影響しない
+    for w in warnings:
+        print(f"[注意] {w}", file=out)
+    # 調べられなかった種類やリージョン。そこにあるリソースは一覧に出ていないかもしれない
     for e in errors:
         print(f"[エラー] {e}", file=out)
 
@@ -446,10 +481,9 @@ def main(argv=None, aws=None, now=None):
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {pool.submit(find_in_region, aws, prices, region, now): region for region in regions}
         for future in concurrent.futures.as_completed(futures):
-            try:
-                resources += future.result()
-            except AwsError as e:
-                errors.append(str(e))
+            found, region_errors = future.result()
+            resources += found
+            errors += region_errors
     for finder in (lambda: find_buckets(aws, prices), lambda: find_iam_roles(aws)):
         try:
             resources += finder()
@@ -460,14 +494,15 @@ def main(argv=None, aws=None, now=None):
     mark_managed(resources, known_ids)
 
     if args.json:
-        json.dump({"regions": regions, "state_files": state_files, "resources": resources, "errors": errors}, sys.stdout, ensure_ascii=False, indent=2)
+        json.dump({"regions": regions, "state_files": state_files, "resources": resources, "errors": errors, "warnings": prices.warnings}, sys.stdout, ensure_ascii=False, indent=2)
         print()
     else:
-        print_report(resources, regions, state_files, errors)
+        print_report(resources, regions, state_files, errors, prices.warnings)
 
-    if errors:
-        return 1
-    return 2 if any(not r["in_state"] and not r["persistent"] for r in resources) else 0
+    # 消し忘れが見つかったことを一番に知らせる。見つからなくても、調べられなかったものがあれば 0 とは言えない
+    if any(not r["in_state"] and not r["persistent"] for r in resources):
+        return 2
+    return 1 if errors else 0
 
 
 if __name__ == "__main__":

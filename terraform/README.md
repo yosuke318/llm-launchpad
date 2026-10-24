@@ -282,7 +282,9 @@ python3 scripts/find_leftovers.py --profile my-profile --json
 * `terraform/` の下の state(環境の workspace、`model-store`、`budget`)にIDや名前があれば「state にある」とする。S3 backend の state は読まないので、`--state-dir` に `terraform state pull` で取り出した state を置いたディレクトリを渡す
 * `Persistent=true` のタグ(`model-store` と `budget` が付ける)が付いたものは、state になくても消し忘れとは数えない
 * 料金の目安は、インスタンスはスポット価格の履歴か Price List API の時間単価 x 今回の起動からの時間、EBS と S3 は月額で出す。単価はスクリプトに書かず、その都度問い合わせる
-* 終了コードは、消し忘れなしで `0`、調べられなかったリージョンがあれば `1`、state にないリソースがあれば `2`
+* 終了コードは、消し忘れなしで `0`、消し忘れは見つからなかったが調べられなかった種類やリージョンがあれば `1`、state にないリソースがあれば `2`(調べられなかったものがあっても `2` にする)
+* 種類ごとに調べるので、1つの種類で失敗しても(権限がない、そのリージョンにサービスがないなど)、ほかの種類の結果は出す。失敗は `[エラー]` として出す
+* 料金やバケットの大きさを取れなかっただけなら、`[注意]` を出して料金を `-` にする。リソースの一覧と終了コードには影響しない
 * テストは `python3 -B -m unittest discover -s scripts/tests`(AWS に接続しない)
 
 ## テスト
