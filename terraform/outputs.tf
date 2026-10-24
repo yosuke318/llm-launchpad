@@ -76,6 +76,15 @@ output "model_storage" {
   }
 }
 
+output "auto_stop" {
+  description = "自動停止の設定。idle_stop_minutes 分リクエストがないか、stop_at(UTC)を過ぎたら止める"
+  value = {
+    idle_stop_minutes = var.idle_stop_minutes
+    stop_at           = try(module.lifetime[0].stop_at, null)
+    schedule_name     = try(module.lifetime[0].schedule_name, null)
+  }
+}
+
 output "status_parameter_name" {
   description = "起動処理の進み具合を書く SSM パラメータの名前"
   value       = module.bootstrap.status_parameter_name

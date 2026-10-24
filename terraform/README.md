@@ -21,8 +21,10 @@ terraform/
 │   ├── security/             # インスタンス用セキュリティグループ
 │   ├── iam/                  # インスタンスロール(SSM、進み具合の書き込み、モデルバケットの読み書き)
 │   ├── instance/             # GPUインスタンス(スポット / オンデマンド)と、モデル用EBSボリュームの付け外し
-│   └── bootstrap/            # user data(Ollama の導入とモデルの用意)と、進み具合を書く SSM パラメータ
+│   ├── bootstrap/            # user data(Ollama の導入とモデルの用意、アイドル停止のタイマー)と、進み具合を書く SSM パラメータ
+│   └── lifetime/             # 最大稼働時間で止める EventBridge Scheduler のスケジュール
 ├── model-store/              # モデルの置き場所(S3バケット、EBSボリューム)。環境とは別の state で管理する
+├── budget/                   # 月の予算のアラート(AWS Budgets)。環境とは別の state で管理する
 └── tests/                    # terraform test(mock provider で AWS に接続せず確認)
 
 catalog/                      # リポジトリ直下。WebUI からも読む
@@ -131,6 +133,35 @@ Ollama は見積もりと同じ条件で動かす(systemd の設定で渡す)。
 * バケットもボリュームも同じリージョンに置く。リージョンを変えると、そのリージョンの S3 やボリュームにモデルを置き直すことになる
 * `status` の `cache` に、S3 にあったか(`hit`)、コピーや保存にかかった秒数、EBS を初期化したかが入る。コールドスタートを方式ごとに比べるときに使う
 
+### 自動停止: 使われていなければ止め、長く動かしすぎたら止め、予算を超えそうなら知らせる
+
+| 仕組み | 既定 | 動く場所 | 内容 |
+|---|---|---|---|
+| アイドル停止 | 30分(`idle_stop_minutes`) | インスタンスの中(systemd のタイマー) | 5分ごとに Ollama のログを見て、リクエストが N 分なければ OS から止める |
+| 最大稼働時間 | 8時間(`max_lifetime_hours`) | インスタンスの外(EventBridge Scheduler) | インスタンスを起動してから X 時間たったら、StopInstances で止める |
+| 予算アラート | 月 50 USD(`budget/`) | AWS Budgets | 実際の料金が予算の 50 / 80 / 100% を超えたときと、月末までの予測が予算を超えそうなときにメールで知らせる |
+
+アイドル停止:
+
+* リクエストは Ollama のログ(journald の `[GIN]` の行)から数える。`/api/version`、`/api/ps`、`/api/tags`、`/` は状態の確認なので数えない
+* 起動処理の途中(状態が `running` か、cloud-init がまだ動いている間)は止めない。S3 への保存も、終わるまで待つ
+* 起動処理が終わってから N 分、また停止から再開してから N 分は止めない
+* 起動処理が失敗したまま放置されている場合も、N 分たてば止める
+* 止めるときは状態の `auto_stop` に理由と時刻を書く。OS から止めるので、インスタンスは終了ではなく停止になる(スポットもリクエストは残り、あとで再開できる)
+* SSM のポートフォワードがつながっていても、リクエストがなければ止める
+
+最大稼働時間:
+
+* インスタンスの中の仕組みが動いていなくても止まるよう、外から止める。EventBridge Scheduler の役割には、その環境のインスタンスへの `ec2:StopInstances` だけを付ける
+* 数え始めはインスタンスを作ったとき。インスタンスを作り直すと数え直す。停止から再開しても数え直さない
+* 1回だけ動くスケジュールなので、止まったあとに手で再開した場合は、もう止まらない(アイドル停止は動く)
+
+予算アラート:
+
+* 予算はアカウント単位なので、環境とは別の構成 `budget/` で管理する。既定ではアカウント全体の料金を数える
+* `filter_by_project_tag = true` にすると `Project=llm-launchpad` のタグが付いた料金だけを数える。先に Billing のコンソールで `Project` をコスト配分タグとして有効にしておく(有効にする前の料金は数えられない)
+* 通知はメールで直接届く(確認メールへの返信は要らない)
+
 ### VPC: 環境ごとに専用VPCを作る
 
 * 既定VPCは削除されているアカウントもあり、前提にできないため使わない
@@ -189,6 +220,15 @@ terraform apply
 
 `model-store` は環境を destroy しても残る。要らなくなったら `model-store` で destroy する(バケットにモデルが残っていると消せないので、先に空にする)。
 
+予算のアラートも、最初に一度だけ作る。
+
+```sh
+cd terraform/budget
+cp terraform.tfvars.example terraform.tfvars   # notification_emails と monthly_limit_usd を書く
+terraform init
+terraform apply
+```
+
 環境ごとの手順:
 
 ```sh
@@ -228,6 +268,7 @@ AWS に接続せず、mock provider で plan の結果を確かめる(一部は 
 ```sh
 terraform test
 (cd model-store && terraform test)
+(cd budget && terraform test)
 ```
 
 ## 主な変数
@@ -248,6 +289,8 @@ terraform test
 | `root_volume_throughput` | `1000` | ルートボリュームのスループット(MiB/s) |
 | `root_volume_iops` | `4000` | ルートボリュームの IOPS(スループットの4倍以上) |
 | `ollama_version` | `null`(最新) | 入れる Ollama のバージョン |
+| `idle_stop_minutes` | `30` | Ollama へのリクエストがこの分数なければ止める(`0` で止めない) |
+| `max_lifetime_hours` | `8` | 起動してからこの時間がたったら止める(`0` で止めない) |
 | `region` | `ap-northeast-1` | リージョン |
 | `aws_profile` | `null` | AWS CLI のプロファイル名 |
 | `env_id` | `null`(workspace 名) | 環境ID。英小文字・数字・ハイフンの20文字以内 |

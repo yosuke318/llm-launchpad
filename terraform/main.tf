@@ -108,6 +108,7 @@ module "bootstrap" {
   model_storage         = var.model_storage
   model_bucket_name     = local.model_bucket_name
   model_volume_id       = local.model_volume_id
+  idle_stop_minutes     = var.idle_stop_minutes
   tags                  = local.resource_tags
 }
 
@@ -138,4 +139,15 @@ module "instance" {
   root_volume_iops       = var.root_volume_iops
   user_data_base64       = module.bootstrap.user_data_base64
   tags                   = local.resource_tags
+}
+
+module "lifetime" {
+  source = "./modules/lifetime"
+  count  = var.max_lifetime_hours > 0 ? 1 : 0
+
+  name_prefix        = "${local.iam_name_prefix}ttl-"
+  instance_id        = module.instance.instance_id
+  instance_arn       = module.instance.instance_arn
+  max_lifetime_hours = var.max_lifetime_hours
+  tags               = local.resource_tags
 }

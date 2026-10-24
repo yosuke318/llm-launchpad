@@ -217,6 +217,28 @@ variable "ollama_version" {
   }
 }
 
+variable "idle_stop_minutes" {
+  description = "Ollama へのリクエストがこの分数なければ、GPUインスタンスを止める(5分ごとに確かめる)。0 なら止めない"
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.idle_stop_minutes == 0 || (var.idle_stop_minutes >= 10 && var.idle_stop_minutes <= 1440 && floor(var.idle_stop_minutes) == var.idle_stop_minutes)
+    error_message = "idle_stop_minutes は 0(止めない)か、10〜1440 の整数で指定してください。"
+  }
+}
+
+variable "max_lifetime_hours" {
+  description = "GPUインスタンスを起動してからこの時間がたったら止める(EventBridge Scheduler で外から止める)。0 なら止めない"
+  type        = number
+  default     = 8
+
+  validation {
+    condition     = var.max_lifetime_hours >= 0 && var.max_lifetime_hours <= 720 && floor(var.max_lifetime_hours) == var.max_lifetime_hours
+    error_message = "max_lifetime_hours は 0(止めない)〜720 の整数で指定してください。"
+  }
+}
+
 variable "extra_tags" {
   description = "全リソースに追加で付けるタグ。Project / EnvId / ManagedBy は上書きできない"
   type        = map(string)
