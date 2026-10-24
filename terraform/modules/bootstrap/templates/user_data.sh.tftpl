@@ -10,6 +10,7 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 export LAUNCHPAD_REGION="${region}"
 export LAUNCHPAD_STATUS_PARAMETER="${status_parameter}"
 export LAUNCHPAD_STATE_FILE=/var/lib/llm-launchpad/status.json
+export OLLAMA_URL="http://127.0.0.1:${ollama_port}"
 
 mkdir -p /opt/llm-launchpad /var/lib/llm-launchpad
 cat > /opt/llm-launchpad/launchpad.py <<'PY'
