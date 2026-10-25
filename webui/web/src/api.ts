@@ -185,3 +185,38 @@ export function listModels(params: { vendor?: string; context_length: number; kv
   if (params.vendor) query.set("vendor", params.vendor);
   return request<{ models: ModelEstimate[] }>(`/api/models?${query}`).then((r) => r.models);
 }
+
+// 起動前の事前チェック
+
+export type CheckStatus = "ok" | "ng" | "unknown";
+export type PurchaseOption = "spot" | "on_demand";
+
+export interface PreflightCheck {
+  id: "credentials" | "instance_type" | "quota_on_demand" | "quota_spot";
+  status: CheckStatus;
+  error?: string;
+  account?: string;
+  arn?: string;
+  profile?: string | null;
+  availability_zones?: string[];
+  option?: PurchaseOption;
+  quota_name?: string;
+  limit_vcpus?: number;
+  used_vcpus?: number | null;
+  needed_vcpus?: number | null;
+  available_vcpus?: number;
+  request_url?: string;
+  pending_requests?: { desired_value: number; status: string; created: string }[];
+}
+
+export interface Preflight {
+  region: string;
+  instance_type: string;
+  checks: PreflightCheck[];
+  // スポット / オンデマンドごとに、起動(確認のポップアップ)に進めるか
+  can_proceed: Record<PurchaseOption, boolean>;
+}
+
+export function getPreflight(params: { region: string; instance_type: string }) {
+  return request<Preflight>(`/api/preflight?${new URLSearchParams(params)}`);
+}

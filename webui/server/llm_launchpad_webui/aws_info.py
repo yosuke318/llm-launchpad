@@ -190,3 +190,60 @@ class AwsInfo:
 
         # model-store を apply した直後に反映されるよう、1分だけ覚えておく
         return self._cached(("model_store", region), fetch, ttl_sec=60)
+
+    # 起動前の事前チェック(preflight.py)で使う
+
+    def caller_identity(self):
+        """使っている認証情報のアカウントと ARN、プロファイル名"""
+        def fetch():
+            identity = self._client("sts", PRICING_REGION).get_caller_identity()
+            return {"account": identity["Account"], "arn": identity["Arn"], "profile": self.session.profile_name}
+
+        return self._cached(("caller_identity",), fetch, ttl_sec=60)
+
+    def instance_vcpus(self, region, instance_type):
+        def fetch():
+            res = self._client("ec2", region).describe_instance_types(InstanceTypes=[instance_type])
+            return res["InstanceTypes"][0]["VCpuInfo"]["DefaultVCpus"]
+
+        return self._cached(("instance_vcpus", region, instance_type), fetch)
+
+    def service_quota(self, region, quota_code):
+        """EC2 のクォータの値(vCPU の数)"""
+        def fetch():
+            res = self._client("service-quotas", region).get_service_quota(ServiceCode="ec2", QuotaCode=quota_code)
+            return res["Quota"]["Value"]
+
+        return self._cached(("service_quota", region, quota_code), fetch, ttl_sec=60)
+
+    def open_quota_requests(self, region, quota_code):
+        """まだ終わっていない引き上げの申請"""
+        def fetch():
+            res = self._client("service-quotas", region).list_requested_service_quota_change_history_by_quota(
+                ServiceCode="ec2", QuotaCode=quota_code,
+            )
+            return [
+                {"desired_value": r["DesiredValue"], "status": r["Status"], "created": r["Created"].isoformat()}
+                for r in res["RequestedQuotas"]
+                if r["Status"] in ("PENDING", "CASE_OPENED")
+            ]
+
+        return self._cached(("open_quota_requests", region, quota_code), fetch, ttl_sec=60)
+
+    def g_and_vt_vcpus_in_use(self, region):
+        """そのリージョンで動いている G 系と VT 系のインスタンスの vCPU(クォータが数える分)。オンデマンドとスポットで分ける"""
+        def fetch():
+            pages = self._client("ec2", region).get_paginator("describe_instances").paginate(Filters=[
+                {"Name": "instance-state-name", "Values": ["pending", "running"]},
+                {"Name": "instance-type", "Values": ["g*", "vt*"]},
+            ])
+            used = {"on_demand": 0, "spot": 0}
+            for page in pages:
+                for reservation in page["Reservations"]:
+                    for inst in reservation["Instances"]:
+                        cpu = inst.get("CpuOptions", {})
+                        vcpus = cpu.get("CoreCount", 0) * cpu.get("ThreadsPerCore", 1)
+                        used["spot" if inst.get("InstanceLifecycle") == "spot" else "on_demand"] += vcpus
+            return used
+
+        return self._cached(("g_and_vt_vcpus_in_use", region), fetch, ttl_sec=30)

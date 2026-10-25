@@ -100,6 +100,43 @@
     "hourlyTotalDetail": "{{onDemand}}/hour on-demand. Instance, root volume ({{disk}} GiB) and storage added together",
     "note": "Prices are estimates from the AWS Price List API and spot price history, and differ from the actual bill. Startup time is from terraform apply until ready, worked out from a measurement ({{source}})."
   },
+  "preflight": {
+    "heading": "Checks before launch",
+    "recheck": "Check again",
+    "loadFailed": "Could not run the checks: {{error}}",
+    "names": {
+      "credentials": "AWS credentials",
+      "instance_type": "Instance type availability",
+      "quota_on_demand": "vCPU quota (on-demand)",
+      "quota_spot": "vCPU quota (spot)"
+    },
+    "status": {
+      "ok": "OK",
+      "ng": "problem",
+      "unknown": "could not check"
+    },
+    "unknown": "Could not check ({{error}}). Launch is not blocked, but apply may fail.",
+    "defaultProfile": "default",
+    "credentialsOk": "Account {{account}}, profile {{profile}} ({{arn}})",
+    "credentialsFix": "In the terminal that started the server, set up aws configure or AWS_PROFILE, check that aws sts get-caller-identity works, then restart the server.",
+    "typeOk": "{{type}} is available in: {{zones}}",
+    "typeNg": "{{type}} is not available in {{region}}.",
+    "typeFix": "Pick another region, or change the context length in the model list to get another instance type.",
+    "quotaNumbers": "limit {{limit}} vCPU, in use {{used}} vCPU, needed {{needed}} vCPU",
+    "quotaOk": "Enough ({{numbers}})",
+    "quotaNg": "Not enough ({{numbers}}). \"{{name}}\" needs to be raised.",
+    "pendingRequest": "Requested: {{value}} vCPU ({{status}}, requested on {{created}})",
+    "quotaFix": "Request an increase in Service Quotas. Approval can take a few days.",
+    "quotaFixPending": "Wait for the request to be approved.",
+    "quotaUseOther": "The other purchase option (spot / on-demand) can launch with the current quota.",
+    "quotaLink": "Open the request page",
+    "summary": {
+      "both": "You can go on to launch with spot or on-demand.",
+      "spotOnly": "You can go on to launch with spot (the on-demand quota is not enough).",
+      "onDemandOnly": "You can go on to launch with on-demand (the spot quota is not enough).",
+      "none": "You cannot launch yet. Fix the items above, then check again."
+    }
+  },
   "terraform": {
     "heading": "Terraform",
     "description": "Each button runs a command in terraform/ and streams its output here.",

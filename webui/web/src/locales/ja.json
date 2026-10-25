@@ -100,6 +100,43 @@
     "hourlyTotalDetail": "オンデマンドなら {{onDemand}}/時。インスタンス、ルートボリューム({{disk}} GiB)、保管の料金を足した値",
     "note": "料金は AWS の Price List API とスポット価格の履歴から取った目安で、実際の請求額とは違います。起動時間は、terraform apply から使える状態になるまでの目安で、実機の測定({{source}})から割り出しています。"
   },
+  "preflight": {
+    "heading": "起動前のチェック",
+    "recheck": "もう一度確かめる",
+    "loadFailed": "チェックできませんでした: {{error}}",
+    "names": {
+      "credentials": "AWS の認証情報",
+      "instance_type": "インスタンス型を使えるか",
+      "quota_on_demand": "vCPU クォータ(オンデマンド)",
+      "quota_spot": "vCPU クォータ(スポット)"
+    },
+    "status": {
+      "ok": "問題なし",
+      "ng": "問題あり",
+      "unknown": "確かめられなかった"
+    },
+    "unknown": "確かめられませんでした({{error}})。起動は止めませんが、apply で失敗することがあります。",
+    "defaultProfile": "既定",
+    "credentialsOk": "アカウント {{account}}、プロファイル {{profile}}({{arn}})",
+    "credentialsFix": "サーバーを起動した端末で aws configure か AWS_PROFILE を設定し、aws sts get-caller-identity が通ることを確かめてから、サーバーを起動し直してください。",
+    "typeOk": "{{type}} を使える AZ: {{zones}}",
+    "typeNg": "{{type}} は {{region}} では使えません。",
+    "typeFix": "別のリージョンを選ぶか、モデル一覧でコンテキスト長を変えて、別のインスタンス型にしてください。",
+    "quotaNumbers": "上限 {{limit}} vCPU、使用中 {{used}} vCPU、必要 {{needed}} vCPU",
+    "quotaOk": "足りています({{numbers}})",
+    "quotaNg": "足りません({{numbers}})。「{{name}}」の引き上げが要ります。",
+    "pendingRequest": "申請中: {{value}} vCPU({{status}}、{{created}} に申請)",
+    "quotaFix": "Service Quotas で引き上げを申請してください。承認まで数日かかることがあります。",
+    "quotaFixPending": "申請の承認を待ってください。",
+    "quotaUseOther": "もう片方の購入方法(スポット / オンデマンド)なら、今のクォータで起動できます。",
+    "quotaLink": "申請のページを開く",
+    "summary": {
+      "both": "スポットでもオンデマンドでも起動に進めます。",
+      "spotOnly": "スポットなら起動に進めます(オンデマンドはクォータが足りません)。",
+      "onDemandOnly": "オンデマンドなら起動に進めます(スポットはクォータが足りません)。",
+      "none": "このままでは起動に進めません。上の対処をしてから、もう一度確かめてください。"
+    }
+  },
   "terraform": {
     "heading": "Terraform",
     "description": "ボタンを押すと、terraform/ でコマンドを実行し、出力をここに流します。",
