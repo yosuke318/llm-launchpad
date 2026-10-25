@@ -41,18 +41,23 @@ class AwsInfo:
     def _client(self, service, region):
         return self.session.client(service, region_name=region)
 
-    def _cached(self, key, fetch):
+    def _cached(self, key, fetch, ttl_sec=None):
+        """key ごとに、ttl_sec 秒(省略時は self.ttl_sec)だけ結果を覚えておく。
+        期限切れのものは書き込むときに消すので、サーバーを長く動かしてもたまり続けない"""
+        ttl = self.ttl_sec if ttl_sec is None else ttl_sec
         now = time.monotonic()
         with self._lock:
             hit = self._cache.get(key)
-            if hit and now - hit[0] < self.ttl_sec:
+            if hit and now < hit[0]:
                 return hit[1]
         try:
             value = fetch()
         except (BotoCoreError, ClientError) as e:
             raise AwsInfoError(f"{key[0]} を取れませんでした: {e}") from e
         with self._lock:
-            self._cache[key] = (now, value)
+            for k in [k for k, (expires, _) in self._cache.items() if expires <= now]:
+                del self._cache[k]
+            self._cache[key] = (now + ttl, value)
         return value
 
     def account_id(self):
@@ -115,8 +120,8 @@ class AwsInfo:
                 prices.setdefault(h["AvailabilityZone"], float(h["SpotPrice"]))
             return dict(sorted(prices.items()))
 
-        # スポット価格は変わるので、短めに覚えておく
-        return self._cached(("spot_hourly_by_az", region, instance_type, int(time.time() // 600)), fetch)
+        # スポット価格は変わるので、10分だけ覚えておく
+        return self._cached(("spot_hourly_by_az", region, instance_type), fetch, ttl_sec=600)
 
     def gp3_prices(self, region):
         """gp3 の料金。容量(GB-月)、スループット(MiB/s-月)、IOPS(IOPS-月)"""
@@ -183,5 +188,5 @@ class AwsInfo:
             } for v in vols]
             return {"bucket": bucket, "bucket_exists": exists, "volumes": volumes}
 
-        # model-store を apply した直後に反映されるよう、1分ごとに問い合わせ直す
-        return self._cached(("model_store", region, int(time.time() // 60)), fetch)
+        # model-store を apply した直後に反映されるよう、1分だけ覚えておく
+        return self._cached(("model_store", region), fetch, ttl_sec=60)
