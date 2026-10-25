@@ -1,7 +1,7 @@
 """VRAM の見積もりと、インスタンス型の選択。terraform/modules/sizing と同じ計算をする。
 
 画面でモデルを選んだときに、terraform を呼ばずにすぐ推奨のインスタンス型を出すため。
-同じ結果になることを tests/test_sizing_matches_terraform.py で確かめている。式を変えるときは両方を直す。
+同じ結果になることを tests/test_sizing.py で確かめている。式を変えるときは両方を直す。
 
     必要VRAM(GiB) = 重み + KVキャッシュ + 余裕
       重み         = 配布サイズ(GB) x 1e9 / 2^30
