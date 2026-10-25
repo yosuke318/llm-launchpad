@@ -5,6 +5,7 @@ import en from "./locales/en.json";
 import ja from "./locales/ja.json";
 import { initialRunView, runReducer } from "./runStream";
 import { isTight, vramSegments } from "./vram";
+import { hourlyTotal, minutes } from "./cost";
 
 const run: RunSummary = {
   id: "abc",
@@ -96,5 +97,32 @@ describe("vramSegments", () => {
   it("flags tight headroom under 1 GiB", () => {
     expect(isTight({ ...base, headroom_gib: 0.37 })).toBe(true);
     expect(isTight(base)).toBe(false);
+  });
+});
+
+describe("hourlyTotal", () => {
+  const option = {
+    id: "s3_cache" as const,
+    storage_monthly_usd: 0.13,
+    root_volume_gib: 96,
+    running_disk_hourly_usd: 0.0784,
+    startup_first_sec: 563,
+    startup_cached_sec: 545,
+    ready: true,
+    prerequisite: null,
+  };
+
+  it("adds the instance, the root volume and the storage spread over the month", () => {
+    expect(hourlyTotal(0.3407, option)).toBeCloseTo(0.3407 + 0.0784 + 0.13 / 730);
+  });
+
+  it("is unknown when a price is missing", () => {
+    expect(hourlyTotal(null, option)).toBeNull();
+    expect(hourlyTotal(0.34, { ...option, storage_monthly_usd: null })).toBeNull();
+  });
+
+  it("rounds startup time to minutes, at least 1", () => {
+    expect(minutes(563)).toBe(9);
+    expect(minutes(10)).toBe(1);
   });
 });

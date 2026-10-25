@@ -64,6 +64,42 @@
     },
     "estimateNote": "Estimates are approximate. They assume Ollama serves one request at a time."
   },
+  "region": {
+    "heading": "Region and model storage for {{model}}",
+    "region": "Region",
+    "loadFailed": "Could not load prices or region details: {{error}}",
+    "moveNotice": "{{region}} needs its own model storage (an S3 bucket or EBS volume). Changing the region means putting the model there again, since buckets and volumes belong to one region.",
+    "notOffered": "{{type}} is not available in this region. Pick another region.",
+    "offeredIn": "is available in: {{zones}}",
+    "spot": "Spot (cheapest AZ)",
+    "onDemand": "On-demand",
+    "perHour": "{{price}}/hour",
+    "perMonth": "{{price}}/month",
+    "unknown": "unknown",
+    "storage": "Model storage",
+    "storageNames": {
+      "s3_cache": "S3 cache",
+      "ebs": "Persistent EBS",
+      "download": "Download every time"
+    },
+    "storageHelp": {
+      "s3_cache": "Copies the model from S3. If it is not in S3 yet, downloads it and saves it to S3 once ready. Cheapest while stopped",
+      "ebs": "Attaches an EBS volume that keeps the model. Nothing to download, but loading from the volume is slower and storage costs more",
+      "download": "Downloads from the Ollama library every time. No storage cost"
+    },
+    "storageMonthly": "Storage cost (also while stopped)",
+    "ebsThroughput": "(of which {{price}} is the {{throughput}} MiB/s throughput of the {{size}} GiB volume)",
+    "startup": "Startup time",
+    "minutes": "about {{count}} min",
+    "startupFirstLater": "first time about {{first}} min / later about {{later}} min",
+    "prerequisite": {
+      "bucket": "There is no bucket in {{region}} yet. Apply terraform/model-store first.",
+      "volume": "There is no EBS volume in {{region}} yet. Create one with model_volumes in terraform/model-store first."
+    },
+    "hourlyTotal": "Hourly estimate (spot)",
+    "hourlyTotalDetail": "{{onDemand}}/hour on-demand. Instance, root volume ({{disk}} GiB) and storage added together",
+    "note": "Prices are estimates from the AWS Price List API and spot price history, and differ from the actual bill. Startup time is from terraform apply until ready, worked out from a measurement ({{source}})."
+  },
   "terraform": {
     "heading": "Terraform",
     "description": "Each button runs a command in terraform/ and streams its output here.",

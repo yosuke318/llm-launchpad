@@ -15,7 +15,9 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .aws_info import AwsInfo, AwsInfoError
 from .runner import COMMANDS, BusyError, Runner, RunnerError, list_workspaces
+from .storage import MEASURED, storage_options
 from .sizing import (
     DEFAULT_CONTEXT_LENGTH,
     DEFAULT_KV_CACHE_TYPE,
@@ -42,6 +44,9 @@ CONTEXT_LENGTHS = [4096, 8192, 16384, 32768, 65536, 131072, 262144]
 # 推論エンジン。初期版は Ollama だけ(vLLM は後続で足す)
 ENGINES = [{"id": "ollama", "available": True}, {"id": "vllm", "available": False}]
 
+# 既定のリージョン(terraform/variables.tf と同じ)
+DEFAULT_REGION = "ap-northeast-1"
+
 
 class RunRequest(BaseModel):
     command: Literal[tuple(COMMANDS)]  # type: ignore[valid-type]
@@ -50,9 +55,74 @@ class RunRequest(BaseModel):
     variables: dict[str, object] | None = None
 
 
-def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, catalog_dir: str = CATALOG_DIR) -> FastAPI:
+def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, catalog_dir: str = CATALOG_DIR,
+               aws_info: AwsInfo | None = None) -> FastAPI:
     app = FastAPI(title="llm-launchpad WebUI")
     app.state.runner = runner or Runner(TERRAFORM_DIR, TERRAFORM_BIN)
+    # AWS への問い合わせは、使うときに初めて用意する(認証情報がなくても、ほかの画面は動くように)
+    app.state.aws_info = aws_info
+
+    def aws():
+        if app.state.aws_info is None:
+            app.state.aws_info = AwsInfo()
+        return app.state.aws_info
+
+    @app.get("/api/regions")
+    def regions():
+        try:
+            return {"regions": aws().regions(), "default": DEFAULT_REGION}
+        except AwsInfoError as e:
+            raise HTTPException(status_code=502, detail=str(e))
+
+    @app.get("/api/region-plan")
+    def region_plan(model: str, region: str = DEFAULT_REGION, context_length: int = DEFAULT_CONTEXT_LENGTH,
+                    kv_cache_type: str = DEFAULT_KV_CACHE_TYPE, instance_type: str | None = None):
+        """選んだリージョンで、そのモデルの推奨インスタンス型が使えるか、いくらか、ストレージ方式ごとの料金と起動時間の目安。
+        料金などは1つ取れなくても止めず、その項目を null にして warnings に理由を残す"""
+        try:
+            est = estimate(catalog(), model, min(context_length, catalog().models.get(model, {}).get("max_context", context_length)), kv_cache_type)
+        except SizingError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        itype = instance_type or est["instance_type"]
+        if itype is None:
+            raise HTTPException(status_code=422, detail="このモデルが収まるインスタンス型がありません")
+
+        info = aws()
+        warnings = []
+
+        def get(fn, *args):
+            try:
+                return fn(*args)
+            except AwsInfoError as e:
+                warnings.append(str(e))
+                return None
+
+        azs = get(info.offering_azs, region, itype)
+        on_demand = get(info.on_demand_hourly, region, itype)
+        spot = get(info.spot_hourly_by_az, region, itype) or {}
+        # スポットは、インスタンス型を提供している AZ の中で一番安いところ
+        spot_in_offered = {az: p for az, p in spot.items() if azs is None or az in azs}
+        spot_min = min(spot_in_offered.items(), key=lambda kv: kv[1]) if spot_in_offered else None
+        model_store = get(info.model_store, region)
+        file_size_gb = est["model"]["file_size_gb"]
+
+        return {
+            "region": region,
+            "model": model,
+            "instance_type": itype,
+            "availability": {"available": bool(azs) if azs is not None else None, "availability_zones": azs},
+            "prices": {
+                "on_demand_hourly_usd": on_demand,
+                "spot_hourly_usd_by_az": spot_in_offered,
+                "spot_min": {"availability_zone": spot_min[0], "hourly_usd": spot_min[1]} if spot_min else None,
+            },
+            "storage_options": storage_options(
+                file_size_gb, get(info.gp3_prices, region), get(info.s3_standard_per_gb_month, region), model_store,
+            ),
+            "model_store": model_store,
+            "measured": MEASURED,
+            "warnings": warnings,
+        }
 
     def catalog():
         # catalog/*.yaml をそのまま読む(モデル定義を足したら、サーバーを起動し直すと反映される)

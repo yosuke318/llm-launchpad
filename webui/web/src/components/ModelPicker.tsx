@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { getCatalog, listModels, type Catalog, type ModelEstimate } from "../api";
 import { isTight, vramSegments } from "../vram";
+import RegionStoragePicker from "./RegionStoragePicker";
 
 // 提供元(会社)を選び、モデルの一覧から選ぶ。コンテキスト長と KV キャッシュの型で、必要 VRAM と推奨のインスタンス型が変わる
 export default function ModelPicker() {
@@ -54,111 +55,115 @@ export default function ModelPicker() {
   }
 
   return (
-    <div className="models">
-      <section className="card">
-        <div className="filters">
-          <label className="field">
-            <span>{t("models.engine")}</span>
-            <select value={engine} onChange={(e) => setEngine(e.target.value)}>
-              {catalog.engines.map((en) => (
-                <option key={en.id} value={en.id} disabled={!en.available}>
-                  {t(`models.engines.${en.id}`)}
-                  {!en.available && ` (${t("models.comingLater")})`}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>{t("models.contextLength")}</span>
-            <select value={contextLength} onChange={(e) => setContextLength(Number(e.target.value))}>
-              {catalog.context_lengths.map((c) => (
-                <option key={c} value={c}>
-                  {num.format(c)} {t("models.tokens")}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>{t("models.kvCacheType")}</span>
-            <select value={kvCacheType} onChange={(e) => setKvCacheType(e.target.value)}>
-              {catalog.kv_cache_types.map((k) => (
-                <option key={k} value={k}>
-                  {k}
-                  {k !== "f16" && ` (${t("models.kvQuantized")})`}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        <div className="vendors" role="radiogroup" aria-label={t("models.vendor")}>
-          {["", ...catalog.vendors].map((v) => (
-            <button key={v || "all"} role="radio" aria-checked={vendor === v} className={vendor === v ? "chip active" : "chip"} onClick={() => setVendor(v)}>
-              {v || t("models.allVendors")}
-            </button>
-          ))}
-        </div>
-
-        {error && <p className="error">{t("models.loadFailed", { error })}</p>}
-
-        <div className="table-wrap" aria-busy={loading}>
-          <table className="model-table">
-            <thead>
-              <tr>
-                <th>{t("models.columns.model")}</th>
-                <th className="num">{t("models.columns.params")}</th>
-                <th className="num">{t("models.columns.storage")}</th>
-                <th className="num">{t("models.columns.vram")}</th>
-                <th>{t("models.columns.instance")}</th>
-                <th>{t("models.columns.license")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {models.map((m) => {
-                const e = m.vram_estimate;
-                const isSelected = m.model.tag === selectedTag;
-                return (
-                  <tr key={m.model.tag} className={isSelected ? "selected" : ""} onClick={() => setSelectedTag(m.model.tag)}>
-                    <td>
-                      <button className="link" onClick={() => setSelectedTag(m.model.tag)} aria-pressed={isSelected}>
-                        {m.model.name}
-                      </button>
-                      <div className="muted small">
-                        <code>{m.model.tag}</code> · {m.model.vendor}
-                      </div>
-                    </td>
-                    <td className="num">{num.format(m.model.params_b)}B</td>
-                    <td className="num">{num.format(m.model.file_size_gb)} GB</td>
-                    <td className="num">
-                      {num.format(e.required_gib)} GiB
-                      {m.context_capped && <div className="muted small">{t("models.cappedAt", { context: num.format(e.context_length) })}</div>}
-                    </td>
-                    <td>
-                      {m.instance ? (
-                        <>
-                          <code>{m.instance_type}</code>
-                          <div className="muted small">
-                            {m.instance.gpu_model} × {m.instance.gpu_count}
-                            {isTight(e) && <span className="warning"> · {t("models.tight")}</span>}
-                          </div>
-                        </>
-                      ) : (
-                        <span className="error">{t("models.noFit")}</span>
-                      )}
-                    </td>
-                    <td className="small">{m.model.license}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="card detail" aria-live="polite">
-        {selected ? <ModelDetail estimate={selected} format={num.format} /> : <p className="muted">{t("models.selectPrompt")}</p>}
-      </section>
-    </div>
+    <>
+      <div className="models">
+        <section className="card">
+          <div className="filters">
+            <label className="field">
+              <span>{t("models.engine")}</span>
+              <select value={engine} onChange={(e) => setEngine(e.target.value)}>
+                {catalog.engines.map((en) => (
+                  <option key={en.id} value={en.id} disabled={!en.available}>
+                    {t(`models.engines.${en.id}`)}
+                    {!en.available && ` (${t("models.comingLater")})`}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>{t("models.contextLength")}</span>
+              <select value={contextLength} onChange={(e) => setContextLength(Number(e.target.value))}>
+                {catalog.context_lengths.map((c) => (
+                  <option key={c} value={c}>
+                    {num.format(c)} {t("models.tokens")}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>{t("models.kvCacheType")}</span>
+              <select value={kvCacheType} onChange={(e) => setKvCacheType(e.target.value)}>
+                {catalog.kv_cache_types.map((k) => (
+                  <option key={k} value={k}>
+                    {k}
+                    {k !== "f16" && ` (${t("models.kvQuantized")})`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+  
+          <div className="vendors" role="radiogroup" aria-label={t("models.vendor")}>
+            {["", ...catalog.vendors].map((v) => (
+              <button key={v || "all"} role="radio" aria-checked={vendor === v} className={vendor === v ? "chip active" : "chip"} onClick={() => setVendor(v)}>
+                {v || t("models.allVendors")}
+              </button>
+            ))}
+          </div>
+  
+          {error && <p className="error">{t("models.loadFailed", { error })}</p>}
+  
+          <div className="table-wrap" aria-busy={loading}>
+            <table className="model-table">
+              <thead>
+                <tr>
+                  <th>{t("models.columns.model")}</th>
+                  <th className="num">{t("models.columns.params")}</th>
+                  <th className="num">{t("models.columns.storage")}</th>
+                  <th className="num">{t("models.columns.vram")}</th>
+                  <th>{t("models.columns.instance")}</th>
+                  <th>{t("models.columns.license")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {models.map((m) => {
+                  const e = m.vram_estimate;
+                  const isSelected = m.model.tag === selectedTag;
+                  return (
+                    <tr key={m.model.tag} className={isSelected ? "selected" : ""} onClick={() => setSelectedTag(m.model.tag)}>
+                      <td>
+                        <button className="link" onClick={() => setSelectedTag(m.model.tag)} aria-pressed={isSelected}>
+                          {m.model.name}
+                        </button>
+                        <div className="muted small">
+                          <code>{m.model.tag}</code> · {m.model.vendor}
+                        </div>
+                      </td>
+                      <td className="num">{num.format(m.model.params_b)}B</td>
+                      <td className="num">{num.format(m.model.file_size_gb)} GB</td>
+                      <td className="num">
+                        {num.format(e.required_gib)} GiB
+                        {m.context_capped && <div className="muted small">{t("models.cappedAt", { context: num.format(e.context_length) })}</div>}
+                      </td>
+                      <td>
+                        {m.instance ? (
+                          <>
+                            <code>{m.instance_type}</code>
+                            <div className="muted small">
+                              {m.instance.gpu_model} × {m.instance.gpu_count}
+                              {isTight(e) && <span className="warning"> · {t("models.tight")}</span>}
+                            </div>
+                          </>
+                        ) : (
+                          <span className="error">{t("models.noFit")}</span>
+                        )}
+                      </td>
+                      <td className="small">{m.model.license}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+  
+        <section className="card detail" aria-live="polite">
+          {selected ? <ModelDetail estimate={selected} format={num.format} /> : <p className="muted">{t("models.selectPrompt")}</p>}
+        </section>
+      </div>
+      {/* モデルを選んだら、次にリージョンとモデルの置き場所を選ぶ */}
+      {selected && selected.instance && <RegionStoragePicker estimate={selected} contextLength={contextLength} kvCacheType={kvCacheType} />}
+    </>
   );
 }
 

@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Local WebUI for llm-launchpad. Writes tfvars and runs terraform as a child process."
 requires-python = ">=3.12"
 dependencies = [
+    "boto3",
     "fastapi",
     "pyyaml",
     "uvicorn[standard]",
