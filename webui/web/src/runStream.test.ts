@@ -4,6 +4,7 @@ import type { RunSummary } from "./api";
 import en from "./locales/en.json";
 import ja from "./locales/ja.json";
 import { initialRunView, runReducer } from "./runStream";
+import { isTight, vramSegments } from "./vram";
 
 const run: RunSummary = {
   id: "abc",
@@ -64,5 +65,36 @@ describe("locales", () => {
 
   it("ja and en have the same keys", () => {
     expect(keys(en).sort()).toEqual(keys(ja).sort());
+  });
+});
+
+describe("vramSegments", () => {
+  const base = {
+    weights_gib: 4.84,
+    kv_cache_gib: 1.13,
+    overhead_gib: 1.5,
+    required_gib: 7.47,
+    instance_vram_gib: 15,
+    headroom_gib: 7.53,
+    context_length: 8192,
+    kv_cache_type: "f16",
+  };
+
+  it("splits the instance VRAM into weights, KV cache, overhead and free", () => {
+    const s = vramSegments(base);
+    expect(s.weights + s.kvCache + s.overhead + s.free).toBeCloseTo(100);
+    expect(s.weights).toBeCloseTo((4.84 / 15) * 100);
+    expect(s.overflow).toBe(false);
+  });
+
+  it("marks overflow and fills the bar when nothing fits", () => {
+    const s = vramSegments({ ...base, instance_vram_gib: 0, headroom_gib: -7.47 });
+    expect(s.overflow).toBe(true);
+    expect(s.weights + s.kvCache + s.overhead).toBeCloseTo(100);
+  });
+
+  it("flags tight headroom under 1 GiB", () => {
+    expect(isTight({ ...base, headroom_gib: 0.37 })).toBe(true);
+    expect(isTight(base)).toBe(false);
   });
 });

@@ -8,6 +8,62 @@
     "ja": "日本語",
     "en": "English"
   },
+  "tabs": {
+    "label": "画面の切り替え",
+    "models": "モデルを選ぶ",
+    "terraform": "Terraform"
+  },
+  "models": {
+    "loading": "モデル定義を読み込んでいます…",
+    "loadFailed": "モデル定義を読み込めませんでした: {{error}}",
+    "engine": "推論エンジン",
+    "engines": {
+      "ollama": "Ollama",
+      "vllm": "vLLM"
+    },
+    "comingLater": "あとで対応",
+    "contextLength": "コンテキスト長",
+    "tokens": "トークン",
+    "kvCacheType": "KVキャッシュの型",
+    "kvQuantized": "量子化して VRAM を減らす",
+    "vendor": "提供元",
+    "allVendors": "すべて",
+    "columns": {
+      "model": "モデル",
+      "params": "パラメータ数",
+      "storage": "必要ストレージ",
+      "vram": "必要VRAM",
+      "instance": "推奨インスタンス型",
+      "license": "ライセンス"
+    },
+    "cappedAt": "最大の {{context}} で見積もり",
+    "cappedHelp": "選んだコンテキスト長はこのモデルの最大({{max}})を超えるため、最大で見積もっています。",
+    "tight": "残りが少ない",
+    "tightHelp": "残りの VRAM が 1 GiB を切っています。実機では収まらないことがあるので、一つ上の型も考えてください。",
+    "noFit": "収まる型がない",
+    "selectPrompt": "一覧からモデルを選ぶと、必要 VRAM の内訳と推奨のインスタンス型が出ます。",
+    "recommended": "推奨のインスタンス型",
+    "instanceSpec": "{{gpu}} × {{count}}(VRAM {{vram}} GiB)/ vCPU {{vcpu}} / メモリ {{memory}} GiB",
+    "vramBarLabel": "必要 VRAM {{required}} GiB / インスタンスの VRAM {{total}} GiB",
+    "breakdown": {
+      "weights": "重み",
+      "kvCache": "KVキャッシュ({{context}} トークン、{{type}})",
+      "overhead": "余裕",
+      "required": "必要VRAM",
+      "headroom": "残り"
+    },
+    "fittingTypes": "収まるインスタンス型(選ばれる順)",
+    "specs": {
+      "params": "パラメータ数",
+      "quantization": "量子化",
+      "storage": "配布サイズ",
+      "maxContext": "最大コンテキスト長",
+      "layers": "層の数",
+      "hybridLayers": "{{layers}}(うち注意層 {{attention}})",
+      "kvHeads": "KVヘッド数 × ヘッド次元"
+    },
+    "estimateNote": "見積もりは目安です。Ollama の同時リクエスト数は 1 を前提にしています。"
+  },
   "terraform": {
     "heading": "Terraform",
     "description": "ボタンを押すと、terraform/ でコマンドを実行し、出力をここに流します。",

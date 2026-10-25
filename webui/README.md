@@ -55,6 +55,20 @@ cd webui/web && npm run dev    # http://127.0.0.1:5173 。/api はサーバー(8
 * `terraform/tfvars/` は自分のIPなどが入ることがあるため、git に入れない
 * ワークスペースは `TF_WORKSPACE` で選ぶ。`terraform workspace select` はしないので、手元で選んでいるワークスペースは変わらない
 
+### モデルを選ぶ画面
+
+* 提供元(会社)で絞り、モデルの一覧に、パラメータ数、必要ストレージ(配布サイズ)、必要VRAM、推奨インスタンス型、ライセンスを並べる
+* コンテキスト長と KV キャッシュの型を変えると、必要VRAMと推奨のインスタンス型が変わる。モデルの最大コンテキスト長を超えたら、最大で見積もる
+* モデルを選ぶと、VRAM の内訳(重み / KVキャッシュ / 余裕 / 残り)と、収まるインスタンス型を出す。残りが 1 GiB を切ったら注意を出す
+* データは `catalog/models.yaml` と `catalog/instance_types.yaml` を読む。モデル定義を足したら、サーバーを起動し直す
+* 推論エンジンは Ollama だけ(vLLM は選択欄だけ置いて、選べないようにしてある)
+
+### VRAM の見積もりは Python でも計算する
+
+* 画面でモデルを選んだときにすぐ推奨の型を出すため、`terraform/modules/sizing` と同じ計算を `server/llm_launchpad_webui/sizing.py` にも書いた
+* 2つがずれないよう、`tests/test_sizing.py` が、カタログの全モデル x コンテキスト長(4096 / 8192 / 32768 / 131072)x KVキャッシュの型(f16 / q8_0)を terraform の sizing モジュールでも計算し、結果(インスタンス型、収まる型の並び、見積もりの内訳)が同じかを確かめる。terraform がない環境ではこのテストだけ飛ばす
+* 式を変えるときは、両方を直す
+
 ### terraform の実行
 
 * 画面から実行できるのは `version` / `init` / `validate` / `plan` だけ。`apply` / `destroy` は、料金の確認や環境の一覧の画面と一緒に足す
@@ -68,6 +82,9 @@ cd webui/web && npm run dev    # http://127.0.0.1:5173 。/api はサーバー(8
 | メソッド | パス | 内容 |
 |---|---|---|
 | GET | `/api/health` | 動いているか、terraform のディレクトリ、実行できるコマンド |
+| GET | `/api/catalog` | 提供元、推論エンジン、選べるコンテキスト長と KV キャッシュの型、インスタンス型の表 |
+| GET | `/api/models` | モデルの一覧と見積もり。`?vendor=Alibaba&context_length=32768&kv_cache_type=f16` |
+| GET | `/api/estimate` | 1つのモデルの見積もり。`?model=qwen3:8b&context_length=8192` |
 | GET | `/api/workspaces` | `terraform workspace list` の結果 |
 | POST | `/api/runs` | コマンドを実行する。`{"command": "plan", "workspace": "qwen-test", "variables": {...}}` |
 | GET | `/api/runs` | 実行の一覧(新しい順) |
@@ -85,6 +102,7 @@ cd webui/web && npm test && npm run typecheck
 
 | 変数 | 既定 | 説明 |
 |---|---|---|
+| `LAUNCHPAD_CATALOG_DIR` | `catalog/` | モデル定義とインスタンス型の表のディレクトリ |
 | `LAUNCHPAD_TERRAFORM_DIR` | `terraform/` | terraform を実行するディレクトリ |
 | `LAUNCHPAD_TERRAFORM_BIN` | `terraform` | terraform のコマンド |
 | `LAUNCHPAD_WEB_DIST` | `webui/web/dist` | 配る画面のディレクトリ |

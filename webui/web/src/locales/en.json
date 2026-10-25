@@ -8,6 +8,62 @@
     "ja": "日本語",
     "en": "English"
   },
+  "tabs": {
+    "label": "Screens",
+    "models": "Pick a model",
+    "terraform": "Terraform"
+  },
+  "models": {
+    "loading": "Loading model definitions…",
+    "loadFailed": "Could not load model definitions: {{error}}",
+    "engine": "Inference engine",
+    "engines": {
+      "ollama": "Ollama",
+      "vllm": "vLLM"
+    },
+    "comingLater": "coming later",
+    "contextLength": "Context length",
+    "tokens": "tokens",
+    "kvCacheType": "KV cache type",
+    "kvQuantized": "quantized, uses less VRAM",
+    "vendor": "Vendor",
+    "allVendors": "All",
+    "columns": {
+      "model": "Model",
+      "params": "Parameters",
+      "storage": "Storage",
+      "vram": "VRAM needed",
+      "instance": "Recommended instance",
+      "license": "License"
+    },
+    "cappedAt": "estimated at the max, {{context}}",
+    "cappedHelp": "The selected context length is over this model's max ({{max}}), so the estimate uses the max.",
+    "tight": "little headroom",
+    "tightHelp": "Less than 1 GiB of VRAM is left. It may not fit on a real instance, so consider the next type up.",
+    "noFit": "No instance type fits",
+    "selectPrompt": "Pick a model from the list to see the VRAM breakdown and the recommended instance type.",
+    "recommended": "Recommended instance type",
+    "instanceSpec": "{{gpu}} × {{count}} ({{vram}} GiB VRAM) / {{vcpu}} vCPU / {{memory}} GiB memory",
+    "vramBarLabel": "VRAM needed {{required}} GiB of {{total}} GiB on the instance",
+    "breakdown": {
+      "weights": "Weights",
+      "kvCache": "KV cache ({{context}} tokens, {{type}})",
+      "overhead": "Overhead",
+      "required": "VRAM needed",
+      "headroom": "Left over"
+    },
+    "fittingTypes": "Instance types that fit (in the order they are picked)",
+    "specs": {
+      "params": "Parameters",
+      "quantization": "Quantization",
+      "storage": "Download size",
+      "maxContext": "Max context length",
+      "layers": "Layers",
+      "hybridLayers": "{{layers}} ({{attention}} attention)",
+      "kvHeads": "KV heads × head dim"
+    },
+    "estimateNote": "Estimates are approximate. They assume Ollama serves one request at a time."
+  },
   "terraform": {
     "heading": "Terraform",
     "description": "Each button runs a command in terraform/ and streams its output here.",

@@ -16,16 +16,31 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .runner import COMMANDS, BusyError, Runner, RunnerError, list_workspaces
+from .sizing import (
+    DEFAULT_CONTEXT_LENGTH,
+    DEFAULT_KV_CACHE_TYPE,
+    KV_CACHE_BYTES,
+    SizingError,
+    estimate,
+    load_catalog,
+)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 
+CATALOG_DIR = os.environ.get("LAUNCHPAD_CATALOG_DIR", os.path.join(REPO_ROOT, "catalog"))
 TERRAFORM_DIR = os.environ.get("LAUNCHPAD_TERRAFORM_DIR", os.path.join(REPO_ROOT, "terraform"))
 TERRAFORM_BIN = os.environ.get("LAUNCHPAD_TERRAFORM_BIN", "terraform")
 WEB_DIST = os.environ.get("LAUNCHPAD_WEB_DIST", os.path.join(REPO_ROOT, "webui", "web", "dist"))
 
 # 何も流れない間も接続が切れないよう、この秒数ごとに SSE のコメントを送る
 HEARTBEAT_SEC = 15
+
+# 画面で選べるコンテキスト長。モデルの最大コンテキスト長を超えるものは、そのモデルでは最大に合わせる
+CONTEXT_LENGTHS = [4096, 8192, 16384, 32768, 65536, 131072, 262144]
+
+# 推論エンジン。初期版は Ollama だけ(vLLM は後続で足す)
+ENGINES = [{"id": "ollama", "available": True}, {"id": "vllm", "available": False}]
 
 
 class RunRequest(BaseModel):
@@ -35,9 +50,51 @@ class RunRequest(BaseModel):
     variables: dict[str, object] | None = None
 
 
-def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST) -> FastAPI:
+def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, catalog_dir: str = CATALOG_DIR) -> FastAPI:
     app = FastAPI(title="llm-launchpad WebUI")
     app.state.runner = runner or Runner(TERRAFORM_DIR, TERRAFORM_BIN)
+
+    def catalog():
+        # catalog/*.yaml をそのまま読む(モデル定義を足したら、サーバーを起動し直すと反映される)
+        return load_catalog(catalog_dir)
+
+    @app.get("/api/catalog")
+    def catalog_summary():
+        """画面の選択肢。提供元はモデル定義に出てくる順"""
+        c = catalog()
+        vendors = list(dict.fromkeys(m["vendor"] for m in c.models.values()))
+        return {
+            "vendors": vendors,
+            "engines": ENGINES,
+            "context_lengths": CONTEXT_LENGTHS,
+            "kv_cache_types": list(KV_CACHE_BYTES),
+            "defaults": {"context_length": DEFAULT_CONTEXT_LENGTH, "kv_cache_type": DEFAULT_KV_CACHE_TYPE},
+            "instance_types": c.instance_types,
+        }
+
+    @app.get("/api/models")
+    def models(vendor: str | None = None, context_length: int = DEFAULT_CONTEXT_LENGTH,
+               kv_cache_type: str = DEFAULT_KV_CACHE_TYPE):
+        """モデルの一覧と、それぞれの見積もり。context_length がモデルの最大を超えるときは、最大で見積もる"""
+        c = catalog()
+        if kv_cache_type not in KV_CACHE_BYTES:
+            raise HTTPException(status_code=422, detail=f"kv_cache_type は {' / '.join(KV_CACHE_BYTES)} のどれかを指定してください")
+        if context_length < 512:
+            raise HTTPException(status_code=422, detail="context_length は 512 以上にしてください")
+        result = []
+        for tag, m in c.models.items():
+            if vendor and m["vendor"] != vendor:
+                continue
+            ctx = min(context_length, m["max_context"])
+            result.append({**estimate(c, tag, ctx, kv_cache_type), "context_capped": ctx < context_length})
+        return {"models": result}
+
+    @app.get("/api/estimate")
+    def estimate_one(model: str, context_length: int = DEFAULT_CONTEXT_LENGTH, kv_cache_type: str = DEFAULT_KV_CACHE_TYPE):
+        try:
+            return estimate(catalog(), model, context_length, kv_cache_type)
+        except SizingError as e:
+            raise HTTPException(status_code=422, detail=str(e))
 
     @app.get("/api/health")
     def health():
