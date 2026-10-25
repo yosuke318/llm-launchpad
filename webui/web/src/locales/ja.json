@@ -9,6 +9,7 @@
     "en": "English"
   },
   "tabs": {
+    "label": "画面の切り替え",
     "models": "モデルを選ぶ",
     "terraform": "Terraform"
   },

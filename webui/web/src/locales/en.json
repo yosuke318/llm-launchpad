@@ -9,6 +9,7 @@
     "en": "English"
   },
   "tabs": {
+    "label": "Screens",
     "models": "Pick a model",
     "terraform": "Terraform"
   },

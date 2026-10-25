@@ -8,6 +8,10 @@ import { LANGUAGES, saveLanguage, type Language } from "./i18n";
 const TABS = ["models", "terraform"] as const;
 type Tab = (typeof TABS)[number];
 
+// タブとパネルを ARIA で結びつける id(WAI-ARIA の tabs パターン)
+const tabId = (name: Tab) => `tab-${name}`;
+const panelId = (name: Tab) => `panel-${name}`;
+
 export default function App() {
   const { t, i18n } = useTranslation();
   const [tab, setTab] = useState<Tab>("models");
@@ -37,19 +41,27 @@ export default function App() {
         </label>
       </header>
 
-      <nav className="tabs" role="tablist">
+      <nav className="tabs" role="tablist" aria-label={t("tabs.label")}>
         {TABS.map((name) => (
-          <button key={name} role="tab" aria-selected={tab === name} className={tab === name ? "active" : ""} onClick={() => setTab(name)}>
+          <button
+            key={name}
+            id={tabId(name)}
+            role="tab"
+            aria-selected={tab === name}
+            aria-controls={panelId(name)}
+            className={tab === name ? "active" : ""}
+            onClick={() => setTab(name)}
+          >
             {t(`tabs.${name}`)}
           </button>
         ))}
       </nav>
 
       {/* 切り替えても実行中の terraform の出力を失わないよう、隠すだけにする */}
-      <div hidden={tab !== "models"}>
+      <div id={panelId("models")} role="tabpanel" aria-labelledby={tabId("models")} hidden={tab !== "models"}>
         <ModelPicker />
       </div>
-      <div hidden={tab !== "terraform"}>
+      <div id={panelId("terraform")} role="tabpanel" aria-labelledby={tabId("terraform")} hidden={tab !== "terraform"}>
         <TerraformPanel />
       </div>
     </div>
