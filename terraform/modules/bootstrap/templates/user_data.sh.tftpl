@@ -87,6 +87,9 @@ stage preparing_storage
 %{ if model_storage == "ebs" ~}
 lp mount-ebs "${volume_id}" "${mount_point}"
 %{ endif ~}
+# Ollama は起動時に ~/.ollama に鍵(id_ed25519)を作る。root の mkdir -p で .ollama を先に作ると root の
+# 持ち物になり、Ollama が permission denied で起動できなくなるため、ollama ユーザーの持ち物として作る
+install -d -o ollama -g ollama /usr/share/ollama/.ollama
 mkdir -p "$MODELS_DIR"
 %{ if model_storage == "s3_cache" ~}
 # 大きいファイルのコピーを速くする(AWS CLI v2 の CRT 転送クライアント)
