@@ -221,3 +221,238 @@ select {
   color: var(--run);
   margin: 0;
 }
+
+/* タブ */
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+  overflow-x: auto;
+}
+
+.tabs button {
+  font: inherit;
+  padding: 8px 14px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tabs button.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+/* モデルを選ぶ */
+.models {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 360px);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1000px) {
+  .models {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.filters .field {
+  min-width: 160px;
+}
+
+.vendors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.table-wrap[aria-busy="true"] {
+  opacity: 0.6;
+}
+
+.model-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.model-table th,
+.model-table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.model-table th {
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.model-table .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.model-table tbody tr {
+  cursor: pointer;
+}
+
+.model-table tbody tr:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.model-table tbody tr.selected {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.link {
+  font: inherit;
+  font-weight: 600;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.detail h2 {
+  font-size: 1.1rem;
+}
+
+.detail h3 {
+  font-size: 0.9rem;
+  margin: 0 0 6px;
+}
+
+.recommend {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.recommend strong {
+  font-size: 1.15rem;
+}
+
+/* VRAM の内訳の帯 */
+:root {
+  --seg-weights: #2f6fdb;
+  --seg-kv: #12a5a5;
+  --seg-overhead: #b26b00;
+  --seg-free: color-mix(in srgb, var(--muted) 25%, transparent);
+}
+
+.vram-bar {
+  display: flex;
+  height: 14px;
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--seg-free);
+  margin-bottom: 8px;
+}
+
+.vram-bar .seg.weights,
+.dot.weights {
+  background: var(--seg-weights);
+}
+
+.vram-bar .seg.kv,
+.dot.kv {
+  background: var(--seg-kv);
+}
+
+.vram-bar .seg.overhead,
+.dot.overhead {
+  background: var(--seg-overhead);
+}
+
+.vram-bar .seg.free,
+.dot.free {
+  background: var(--seg-free);
+}
+
+.dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.breakdown,
+.specs {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 0.88rem;
+}
+
+.breakdown div,
+.specs div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.breakdown dt,
+.specs dt {
+  color: var(--muted);
+}
+
+.breakdown dd,
+.specs dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.breakdown .total {
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+  font-weight: 600;
+}
+
+.types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+}
