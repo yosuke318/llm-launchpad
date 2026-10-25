@@ -34,3 +34,6 @@ webui/web/dist/
 # 画面から書く変数ファイル(*.tfvars.json で除外済み)の置き場所
 terraform/tfvars/
 *.tsbuildinfo
+
+# Claude Code の手元の設定(ブラウザのプレビュー用の launch.json など)
+.claude/

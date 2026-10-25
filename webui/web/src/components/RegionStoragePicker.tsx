@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { getRegionPlan, listRegions, type ModelEstimate, type Region, type RegionPlan, type StorageId } from "../api";
 import { hourlyTotals, minutes } from "../cost";
+import PreflightChecks from "./PreflightChecks";
 
 interface Props {
   estimate: ModelEstimate;
@@ -160,6 +161,9 @@ export default function RegionStoragePicker({ estimate, contextLength, kvCacheTy
               </span>
             </div>
           )}
+
+          {/* 起動前の事前チェック。通らないものがあれば、起動の確認に進めない */}
+          <PreflightChecks region={region} instanceType={plan.instance_type} />
 
           {plan.warnings.length > 0 && (
             <ul className="warning small">

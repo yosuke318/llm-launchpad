@@ -77,6 +77,21 @@ cd webui/web && npm run dev    # http://127.0.0.1:5173 。/api はサーバー(8
 * 起動時間は、実機の測定(2026-10-24、東京、g4dn.xlarge のスポット、qwen3:8b = 5.2GB)から割り出す(`server/llm_launchpad_webui/storage.py`)。インスタンスの起動 約7分 + Ollama の導入 + モデルの用意(取得 137 MB/s、S3 からのコピー 320 MB/s)+ GPU への読み込み(85秒 + ディスクから読む時間)
 * AWS の認証情報は、サーバーを起動した端末のものを使う。読み取りだけで、AWS のリソースは作らない
 
+### 起動前のチェック
+
+リージョンとモデルの置き場所の下に出る。1つでも問題(✕)があれば、その購入方法では起動の確認に進めない。
+
+| チェック | 内容 | 問題があったときの対処として出すもの |
+|---|---|---|
+| AWS の認証情報 | `sts get-caller-identity` が通るか。アカウント、プロファイル、ARN を出す | `aws configure` か `AWS_PROFILE` を設定して、サーバーを起動し直す |
+| インスタンス型を使えるか | そのリージョンでインスタンス型を提供している AZ があるか | 別のリージョンか、別のインスタンス型にする |
+| vCPU クォータ(オンデマンド / スポット) | G 系と VT 系のクォータの上限 - 動いている G 系と VT 系の vCPU >= 必要な vCPU か。オンデマンドとスポットは別枠 | 引き上げの申請ページへのリンク。申請中のものがあれば、その値と状態 |
+
+* 認証情報が通らなければ、ほかのチェックはしない
+* 権限がないなどで確かめられなかったもの(?)は、起動を止めない。apply で失敗することがあると案内する
+* 片方の購入方法だけ通るときは、そちらなら起動できると案内する
+* クォータと使用中の vCPU は1分(使用中は30秒)覚えておく。申請が通ったら「もう一度確かめる」を押す
+
 ### VRAM の見積もりは Python でも計算する
 
 * 画面でモデルを選んだときにすぐ推奨の型を出すため、`terraform/modules/sizing` と同じ計算を `server/llm_launchpad_webui/sizing.py` にも書いた
@@ -100,6 +115,7 @@ cd webui/web && npm run dev    # http://127.0.0.1:5173 。/api はサーバー(8
 | GET | `/api/models` | モデルの一覧と見積もり。`?vendor=Alibaba&context_length=32768&kv_cache_type=f16` |
 | GET | `/api/estimate` | 1つのモデルの見積もり。`?model=qwen3:8b&context_length=8192` |
 | GET | `/api/regions` | アカウントで使えるリージョンと名前 |
+| GET | `/api/preflight` | 起動前のチェック。`?instance_type=g4dn.xlarge&region=ap-northeast-1` |
 | GET | `/api/region-plan` | リージョンでの料金、AZ、ストレージ方式ごとの料金と起動時間の目安。`?model=qwen3:8b&region=ap-northeast-1` |
 | GET | `/api/workspaces` | `terraform workspace list` の結果 |
 | POST | `/api/runs` | コマンドを実行する。`{"command": "plan", "workspace": "qwen-test", "variables": {...}}` |

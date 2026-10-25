@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from .aws_info import AwsInfo, AwsInfoError
 from .runner import COMMANDS, BusyError, Runner, RunnerError, list_workspaces
+from .preflight import run_preflight
 from .storage import MEASURED, storage_options
 from .sizing import (
     DEFAULT_CONTEXT_LENGTH,
@@ -73,6 +74,12 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
             return {"regions": aws().regions(), "default": DEFAULT_REGION}
         except AwsInfoError as e:
             raise HTTPException(status_code=502, detail=str(e))
+
+    @app.get("/api/preflight")
+    def preflight(instance_type: str, region: str = DEFAULT_REGION):
+        """起動前の事前チェック。can_proceed がスポット / オンデマンドごとに、起動に進めるかを表す"""
+        catalog_vcpus = next((t["vcpu"] for t in catalog().instance_types if t["type"] == instance_type), None)
+        return run_preflight(aws(), region, instance_type, catalog_vcpus)
 
     @app.get("/api/region-plan")
     def region_plan(model: str, region: str = DEFAULT_REGION, context_length: int = DEFAULT_CONTEXT_LENGTH,
