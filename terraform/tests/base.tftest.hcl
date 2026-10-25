@@ -247,6 +247,12 @@ run "s3_cache_by_default" {
     condition     = output.model_storage.models_dir == "/usr/share/ollama/.ollama/models" && strcontains(module.bootstrap.user_data, "OLLAMA_MODELS=/usr/share/ollama/.ollama/models")
     error_message = "S3キャッシュではルートボリュームの Ollama の既定の場所に置くこと"
   }
+
+  # root で .ollama を作ると、Ollama が鍵を作れずに起動できない
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "install -d -o ollama -g ollama /usr/share/ollama/.ollama\nmkdir -p \"$MODELS_DIR\"")
+    error_message = "モデルの置き場所を作る前に、.ollama を ollama ユーザーの持ち物として作ること"
+  }
 }
 
 run "s3_cache_with_given_bucket" {
