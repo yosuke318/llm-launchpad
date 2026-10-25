@@ -125,6 +125,57 @@ export interface ModelEstimate {
   context_capped: boolean;
 }
 
+// リージョンとストレージ方式
+
+export interface Region {
+  code: string;
+  name: string;
+}
+
+export type StorageId = "s3_cache" | "ebs" | "download";
+
+export interface StorageOption {
+  id: StorageId;
+  // 止めている間もかかる保管の月額(S3 や EBS ボリューム)
+  storage_monthly_usd: number | null;
+  storage_throughput_monthly_usd?: number | null;
+  volume_gib?: number;
+  volume_throughput_mibps?: number;
+  root_volume_gib: number;
+  // インスタンスを動かしている間の、ルートボリュームの1時間あたりの料金
+  running_disk_hourly_usd: number | null;
+  startup_first_sec: number;
+  startup_cached_sec: number | null;
+  // 使う前の準備(model-store の apply)が済んでいるか
+  ready: boolean;
+  prerequisite: "bucket" | "volume" | null;
+}
+
+export interface RegionPlan {
+  region: string;
+  model: string;
+  instance_type: string;
+  availability: { available: boolean | null; availability_zones: string[] | null };
+  prices: {
+    on_demand_hourly_usd: number | null;
+    spot_hourly_usd_by_az: Record<string, number>;
+    spot_min: { availability_zone: string; hourly_usd: number } | null;
+  };
+  storage_options: StorageOption[];
+  model_store: { bucket: string; bucket_exists: boolean; volumes: { name: string; id: string; availability_zone: string }[] } | null;
+  measured: { source: string };
+  warnings: string[];
+}
+
+export function listRegions() {
+  return request<{ regions: Region[]; default: string }>("/api/regions");
+}
+
+export function getRegionPlan(params: { model: string; region: string; context_length: number; kv_cache_type: string }) {
+  const query = new URLSearchParams({ ...params, context_length: String(params.context_length) });
+  return request<RegionPlan>(`/api/region-plan?${query}`);
+}
+
 export function getCatalog() {
   return request<Catalog>("/api/catalog");
 }

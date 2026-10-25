@@ -456,3 +456,98 @@ select {
   gap: 6px;
   margin: 0;
 }
+
+/* リージョンとモデルの置き場所 */
+.region {
+  margin-top: 16px;
+}
+
+.region .field {
+  max-width: 420px;
+}
+
+.availability p {
+  margin: 0 0 6px;
+}
+
+.prices,
+.option-figures {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 0.88rem;
+}
+
+.prices div,
+.option-figures div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+.prices dt,
+.option-figures dt {
+  color: var(--muted);
+}
+
+.prices dd,
+.option-figures dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.storage-options {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.storage-options legend {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.storage-option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.storage-option.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.storage-option p {
+  margin: 4px 0 8px;
+}
+
+.storage-option input {
+  margin-top: 4px;
+}
+
+.hourly-total {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.hourly-total strong {
+  font-size: 1.2rem;
+}
+
+ul.warning {
+  margin: 0;
+  padding-left: 18px;
+}

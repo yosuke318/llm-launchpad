@@ -63,6 +63,20 @@ cd webui/web && npm run dev    # http://127.0.0.1:5173 。/api はサーバー(8
 * データは `catalog/models.yaml` と `catalog/instance_types.yaml` を読む。モデル定義を足したら、サーバーを起動し直す
 * 推論エンジンは Ollama だけ(vLLM は選択欄だけ置いて、選べないようにしてある)
 
+### リージョンとモデルの置き場所を選ぶ
+
+モデルを選ぶと、その下に出る。
+
+* リージョンを選ぶ(既定は東京)。推奨のインスタンス型を使える AZ、オンデマンドの単価、スポットの単価(使える AZ の中で一番安いもの)を出す
+* モデルの置き場所(S3 キャッシュ / EBS 永続 / 毎回ダウンロード)を選ぶ。方式ごとに、保管の料金(止めている間もかかる月額)と起動時間の目安を並べる
+* EBS 永続は、容量よりスループット(250 MiB/s)の料金のほうが大きいことが多いので、その内訳も出す
+* 選んだ方式で、1時間あたりの目安 = インスタンス + ルートボリューム + 保管の料金(月額 ÷ 730)を出す
+* そのリージョンに model-store のバケットやボリュームがなければ、先に `terraform/model-store` を apply するよう案内する。既定と違うリージョンを選んだら、モデルを置き直すことになると案内する
+* 単価は AWS の Price List API とスポット価格の履歴から、選んだリージョンの値を取る(`server/llm_launchpad_webui/aws_info.py`)。同じ問い合わせは1時間(スポット価格は10分、model-store は1分)覚えておく
+* 料金を1つ取れなくても、ほかは出す。取れなかったものは「不明」にして、理由を注意に出す
+* 起動時間は、実機の測定(2026-10-24、東京、g4dn.xlarge のスポット、qwen3:8b = 5.2GB)から割り出す(`server/llm_launchpad_webui/storage.py`)。インスタンスの起動 約7分 + Ollama の導入 + モデルの用意(取得 137 MB/s、S3 からのコピー 320 MB/s)+ GPU への読み込み(85秒 + ディスクから読む時間)
+* AWS の認証情報は、サーバーを起動した端末のものを使う。読み取りだけで、AWS のリソースは作らない
+
 ### VRAM の見積もりは Python でも計算する
 
 * 画面でモデルを選んだときにすぐ推奨の型を出すため、`terraform/modules/sizing` と同じ計算を `server/llm_launchpad_webui/sizing.py` にも書いた
@@ -85,6 +99,8 @@ cd webui/web && npm run dev    # http://127.0.0.1:5173 。/api はサーバー(8
 | GET | `/api/catalog` | 提供元、推論エンジン、選べるコンテキスト長と KV キャッシュの型、インスタンス型の表 |
 | GET | `/api/models` | モデルの一覧と見積もり。`?vendor=Alibaba&context_length=32768&kv_cache_type=f16` |
 | GET | `/api/estimate` | 1つのモデルの見積もり。`?model=qwen3:8b&context_length=8192` |
+| GET | `/api/regions` | アカウントで使えるリージョンと名前 |
+| GET | `/api/region-plan` | リージョンでの料金、AZ、ストレージ方式ごとの料金と起動時間の目安。`?model=qwen3:8b&region=ap-northeast-1` |
 | GET | `/api/workspaces` | `terraform workspace list` の結果 |
 | POST | `/api/runs` | コマンドを実行する。`{"command": "plan", "workspace": "qwen-test", "variables": {...}}` |
 | GET | `/api/runs` | 実行の一覧(新しい順) |

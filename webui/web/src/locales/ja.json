@@ -64,6 +64,42 @@
     },
     "estimateNote": "見積もりは目安です。Ollama の同時リクエスト数は 1 を前提にしています。"
   },
+  "region": {
+    "heading": "{{model}} を動かすリージョンとモデルの置き場所",
+    "region": "リージョン",
+    "loadFailed": "料金やリージョンの情報を読み込めませんでした: {{error}}",
+    "moveNotice": "{{region}} にはモデルの置き場所(S3 のバケットや EBS ボリューム)が別に要ります。リージョンを変えると、そのリージョンにモデルを置き直すことになります(バケットやボリュームはリージョンごと)。",
+    "notOffered": "{{type}} はこのリージョンでは使えません。別のリージョンを選んでください。",
+    "offeredIn": "を使える AZ: {{zones}}",
+    "spot": "スポット(一番安い AZ)",
+    "onDemand": "オンデマンド",
+    "perHour": "{{price}}/時",
+    "perMonth": "{{price}}/月",
+    "unknown": "不明",
+    "storage": "モデルの置き場所",
+    "storageNames": {
+      "s3_cache": "S3 キャッシュ",
+      "ebs": "EBS 永続",
+      "download": "毎回ダウンロード"
+    },
+    "storageHelp": {
+      "s3_cache": "S3 からコピーする。S3 になければ取得し、使える状態になったあとで S3 に保存する。止めている間の料金が一番安い",
+      "ebs": "モデル用の EBS ボリュームを付ける。モデルの用意はいらないが、ボリュームの読み込みが遅く、保管料金が高い",
+      "download": "毎回 Ollama library から取得する。保管料金はかからない"
+    },
+    "storageMonthly": "保管の料金(止めている間も)",
+    "ebsThroughput": "(うち {{size}} GiB のボリュームのスループット {{throughput}} MiB/s の分 {{price}})",
+    "startup": "起動時間の目安",
+    "minutes": "約 {{count}} 分",
+    "startupFirstLater": "初回 約 {{first}} 分 / 2回目から 約 {{later}} 分",
+    "prerequisite": {
+      "bucket": "{{region}} にはまだバケットがありません。先に terraform/model-store を apply してください。",
+      "volume": "{{region}} にはまだ EBS ボリュームがありません。先に terraform/model-store の model_volumes でボリュームを作ってください。"
+    },
+    "hourlyTotal": "1時間あたりの目安(スポット)",
+    "hourlyTotalDetail": "オンデマンドなら {{onDemand}}/時。インスタンス、ルートボリューム({{disk}} GiB)、保管の料金を足した値",
+    "note": "料金は AWS の Price List API とスポット価格の履歴から取った目安で、実際の請求額とは違います。起動時間は、terraform apply から使える状態になるまでの目安で、実機の測定({{source}})から割り出しています。"
+  },
   "terraform": {
     "heading": "Terraform",
     "description": "ボタンを押すと、terraform/ でコマンドを実行し、出力をここに流します。",
