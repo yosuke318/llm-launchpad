@@ -13,7 +13,7 @@ import re
 import uuid
 from dataclasses import dataclass, field
 
-# 画面から実行できるコマンド。apply / destroy は、料金の確認や環境の一覧の画面と一緒に足す
+# 画面から実行できるコマンド。apply は起動の確認(/api/launch)からだけ動かし、ここには入れない
 COMMANDS = {
     "version": ["version"],
     "init": ["init", "-input=false", "-no-color"],
@@ -23,6 +23,19 @@ COMMANDS = {
 
 # 変数ファイルを渡せるコマンド
 ACCEPTS_VAR_FILE = {"plan"}
+
+# 起動(/api/launch)で tfvars に書ける変数と、その型。決めたもの以外は書かない
+LAUNCH_VARIABLES = {
+    "model": str,
+    "region": str,
+    "context_length": int,
+    "kv_cache_type": str,
+    "model_storage": str,
+    "purchase_option": str,
+    "idle_stop_minutes": int,
+    "max_lifetime_hours": int,
+    "instance_type": str,
+}
 
 # 環境ID と同じ規則(terraform/main.tf の time_static.created の precondition)。default はそのまま使える
 WORKSPACE_PATTERN = re.compile(r"^(default|[a-z0-9][a-z0-9-]{0,19})$")
@@ -46,6 +59,8 @@ class Run:
     command: str
     workspace: str
     args: list[str]
+    # 順に実行するコマンド。1つでも失敗したら、そこで止める。1つだけなら args と同じ
+    steps: list[list[str]] = field(default_factory=list)
     status: str = "running"  # running / succeeded / failed
     exit_code: int | None = None
     started_at: str = field(default_factory=now)
@@ -59,6 +74,7 @@ class Run:
             "command": self.command,
             "workspace": self.workspace,
             "args": self.args,
+            "steps": self.steps,
             "status": self.status,
             "exit_code": self.exit_code,
             "started_at": self.started_at,
@@ -105,7 +121,33 @@ class Runner:
             path = self.write_var_file(workspace, variables)
             args.append(f"-var-file={os.path.relpath(path, self.terraform_dir)}")
 
-        run = Run(id=uuid.uuid4().hex[:12], command=command, workspace=workspace, args=args)
+        return self._spawn(Run(id=uuid.uuid4().hex[:12], command=command, workspace=workspace, args=args, steps=[args]))
+
+    async def launch(self, workspace, variables):
+        """起動の確認で Yes を押したとき。tfvars を書き、init と apply を順に実行する"""
+        if not WORKSPACE_PATTERN.match(workspace) or workspace == "default":
+            raise RunnerError("環境ID は、英小文字・数字・ハイフンの20文字以内で、default 以外にしてください")
+        unknown = sorted(set(variables) - set(LAUNCH_VARIABLES))
+        if unknown:
+            raise RunnerError(f"起動では渡せない変数です: {', '.join(unknown)}")
+        for name, typ in LAUNCH_VARIABLES.items():
+            if name in variables and variables[name] is not None and not (
+                isinstance(variables[name], typ) and not isinstance(variables[name], bool)
+            ):
+                raise RunnerError(f"{name} の値の型が違います")
+        if "model" not in variables:
+            raise RunnerError("model は必須です")
+        if self.running():
+            raise BusyError("別のコマンドが実行中です。終わってから実行してください")
+
+        path = self.write_var_file(workspace, {k: v for k, v in variables.items() if v is not None})
+        var_file = f"-var-file={os.path.relpath(path, self.terraform_dir)}"
+        apply_args = ["apply", "-input=false", "-no-color", "-auto-approve", var_file]
+        # ワークスペースは TF_WORKSPACE で選ぶ。まだない名前でも、apply がその名前の state を作る
+        steps = [list(COMMANDS["init"]), apply_args]
+        return self._spawn(Run(id=uuid.uuid4().hex[:12], command="launch", workspace=workspace, args=apply_args, steps=steps))
+
+    def _spawn(self, run):
         self.runs[run.id] = run
         task = asyncio.create_task(self._execute(run))
         self._tasks.add(task)
@@ -119,18 +161,25 @@ class Runner:
 
     async def _execute(self, run):
         env = {**os.environ, "TF_WORKSPACE": run.workspace, "TF_IN_AUTOMATION": "1"}
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                self.terraform_bin, f"-chdir={self.terraform_dir}", *run.args,
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-                stdin=asyncio.subprocess.DEVNULL, env=env,
-            )
-            async for raw in proc.stdout:
-                await self._append(run, raw.decode("utf-8", errors="replace").rstrip("\n"))
-            exit_code = await proc.wait()
-        except (OSError, asyncio.CancelledError) as e:
-            await self._append(run, f"terraform を実行できませんでした: {e}")
-            exit_code = -1
+        exit_code = 0
+        for args in run.steps:
+            if len(run.steps) > 1:
+                # 複数のコマンドを続けて実行するときは、どこからどのコマンドかが分かるようにする
+                await self._append(run, f"$ terraform {' '.join(args)}")
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    self.terraform_bin, f"-chdir={self.terraform_dir}", *args,
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+                    stdin=asyncio.subprocess.DEVNULL, env=env,
+                )
+                async for raw in proc.stdout:
+                    await self._append(run, raw.decode("utf-8", errors="replace").rstrip("\n"))
+                exit_code = await proc.wait()
+            except (OSError, asyncio.CancelledError) as e:
+                await self._append(run, f"terraform を実行できませんでした: {e}")
+                exit_code = -1
+            if exit_code != 0:
+                break
         async with run.changed:
             run.exit_code = exit_code
             run.status = "succeeded" if exit_code == 0 else "failed"

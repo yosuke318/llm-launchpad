@@ -98,7 +98,9 @@
     },
     "hourlyTotal": "1時間あたりの目安(スポット)",
     "hourlyTotalDetail": "オンデマンドなら {{onDemand}}/時。インスタンス、ルートボリューム({{disk}} GiB)、保管の料金を足した値",
-    "note": "料金は AWS の Price List API とスポット価格の履歴から取った目安で、実際の請求額とは違います。起動時間は、terraform apply から使える状態になるまでの目安で、実機の測定({{source}})から割り出しています。"
+    "note": "料金は AWS の Price List API とスポット価格の履歴から取った目安で、実際の請求額とは違います。起動時間は、terraform apply から使える状態になるまでの目安で、実機の測定({{source}})から割り出しています。",
+    "confirm": "この内容で起動を確認する",
+    "confirmBlocked": "起動前のチェックに通っていないため、進めません。"
   },
   "preflight": {
     "heading": "起動前のチェック",
@@ -136,6 +138,51 @@
       "onDemandOnly": "オンデマンドなら起動に進めます(スポットはクォータが足りません)。",
       "none": "このままでは起動に進めません。上の対処をしてから、もう一度確かめてください。"
     }
+  },
+  "launch": {
+    "title": "この内容で起動しますか？",
+    "lead": "Yes を押すと、下の内容を tfvars に書いて terraform apply を実行します。GPU インスタンスが作られ、料金がかかり始めます。",
+    "hourlySpot": "1時間あたりの目安(スポット)",
+    "hourlyOnDemand": "1時間あたりの目安(オンデマンド)",
+    "storageWhileStopped": "止めている間も、保管の料金 {{price}}/月 がかかります",
+    "model": "モデル",
+    "license": "ライセンス",
+    "instanceType": "インスタンス型",
+    "region": "リージョン",
+    "storage": "モデルの置き場所",
+    "startup": "使えるまで約 {{count}} 分",
+    "disk": "ディスク容量",
+    "rootVolume": "ルートボリューム {{size}} GiB",
+    "modelVolume": "モデル用の EBS ボリューム {{size}} GiB(model-store のもの)",
+    "context": "コンテキスト長",
+    "quantization": "量子化 {{quantization}}、KVキャッシュ {{kv}}",
+    "vram": "必要VRAM",
+    "vramBreakdown": "{{required}} GiB(重み {{weights}} + KVキャッシュ {{kv}} + 余裕 {{overhead}})、残り {{headroom}} GiB",
+    "purchase": "購入方法",
+    "spot": "スポット({{price}}/時)",
+    "onDemand": "オンデマンド({{price}}/時)",
+    "blockedByPreflight": "クォータが足りないため選べません",
+    "risk": {
+      "low": "中断されにくい見込み(Spot placement score {{score}}/10、{{zone}})",
+      "medium": "ときどき中断される見込み(Spot placement score {{score}}/10、{{zone}})",
+      "high": "中断されやすい、または起動できない見込み(Spot placement score {{score}}/10、{{zone}})"
+    },
+    "riskUnknown": "スポットの中断のリスクは分かりませんでした。",
+    "riskNote": "AWS の見立てで、実際とは違うことがあります。中断されると停止し、在庫が戻ると再開します。",
+    "autoStop": "自動停止",
+    "idleStop": "リクエストがないまま何分たったら止めるか(0 で止めない)",
+    "idleStopInvalid": "0 か、10〜1440 の整数にしてください",
+    "maxLifetime": "起動から何時間たったら止めるか(0 で止めない)",
+    "maxLifetimeInvalid": "0〜720 の整数にしてください",
+    "envId": "環境ID(terraform のワークスペース名)",
+    "envIdHelp": "環境ごとに別の名前にします。同じ名前の環境があれば、その環境を変更します。",
+    "envIdInvalid": "英小文字・数字・ハイフンの20文字以内で、default 以外にしてください",
+    "tfvars": "書き込む内容({{path}})",
+    "disclaimer": "料金は目安で、実際の請求額とは違います。データ転送やリクエストの料金は含みません。",
+    "failed": "起動できませんでした: {{error}}",
+    "no": "いいえ(選び直す)",
+    "yes": "はい(起動する)",
+    "starting": "起動しています…"
   },
   "terraform": {
     "heading": "Terraform",

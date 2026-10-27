@@ -98,7 +98,9 @@
     },
     "hourlyTotal": "Hourly estimate (spot)",
     "hourlyTotalDetail": "{{onDemand}}/hour on-demand. Instance, root volume ({{disk}} GiB) and storage added together",
-    "note": "Prices are estimates from the AWS Price List API and spot price history, and differ from the actual bill. Startup time is from terraform apply until ready, worked out from a measurement ({{source}})."
+    "note": "Prices are estimates from the AWS Price List API and spot price history, and differ from the actual bill. Startup time is from terraform apply until ready, worked out from a measurement ({{source}}).",
+    "confirm": "Review and launch",
+    "confirmBlocked": "Some launch checks did not pass, so you cannot continue."
   },
   "preflight": {
     "heading": "Checks before launch",
@@ -136,6 +138,51 @@
       "onDemandOnly": "You can go on to launch with on-demand (the spot quota is not enough).",
       "none": "You cannot launch yet. Fix the items above, then check again."
     }
+  },
+  "launch": {
+    "title": "Launch with these settings?",
+    "lead": "Yes writes the settings below to tfvars and runs terraform apply. A GPU instance is created and starts costing money.",
+    "hourlySpot": "Hourly estimate (spot)",
+    "hourlyOnDemand": "Hourly estimate (on-demand)",
+    "storageWhileStopped": "Storage costs {{price}}/month, also while stopped",
+    "model": "Model",
+    "license": "License",
+    "instanceType": "Instance type",
+    "region": "Region",
+    "storage": "Model storage",
+    "startup": "ready in about {{count}} min",
+    "disk": "Disk",
+    "rootVolume": "root volume {{size}} GiB",
+    "modelVolume": "model EBS volume {{size}} GiB (from model-store)",
+    "context": "Context length",
+    "quantization": "quantization {{quantization}}, KV cache {{kv}}",
+    "vram": "VRAM needed",
+    "vramBreakdown": "{{required}} GiB (weights {{weights}} + KV cache {{kv}} + overhead {{overhead}}), {{headroom}} GiB left",
+    "purchase": "Purchase option",
+    "spot": "Spot ({{price}}/hour)",
+    "onDemand": "On-demand ({{price}}/hour)",
+    "blockedByPreflight": "not available: the quota is not enough",
+    "risk": {
+      "low": "Unlikely to be interrupted (Spot placement score {{score}}/10, {{zone}})",
+      "medium": "May be interrupted at times (Spot placement score {{score}}/10, {{zone}})",
+      "high": "Likely to be interrupted or fail to launch (Spot placement score {{score}}/10, {{zone}})"
+    },
+    "riskUnknown": "The spot interruption risk is unknown.",
+    "riskNote": "This is AWS's estimate and may not match reality. When interrupted, the instance stops and resumes once capacity is back.",
+    "autoStop": "Auto stop",
+    "idleStop": "Stop after this many minutes without requests (0 to never stop)",
+    "idleStopInvalid": "Use 0 or a whole number from 10 to 1440",
+    "maxLifetime": "Stop this many hours after launch (0 to never stop)",
+    "maxLifetimeInvalid": "Use a whole number from 0 to 720",
+    "envId": "Environment ID (terraform workspace name)",
+    "envIdHelp": "Use a different name per environment. If an environment with this name exists, it is changed.",
+    "envIdInvalid": "Use up to 20 lowercase letters, digits and hyphens, other than default",
+    "tfvars": "What will be written ({{path}})",
+    "disclaimer": "Prices are estimates and differ from the actual bill. Data transfer and request charges are not included.",
+    "failed": "Could not launch: {{error}}",
+    "no": "No (go back)",
+    "yes": "Yes (launch)",
+    "starting": "Launching…"
   },
   "terraform": {
     "heading": "Terraform",

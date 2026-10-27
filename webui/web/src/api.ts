@@ -7,9 +7,11 @@ export type RunStatus = "running" | "succeeded" | "failed";
 
 export interface RunSummary {
   id: string;
-  command: Command;
+  // launch は起動の確認から(init と apply を続けて実行する)
+  command: Command | "launch";
   workspace: string;
   args: string[];
+  steps: string[][];
   status: RunStatus;
   exit_code: number | null;
   started_at: string;
@@ -161,6 +163,8 @@ export interface RegionPlan {
     spot_hourly_usd_by_az: Record<string, number>;
     spot_min: { availability_zone: string; hourly_usd: number } | null;
   };
+  // スポットで起動できる見込み(1〜10)。AWS の見立て
+  spot_placement_scores: Record<string, number> | null;
   storage_options: StorageOption[];
   model_store: { bucket: string; bucket_exists: boolean; volumes: { name: string; id: string; availability_zone: string }[] } | null;
   measured: { source: string };
@@ -219,4 +223,21 @@ export interface Preflight {
 
 export function getPreflight(params: { region: string; instance_type: string }) {
   return request<Preflight>(`/api/preflight?${new URLSearchParams(params)}`);
+}
+
+// 起動(確認のポップアップで Yes を押したとき)
+
+export interface LaunchVariables {
+  model: string;
+  region: string;
+  context_length: number;
+  kv_cache_type: string;
+  model_storage: StorageId;
+  purchase_option: "spot" | "on-demand";
+  idle_stop_minutes: number;
+  max_lifetime_hours: number;
+}
+
+export function launch(workspace: string, variables: LaunchVariables) {
+  return request<RunSummary>("/api/launch", { method: "POST", body: JSON.stringify({ workspace, variables }) });
 }

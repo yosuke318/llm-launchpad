@@ -635,3 +635,157 @@ ul.warning {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* 起動の確認 */
+.confirm-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+button.primary,
+button.secondary {
+  font: inherit;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid var(--accent);
+}
+
+button.primary {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+button.secondary {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+button.primary:disabled,
+button.secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.launch-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.launch-dialog::backdrop {
+  background: rgb(0 0 0 / 0.55);
+}
+
+.launch-dialog h2 {
+  margin-bottom: 4px;
+}
+
+.launch-dialog > * + * {
+  margin-top: 12px;
+}
+
+.launch-total {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+}
+
+.launch-total strong {
+  font-size: 1.3rem;
+}
+
+.launch-summary {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 0.88rem;
+}
+
+.launch-summary div {
+  display: grid;
+  grid-template-columns: minmax(0, 9em) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.launch-summary dt {
+  color: var(--muted);
+}
+
+.launch-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.launch-options {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.launch-options legend {
+  font-weight: 600;
+  padding: 0 4px;
+}
+
+.launch-options label.disabled {
+  color: var(--muted);
+}
+
+.launch-options p {
+  margin: 0 0 0 24px;
+}
+
+.launch-dialog input[type="number"],
+.launch-dialog input[type="text"] {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  max-width: 220px;
+}
+
+.risk.low {
+  color: var(--ok);
+}
+
+.risk.medium {
+  color: var(--run);
+}
+
+.risk.high {
+  color: var(--ng);
+}
+
+.tfvars {
+  margin: 6px 0 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--log-bg);
+  color: var(--log-text);
+  font-size: 0.8rem;
+  overflow-x: auto;
+}
+
+.dialog-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}

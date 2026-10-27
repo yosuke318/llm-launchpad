@@ -1,17 +1,28 @@
 import { describe, expect, it } from "vitest";
 
-import type { RunSummary } from "./api";
+import type { ModelEstimate, RegionPlan, RunSummary } from "./api";
 import en from "./locales/en.json";
 import ja from "./locales/ja.json";
 import { initialRunView, runReducer } from "./runStream";
 import { isTight, vramSegments } from "./vram";
 import { hourlyTotal, minutes } from "./cost";
+import {
+  bestPlacement,
+  defaultEnvId,
+  isValidEnvId,
+  launchHourly,
+  launchVariables,
+  placementRisk,
+  validIdleStop,
+  validMaxLifetime,
+} from "./launch";
 
 const run: RunSummary = {
   id: "abc",
   command: "plan",
   workspace: "default",
   args: ["plan", "-input=false", "-no-color"],
+  steps: [["plan", "-input=false", "-no-color"]],
   status: "running",
   exit_code: null,
   started_at: "2026-10-24T00:00:00+00:00",
@@ -124,5 +135,76 @@ describe("hourlyTotal", () => {
   it("rounds startup time to minutes, at least 1", () => {
     expect(minutes(563)).toBe(9);
     expect(minutes(10)).toBe(1);
+  });
+});
+
+describe("launch helpers", () => {
+  it("makes an environment ID from a model tag", () => {
+    expect(defaultEnvId("qwen3:8b")).toBe("qwen3-8b");
+    expect(defaultEnvId("nemotron-3-super:120b")).toBe("nemotron-3-super-120");
+    expect(defaultEnvId("hf.co/user/Model:Q4_K_M")).toBe("hf-co-user-model-q4");
+    expect(isValidEnvId(defaultEnvId("mistral-small3.2:24b"))).toBe(true);
+  });
+
+  it("rejects default and invalid environment IDs", () => {
+    expect(isValidEnvId("default")).toBe(false);
+    expect(isValidEnvId("Bad_Name")).toBe(false);
+    expect(isValidEnvId("a".repeat(21))).toBe(false);
+  });
+
+  it("turns placement scores into risk", () => {
+    expect([placementRisk(9), placementRisk(5), placementRisk(1)]).toEqual(["low", "medium", "high"]);
+    expect(bestPlacement({ "ap-northeast-1a": 3, "ap-northeast-1c": 7 })).toEqual({ availabilityZone: "ap-northeast-1c", score: 7, risk: "low" });
+    expect(bestPlacement(null)).toBeNull();
+  });
+
+  it("checks auto stop values like terraform does", () => {
+    expect([validIdleStop(0), validIdleStop(10), validIdleStop(5), validIdleStop(1441)]).toEqual([true, true, false, false]);
+    expect([validMaxLifetime(0), validMaxLifetime(720), validMaxLifetime(721), validMaxLifetime(1.5)]).toEqual([true, true, false, false]);
+  });
+
+  // 起動の確認で見せる値と、tfvars に書く値。テストで使うところだけ埋める
+  const option = {
+    id: "ebs" as const,
+    storage_monthly_usd: 10.5,
+    root_volume_gib: 96,
+    running_disk_hourly_usd: 0.0784,
+    startup_first_sec: 700,
+    startup_cached_sec: 600,
+    ready: true,
+    prerequisite: null,
+  };
+  const estimate = {
+    model: { tag: "qwen3:8b" },
+    // コンテキスト長をモデルの最大で抑えたときも、見積もりに使った値を書く
+    vram_estimate: { context_length: 40960, kv_cache_type: "q8_0" },
+    context_capped: true,
+  } as unknown as ModelEstimate;
+  const plan = {
+    region: "us-east-1",
+    instance_type: "g4dn.xlarge",
+    prices: { on_demand_hourly_usd: 0.526, spot_hourly_usd_by_az: {}, spot_min: { availability_zone: "us-east-1b", hourly_usd: 0.21 } },
+  } as unknown as RegionPlan;
+
+  it("writes the shown values to tfvars", () => {
+    const settings = { purchaseOption: "on-demand" as const, idleStopMinutes: 0, maxLifetimeHours: 24 };
+    expect(launchVariables(estimate, plan, option, settings)).toEqual({
+      model: "qwen3:8b",
+      region: "us-east-1",
+      context_length: 40960,
+      kv_cache_type: "q8_0",
+      model_storage: "ebs",
+      purchase_option: "on-demand",
+      idle_stop_minutes: 0,
+      max_lifetime_hours: 24,
+    });
+  });
+
+  it("totals the hourly price for the chosen purchase option", () => {
+    const disk = 0.0784 + 10.5 / 730;
+    expect(launchHourly(plan, option, "spot")).toBeCloseTo(0.21 + disk);
+    expect(launchHourly(plan, option, "on-demand")).toBeCloseTo(0.526 + disk);
+    const noSpot = { ...plan, prices: { ...plan.prices, spot_min: null } };
+    expect(launchHourly(noSpot, option, "spot")).toBeNull();
   });
 });
