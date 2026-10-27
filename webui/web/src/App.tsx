@@ -2,11 +2,12 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import ModelPicker from "./components/ModelPicker";
+import ProgressPanel from "./components/ProgressPanel";
 import TerraformPanel from "./components/TerraformPanel";
 import { LANGUAGES, saveLanguage, type Language } from "./i18n";
 import { RunProvider } from "./runContext";
 
-const TABS = ["models", "terraform"] as const;
+const TABS = ["models", "progress", "terraform"] as const;
 type Tab = (typeof TABS)[number];
 
 // タブとパネルを ARIA で結びつける id(WAI-ARIA の tabs パターン)
@@ -24,7 +25,7 @@ export default function App() {
   }
 
   return (
-    <RunProvider showOutput={() => setTab("terraform")}>
+    <RunProvider showProgress={() => setTab("progress")} showTerraform={() => setTab("terraform")}>
       <div className="page">
         <header className="header">
           <div>
@@ -62,6 +63,9 @@ export default function App() {
         {/* 切り替えても実行中の terraform の出力を失わないよう、隠すだけにする */}
         <div id={panelId("models")} role="tabpanel" aria-labelledby={tabId("models")} hidden={tab !== "models"}>
           <ModelPicker />
+        </div>
+        <div id={panelId("progress")} role="tabpanel" aria-labelledby={tabId("progress")} hidden={tab !== "progress"}>
+          <ProgressPanel />
         </div>
         <div id={panelId("terraform")} role="tabpanel" aria-labelledby={tabId("terraform")} hidden={tab !== "terraform"}>
           <TerraformPanel />

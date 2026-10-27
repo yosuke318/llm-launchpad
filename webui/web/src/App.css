@@ -789,3 +789,188 @@ button.secondary:disabled {
   gap: 8px;
   flex-wrap: wrap;
 }
+
+/* 起動の進み具合 */
+.progress-page {
+  display: grid;
+  gap: 16px;
+  max-width: 880px;
+}
+
+.progress-page .card > * + * {
+  margin-top: 12px;
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.progress-header h2 {
+  margin: 0;
+}
+
+.progress-times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.progress-times > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-width: 140px;
+}
+
+.progress-times strong {
+  font-size: 1.2rem;
+}
+
+.stages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+
+.stage {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 0;
+  border-left: 2px solid var(--border);
+  margin-left: 10px;
+  padding-left: 16px;
+  position: relative;
+}
+
+.stage-icon {
+  position: absolute;
+  left: -12px;
+  top: 8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #fff;
+  background: var(--border);
+}
+
+.stage.done .stage-icon {
+  background: var(--ok);
+}
+
+.stage.active .stage-icon {
+  background: var(--run);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.stage.failed .stage-icon {
+  background: var(--ng);
+}
+
+.stage.pending {
+  color: var(--muted);
+}
+
+.stage-body {
+  min-width: 0;
+  flex: 1;
+  margin-left: 8px;
+}
+
+.stage-body p {
+  margin: 2px 0 0;
+}
+
+.stage-title {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage.active .stage-icon {
+    animation: none;
+  }
+}
+
+.pull {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.pull-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.pull-bar div {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+
+.failure {
+  border-color: var(--ng);
+}
+
+.failure h2,
+.connection h2 {
+  margin: 0;
+}
+
+.log.short {
+  min-height: 0;
+  max-height: 320px;
+}
+
+.command-block {
+  display: grid;
+  gap: 4px;
+}
+
+.command-block p {
+  margin: 0;
+}
+
+.command-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.command {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--log-bg);
+  color: var(--log-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -102,6 +102,44 @@ class Runner:
             f.write("\n")
         return path
 
+    def read_var_file(self, workspace):
+        """書いた tfvars。なければ None"""
+        try:
+            with open(self.var_file_path(workspace), encoding="utf-8") as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return None
+
+    def launched_environments(self):
+        """tfvars を書いた環境(画面から起動したもの)。新しく書いた順"""
+        directory = os.path.join(self.terraform_dir, "tfvars")
+        try:
+            entries = [e for e in os.scandir(directory) if e.name.endswith(".tfvars.json")]
+        except FileNotFoundError:
+            return []
+        names = [e.name.removesuffix(".tfvars.json") for e in sorted(entries, key=lambda e: e.stat().st_mtime, reverse=True)]
+        return [n for n in names if WORKSPACE_PATTERN.match(n) and n != "default"]
+
+    def latest_launch(self, workspace):
+        """そのワークスペースで最後に始めた起動。サーバーを起動し直すと消える"""
+        launches = [r for r in self.runs.values() if r.command == "launch" and r.workspace == workspace]
+        return launches[-1] if launches else None
+
+    async def outputs(self, workspace):
+        """terraform output -json の値。state を読むだけなので、ほかのコマンドの実行中でも動かせる"""
+        env = {**os.environ, "TF_WORKSPACE": workspace, "TF_IN_AUTOMATION": "1"}
+        proc = await asyncio.create_subprocess_exec(
+            self.terraform_bin, f"-chdir={self.terraform_dir}", "output", "-json", "-no-color",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, stdin=asyncio.subprocess.DEVNULL, env=env,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise RunnerError(stderr.decode("utf-8", errors="replace").strip() or "terraform output に失敗しました")
+        try:
+            return {name: o.get("value") for name, o in json.loads(stdout or b"{}").items()}
+        except (json.JSONDecodeError, AttributeError) as e:
+            raise RunnerError(f"terraform output の結果を読めませんでした: {e}") from e
+
     def running(self):
         return [r for r in self.runs.values() if r.status == "running"]
 

@@ -11,6 +11,7 @@
   "tabs": {
     "label": "Screens",
     "models": "Pick a model",
+    "progress": "Launch progress",
     "terraform": "Terraform"
   },
   "models": {
@@ -183,6 +184,89 @@
     "no": "No (go back)",
     "yes": "Yes (launch)",
     "starting": "Launching…"
+  },
+  "progress": {
+    "heading": "Launch progress",
+    "environment": "Environment ID",
+    "noEnvironment": "None yet",
+    "empty": "Launch from the Choose a model tab and the progress shows up here.",
+    "noRecord": "There is no record of launching {{workspace}}.",
+    "loadFailed": "Could not load the progress: {{error}}",
+    "summary": "{{model}} · {{region}} · {{storage}} · {{purchase}}",
+    "purchase": {
+      "spot": "Spot",
+      "on-demand": "On-Demand"
+    },
+    "elapsed": "Elapsed",
+    "tookTime": "Time until ready",
+    "remaining": "Estimated time left",
+    "about": "About {{time}}",
+    "overdue": "Taking longer than estimated",
+    "overdueHelp": "It can take longer than the estimate depending on capacity and model size. If it fails, the reason shows up here.",
+    "state": "State",
+    "states": {
+      "running": "Launching",
+      "ready": "Ready",
+      "failed": "Failed",
+      "unknown": "Checking"
+    },
+    "stages": {
+      "creating": "Create the instance",
+      "booting": "Boot the instance",
+      "installing_ollama": "Install Ollama",
+      "preparing_storage": "Prepare model storage",
+      "pulling_model": "Pull the model",
+      "verifying": "Check a response",
+      "ready": "Ready"
+    },
+    "stageStatus": {
+      "done": "done",
+      "active": "in progress",
+      "failed": "failed",
+      "pending": "not started"
+    },
+    "stageHelp": {
+      "creating": "terraform apply is creating the VPC, IAM, GPU instance and so on.",
+      "booting": "Waiting for the instance to boot and start the bootstrap (user data).",
+      "installing_ollama": "Installing Ollama.",
+      "preparing_storage": "Copying from S3 or attaching the EBS volume, then starting Ollama.",
+      "pulling_model": "Pulling the model from the Ollama library. If it is already in S3 or EBS, this only checks it.",
+      "verifying": "Loading the model into the GPU and checking that it answers a short prompt. Large models take a few minutes.",
+      "ready": ""
+    },
+    "duration": {
+      "hours": "{{hours}}h {{minutes}}m",
+      "minutes": "{{minutes}}m {{seconds}}s",
+      "seconds": "{{seconds}}s"
+    },
+    "pullPercent": "{{percent}}% ({{done}} / {{total}} GB)",
+    "cacheHit": "Copied the model from S3.",
+    "cacheMiss": "The model was not in S3, so it is pulled from the Ollama library (and saved to S3 once the instance is ready).",
+    "firstResponse": "{{sec}} s to the first response (including loading into the GPU)",
+    "estimateNote": "The time left is an estimate from a measurement (Tokyo, g4dn.xlarge). While pulling, it uses the actual pull speed.",
+    "failedHeading": "Stopped at \"{{stage}}\"",
+    "terraformLog": "terraform output (last 40 lines)",
+    "showTerraform": "See the full output in the Terraform tab",
+    "instanceLogHelp": "The bootstrap log on the instance is {{path}}. Open a shell through SSM to check it.",
+    "openShell": "Open a shell on the instance",
+    "tailLog": "Read the bootstrap log (inside the shell)",
+    "failedCost": "The instance is still running and you keep paying for it. If you cannot fix it, delete the environment.",
+    "connectionHeading": "How to connect",
+    "connectionUnknown": "The instance is ready, but the connection details (terraform output) could not be read.",
+    "endpoint": "Endpoint",
+    "instance": "Instance",
+    "autoStop": "Auto stop",
+    "idleStop": "Stops after {{minutes}} idle minutes",
+    "idleStopOff": "Does not stop when idle",
+    "stopAt": "stops at {{at}}",
+    "portForward": "1. Start port forwarding (keep it running in another terminal)",
+    "portForwardHelp": "Forwards the Ollama API (11434) to localhost:11434. Needs the Session Manager plugin.",
+    "curl": "2. Send with curl",
+    "openaiCurl": "Send to the OpenAI-compatible API with curl",
+    "openaiPython": "Send with the OpenAI Python SDK",
+    "openaiPythonHelp": "Set base_url up to /v1. api_key can be any string.",
+    "copy": "Copy",
+    "copied": "Copied"
   },
   "terraform": {
     "heading": "Terraform",

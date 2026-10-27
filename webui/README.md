@@ -100,8 +100,26 @@ cd webui/web && npm run dev    # http://127.0.0.1:5173 。/api はサーバー(8
 * モデル、ライセンス、インスタンス型、リージョン、モデルの置き場所と起動時間の目安、ディスク容量、コンテキスト長と量子化、必要VRAMの内訳を並べる
 * 購入方法(スポット / オンデマンド)を選ぶ。チェックが通らなかった方は選べない。スポットでは、AWS の Spot placement score(1〜10)から中断されやすさを出す(7以上は低い、4以上は中くらい、それより下は高い)。AWS の見立てで、実際とは違うことがある(東京で 1/10 でも起動できた)ので、止めはしない
 * 自動停止(アイドルで止めるまでの分、最大の稼働時間)と環境ID(既定はモデル名から作る)を変えられる。書き込む tfvars の中身もそのまま見られる
-* 「はい」で、表示した内容を `terraform/tfvars/<環境ID>.tfvars.json` に書き、`terraform init` と `terraform apply -auto-approve` を続けて実行する。出力は Terraform のタブに流れる。init が失敗したら apply はしない
+* 「はい」で、表示した内容を `terraform/tfvars/<環境ID>.tfvars.json` に書き、`terraform init` と `terraform apply -auto-approve` を続けて実行する。起動の進み具合のタブに切り替わる。出力は Terraform のタブで見られる。init が失敗したら apply はしない
 * 「いいえ」なら閉じるだけで、何も書かない
+
+### 起動の進み具合
+
+起動の確認で「はい」を押すと、このタブに切り替わる。画面から起動した環境(tfvars を書いたもの)を選んで見ることもできる(既定は最後に起動した環境)。
+
+| 段階 | どこから読むか |
+|---|---|
+| インスタンスの作成 | terraform apply の実行(サーバーのメモリにある最後の起動) |
+| インスタンスの起動 | apply が終わってから、インスタンスが Ollama を入れ始めるまで |
+| Ollama の導入 / モデルの置き場所の用意 / モデルの取得 / 応答の確認 / 使える状態 | インスタンスが SSM パラメータ `/llm-launchpad/<環境ID>/status` に書く `stage`(`terraform/README.md` の起動処理の表) |
+
+* 使える状態か失敗するまで、5秒ごとに読み直す。モデルの取得中は、何%か(`pull.percent`)と、取得した大きさを出す
+* 経過時間は apply を始めたときから数え、使える状態になったか失敗したときで止める
+* 残り時間の目安は、段階ごとの目安(`server/llm_launchpad_webui/storage.py` の `startup_stage_sec`。起動時間の目安と同じ実機の測定から出す)から、今の段階で過ぎた時間を引いて足し合わせる。モデルの取得中は、取得の速さから出す。S3 や EBS にモデルがあるか分かるまでは、取得し直す前提で長めに見積もる
+* apply の途中は、SSM パラメータを読まない(前に起動したときの状態が残っていることがあるため)
+* 失敗したときは、止まった段階を出す。apply で止まったら terraform の出力の最後の40行、インスタンスで止まったら原因(`error`)と、ログ(`/var/log/llm-launchpad-bootstrap.log`)を見るコマンドを出す
+* 使える状態になったら、`terraform output` から接続のしかた(エンドポイント、SSM のポートフォワードのコマンド、curl の例、OpenAI 互換 API の例)と自動停止の設定を出す。OpenAI の Python SDK の例は画面で作る。output は起動ごとに1回だけ読む
+* サーバーを起動し直すと apply の記録は消えるが、tfvars と SSM パラメータから段階を出せる
 
 ### VRAM の見積もりは Python でも計算する
 
@@ -129,6 +147,8 @@ cd webui/web && npm run dev    # http://127.0.0.1:5173 。/api はサーバー(8
 | GET | `/api/regions` | アカウントで使えるリージョンと名前 |
 | GET | `/api/preflight` | 起動前のチェック。`?instance_type=g4dn.xlarge&region=ap-northeast-1` |
 | GET | `/api/region-plan` | リージョンでの料金、AZ、ストレージ方式ごとの料金と起動時間の目安、スポットの placement score。`?model=qwen3:8b&region=ap-northeast-1` |
+| GET | `/api/environments` | 画面から起動した環境(tfvars を書いたもの)。新しく起動した順 |
+| GET | `/api/environments/{環境ID}/progress` | 起動の進み具合。段階、取得の進み具合、経過時間と残り時間の目安、失敗の理由、使える状態なら接続のしかた |
 | POST | `/api/launch` | tfvars を書いて init と apply を実行する。`{"workspace": "qwen3-8b", "variables": {"model": "qwen3:8b", ...}}` |
 | GET | `/api/workspaces` | `terraform workspace list` の結果 |
 | POST | `/api/runs` | コマンドを実行する。`{"command": "plan", "workspace": "qwen-test", "variables": {...}}` |

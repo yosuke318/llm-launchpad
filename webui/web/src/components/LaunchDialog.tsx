@@ -22,10 +22,10 @@ interface Props {
   onClose: () => void;
 }
 
-// 起動の確認。表示した内容を tfvars に書き、Yes で terraform apply に進む。No なら閉じて選び直す
+// 起動の確認。表示した内容を tfvars に書き、Yes で terraform apply に進み、起動の進み具合のタブに切り替える。No なら閉じて選び直す
 export default function LaunchDialog({ estimate, plan, option, preflight, onClose }: Props) {
   const { t, i18n } = useTranslation();
-  const { start, showOutput } = useRun();
+  const { start, showProgress } = useRun();
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   const [envId, setEnvId] = useState(() => defaultEnvId(estimate.model.tag));
@@ -68,7 +68,7 @@ export default function LaunchDialog({ estimate, plan, option, preflight, onClos
     try {
       const run = await launch(envId, variables);
       start(run);
-      showOutput();
+      showProgress();
       onClose();
     } catch (err) {
       setError(err instanceof ApiError && err.status === 409 ? t("terraform.busy") : (err as Error).message);

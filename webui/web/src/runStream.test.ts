@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type { ModelEstimate, RegionPlan, RunSummary } from "./api";
+import type { ModelEstimate, Progress, RegionPlan, RunSummary } from "./api";
 import en from "./locales/en.json";
 import ja from "./locales/ja.json";
+import { isFinished, openaiPythonExample, splitDuration, stageSec, tick } from "./progress";
 import { initialRunView, runReducer } from "./runStream";
 import { isTight, vramSegments } from "./vram";
 import { hourlyTotal, minutes } from "./cost";
@@ -206,5 +207,32 @@ describe("launch helpers", () => {
     expect(launchHourly(plan, option, "on-demand")).toBeCloseTo(0.526 + disk);
     const noSpot = { ...plan, prices: { ...plan.prices, spot_min: null } };
     expect(launchHourly(noSpot, option, "spot")).toBeNull();
+  });
+});
+
+describe("progress helpers", () => {
+  const base = { state: "running", elapsed_sec: 100, remaining_sec: 30 } as Progress;
+
+  it("splits durations", () => {
+    expect(splitDuration(3725)).toEqual({ hours: 1, minutes: 2, seconds: 5 });
+    expect(splitDuration(-3)).toEqual({ hours: 0, minutes: 0, seconds: 0 });
+  });
+
+  it("moves the clock forward only while launching", () => {
+    expect(tick(base, 10)).toEqual({ elapsed: 110, remaining: 20, overdue: false });
+    expect(tick(base, 45)).toEqual({ elapsed: 145, remaining: 0, overdue: true });
+    expect(tick({ ...base, state: "ready", remaining_sec: null }, 10)).toEqual({ elapsed: 100, remaining: null, overdue: false });
+    expect([isFinished(base), isFinished({ ...base, state: "failed" }), isFinished(null)]).toEqual([false, true, false]);
+  });
+
+  it("measures a stage until now while it is active", () => {
+    const now = Date.parse("2026-10-27T03:00:00Z");
+    expect(stageSec("2026-10-27T02:59:00Z", null, now)).toBe(60);
+    expect(stageSec("2026-10-27T02:58:00Z", "2026-10-27T02:58:20Z", now)).toBe(20);
+    expect(stageSec(null, null, now)).toBeNull();
+  });
+
+  it("writes the OpenAI SDK example with /v1", () => {
+    expect(openaiPythonExample("http://localhost:11434", "qwen3:8b")).toContain('base_url="http://localhost:11434/v1"');
   });
 });
