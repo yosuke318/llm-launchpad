@@ -16,8 +16,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .aws_info import AwsInfo, AwsInfoError
-from .runner import COMMANDS, BusyError, Runner, RunnerError, list_workspaces
+from .runner import COMMANDS, WORKSPACE_PATTERN, BusyError, Runner, RunnerError, list_workspaces
 from .preflight import run_preflight
+from .progress import build_progress, connection_info
 from .storage import MEASURED, storage_options
 from .sizing import (
     DEFAULT_CONTEXT_LENGTH,
@@ -69,6 +70,8 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
     app.state.runner = runner or Runner(TERRAFORM_DIR, TERRAFORM_BIN)
     # AWS への問い合わせは、使うときに初めて用意する(認証情報がなくても、ほかの画面は動くように)
     app.state.aws_info = aws_info
+    # terraform output の結果。apply が終わるまで変わらないので、ワークスペースと起動の実行ごとに1回だけ読む
+    app.state.outputs = {}
 
     def aws():
         if app.state.aws_info is None:
@@ -225,6 +228,48 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
         except RunnerError as e:
             raise HTTPException(status_code=422, detail=str(e))
         return run.summary()
+
+    @app.get("/api/environments")
+    def environments():
+        """画面から起動した環境(tfvars を書いたもの)。新しく起動した順"""
+        return {"environments": app.state.runner.launched_environments()}
+
+    @app.get("/api/environments/{workspace}/progress")
+    async def progress(workspace: str):
+        """起動の進み具合。apply の実行(サーバーのメモリにある最後の起動)と、インスタンスが SSM パラメータに書く状態を
+        段階に並べ直す。使える状態になったら、terraform output から接続のしかたを足す"""
+        if not WORKSPACE_PATTERN.match(workspace) or workspace == "default":
+            raise HTTPException(status_code=422, detail="環境ID が正しくありません")
+        runner = app.state.runner
+        tfvars = runner.read_var_file(workspace)
+        run = runner.latest_launch(workspace)
+        if tfvars is None and run is None:
+            raise HTTPException(status_code=404, detail=f"環境 {workspace} を起動した記録がありません")
+
+        warnings = []
+        region = (tfvars or {}).get("region", DEFAULT_REGION)
+        status = None
+        # apply が終わるまでは、前に起動したときの状態が残っていることがあるので読まない
+        if run is None or run.status == "succeeded":
+            try:
+                status = aws().bootstrap_status(region, workspace)
+            except AwsInfoError as e:
+                warnings.append(str(e))
+
+        model = catalog().models.get((tfvars or {}).get("model"))
+        result = build_progress(workspace, tfvars, run, status, model["file_size_gb"] if model else None)
+
+        outputs = None
+        if result["state"] in ("ready", "failed") and result["stage"] != "creating":
+            key = (workspace, run.id if run else None)
+            outputs = app.state.outputs.get(key)
+            if outputs is None:
+                try:
+                    outputs = await runner.outputs(workspace)
+                    app.state.outputs[key] = outputs
+                except RunnerError as e:
+                    warnings.append(f"terraform output を読めませんでした: {e}")
+        return {**result, "connection": connection_info(outputs), "warnings": warnings}
 
     def get_run(run_id):
         run = app.state.runner.runs.get(run_id)

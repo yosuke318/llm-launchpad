@@ -2,9 +2,11 @@
 """テスト用の偽の terraform。受け取った引数と TF_WORKSPACE を出力し、少しずつ行を出す。
 
     validate は失敗(終了コード 1)、workspace list は default と qwen-test を返す
+    output -json は、TF_WORKSPACE を入れた接続のしかたを返す
     FAKE_TERRAFORM_FAIL にコマンド名(init など)を入れると、そのコマンドも失敗する
 """
 
+import json
 import os
 import sys
 import time
@@ -16,6 +18,21 @@ command = args[0] if args else ""
 if command == "workspace":
     print("* default")
     print("  qwen-test")
+    sys.exit(0)
+
+if command == "output":
+    ws = os.environ.get("TF_WORKSPACE", "")
+    if os.environ.get("FAKE_TERRAFORM_FAIL") == "output":
+        print("No outputs found", file=sys.stderr)
+        sys.exit(1)
+    values = {
+        "instance_id": "i-0123456789abcdef0",
+        "ollama_endpoint": "http://localhost:11434",
+        "ssm_port_forward_command": f"aws ssm start-session --target i-0123456789abcdef0 # {ws}",
+        "curl_example": "curl http://localhost:11434/api/generate",
+        "vpc_id": "vpc-1",
+    }
+    print(json.dumps({k: {"value": v, "type": "string", "sensitive": False} for k, v in values.items()}))
     sys.exit(0)
 
 print(f"fake terraform {' '.join(args)}", flush=True)

@@ -264,3 +264,17 @@ class AwsInfo:
             return dict(sorted(scores.items()))
 
         return self._cached(("spot_placement_scores", region, instance_type), fetch, ttl_sec=600)
+
+    def bootstrap_status(self, region, env_id):
+        """インスタンスが SSM パラメータ /llm-launchpad/<環境ID>/status に書く、起動処理の進み具合。
+        パラメータがなければ(まだ apply していないか、destroy した)None"""
+        def fetch():
+            ssm = self._client("ssm", region)
+            try:
+                value = ssm.get_parameter(Name=f"/{PROJECT}/{env_id}/status")["Parameter"]["Value"]
+            except ssm.exceptions.ParameterNotFound:
+                return None
+            return json.loads(value)
+
+        # 画面は数秒ごとに読むので、同時に開いた画面からの問い合わせをまとめる程度に覚えておく
+        return self._cached(("bootstrap_status", region, env_id), fetch, ttl_sec=2)

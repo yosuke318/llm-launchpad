@@ -11,6 +11,7 @@
   "tabs": {
     "label": "画面の切り替え",
     "models": "モデルを選ぶ",
+    "progress": "起動の進み具合",
     "terraform": "Terraform"
   },
   "models": {
@@ -183,6 +184,89 @@
     "no": "いいえ(選び直す)",
     "yes": "はい(起動する)",
     "starting": "起動しています…"
+  },
+  "progress": {
+    "heading": "起動の進み具合",
+    "environment": "環境ID",
+    "noEnvironment": "まだありません",
+    "empty": "モデルを選ぶタブで起動すると、ここに進み具合が出ます。",
+    "noRecord": "環境 {{workspace}} を起動した記録がありません。",
+    "loadFailed": "進み具合を読めませんでした: {{error}}",
+    "summary": "{{model}} · {{region}} · {{storage}} · {{purchase}}",
+    "purchase": {
+      "spot": "スポット",
+      "on-demand": "オンデマンド"
+    },
+    "elapsed": "経過時間",
+    "tookTime": "使えるまでにかかった時間",
+    "remaining": "残り時間の目安",
+    "about": "約 {{time}}",
+    "overdue": "目安を過ぎています",
+    "overdueHelp": "混み具合やモデルの大きさで、目安より長くかかることがあります。失敗したときは、ここに理由が出ます。",
+    "state": "状態",
+    "states": {
+      "running": "起動中",
+      "ready": "使える状態",
+      "failed": "失敗",
+      "unknown": "確かめ中"
+    },
+    "stages": {
+      "creating": "インスタンスの作成",
+      "booting": "インスタンスの起動",
+      "installing_ollama": "Ollama の導入",
+      "preparing_storage": "モデルの置き場所の用意",
+      "pulling_model": "モデルの取得",
+      "verifying": "応答の確認",
+      "ready": "使える状態"
+    },
+    "stageStatus": {
+      "done": "完了",
+      "active": "進行中",
+      "failed": "失敗",
+      "pending": "まだ"
+    },
+    "stageHelp": {
+      "creating": "terraform apply で VPC、IAM、GPU インスタンスなどを作っています。",
+      "booting": "インスタンスが起動して、起動処理(user data)が動き始めるのを待っています。",
+      "installing_ollama": "Ollama を入れています。",
+      "preparing_storage": "S3 からのコピーや EBS ボリュームの取り付けをして、Ollama を起動しています。",
+      "pulling_model": "Ollama library からモデルを取得しています。S3 や EBS にあれば、確かめるだけで終わります。",
+      "verifying": "モデルを GPU に読み込み、短いプロンプトに応答するかを確かめています。大きいモデルは数分かかります。",
+      "ready": ""
+    },
+    "duration": {
+      "hours": "{{hours}}時間{{minutes}}分",
+      "minutes": "{{minutes}}分{{seconds}}秒",
+      "seconds": "{{seconds}}秒"
+    },
+    "pullPercent": "{{percent}}%({{done}} / {{total}} GB)",
+    "cacheHit": "S3 にあったモデルをコピーしました。",
+    "cacheMiss": "S3 にはなかったので、Ollama library から取得します(使える状態になったあとで S3 に保存します)。",
+    "firstResponse": "最初の応答まで {{sec}} 秒(GPU への読み込みを含む)",
+    "estimateNote": "残り時間は、実機の測定(東京、g4dn.xlarge)からの目安です。モデルの取得中は、取得の速さから出します。",
+    "failedHeading": "「{{stage}}」で止まりました",
+    "terraformLog": "terraform の出力(最後の40行)",
+    "showTerraform": "Terraform タブで全部の出力を見る",
+    "instanceLogHelp": "インスタンス上の起動処理のログは {{path}} にあります。SSM でシェルに入って確かめてください。",
+    "openShell": "インスタンスにシェルで入る",
+    "tailLog": "起動処理のログを見る(シェルの中で)",
+    "failedCost": "インスタンスは動いたままなので、料金がかかり続けます。直せないときは環境を削除してください。",
+    "connectionHeading": "接続のしかた",
+    "connectionUnknown": "使える状態になりましたが、接続のしかた(terraform output)を読めませんでした。",
+    "endpoint": "エンドポイント",
+    "instance": "インスタンス",
+    "autoStop": "自動停止",
+    "idleStop": "{{minutes}}分使われなければ止める",
+    "idleStopOff": "アイドルでは止めない",
+    "stopAt": "{{at}} に止める",
+    "portForward": "1. ポートフォワードを始める(別の端末で動かしたままにする)",
+    "portForwardHelp": "Ollama API(11434)を、手元の localhost:11434 に転送します。Session Manager plugin が要ります。",
+    "curl": "2. curl で送る",
+    "openaiCurl": "OpenAI 互換 API に curl で送る",
+    "openaiPython": "OpenAI の Python SDK で送る",
+    "openaiPythonHelp": "base_url は /v1 まで、api_key は任意の文字列でかまいません。",
+    "copy": "コピー",
+    "copied": "コピーしました"
   },
   "terraform": {
     "heading": "Terraform",

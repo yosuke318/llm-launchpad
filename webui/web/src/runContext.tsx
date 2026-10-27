@@ -7,15 +7,25 @@ import { useRunStream, type RunView } from "./runStream";
 interface RunContextValue {
   view: RunView;
   start: (run: RunSummary) => void;
-  // Terraform タブに切り替える
-  showOutput: () => void;
+  // 起動の進み具合のタブに切り替える(起動の確認で Yes を押したあと)
+  showProgress: () => void;
+  // Terraform タブに切り替える(全部の出力を見るとき)
+  showTerraform: () => void;
 }
 
 const RunContext = createContext<RunContextValue | null>(null);
 
-export function RunProvider({ children, showOutput }: { children: ReactNode; showOutput: () => void }) {
+export function RunProvider({
+  children,
+  showProgress,
+  showTerraform,
+}: {
+  children: ReactNode;
+  showProgress: () => void;
+  showTerraform: () => void;
+}) {
   const { view, start } = useRunStream();
-  return <RunContext.Provider value={{ view, start, showOutput }}>{children}</RunContext.Provider>;
+  return <RunContext.Provider value={{ view, start, showProgress, showTerraform }}>{children}</RunContext.Provider>;
 }
 
 export function useRun() {

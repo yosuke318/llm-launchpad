@@ -64,21 +64,31 @@ def root_volume_size_gib(file_size_gb, models_on_root):
     return AMI_ROOT_GIB + (math.ceil(file_size_gb * 2) if models_on_root else 0) + 10
 
 
-def startup_sec(file_size_gb, storage, cached):
-    """起動処理の目安(秒)。cached は S3 や EBS にモデルが置いてある場合"""
+def startup_stage_sec(file_size_gb, storage, cached):
+    """起動処理の段階ごとの目安(秒)。段階は起動の進み具合の画面と同じ。cached は S3 や EBS にモデルが置いてある場合。
+    booting は apply を始めてから user data が動き始めるまで(インスタンスの作成と起動)"""
     size = file_size_gb * 1e9
     m = MEASURED
-    base = m["boot_sec"] + m["install_ollama_sec"]
-    load_root = m["load_fixed_sec"] + size / (ROOT_THROUGHPUT_MIBPS * MIB)
-    load_ebs = m["load_fixed_sec"] + size / (MODEL_VOLUME_THROUGHPUT_MIBPS * MIB)
     download = size / m["download_bytes_per_sec"]
-    if storage == "s3_cache":
-        prepare = size / m["s3_copy_bytes_per_sec"] + m["pull_check_sec"] if cached else download
-        return round(base + prepare + load_root)
-    if storage == "ebs":
-        prepare = m["pull_check_sec"] if cached else download
-        return round(base + prepare + load_ebs)
-    return round(base + download + load_root)
+    throughput = MODEL_VOLUME_THROUGHPUT_MIBPS if storage == "ebs" else ROOT_THROUGHPUT_MIBPS
+    if storage == "s3_cache" and cached:
+        prepare, pull = size / m["s3_copy_bytes_per_sec"], m["pull_check_sec"]
+    elif storage == "ebs" and cached:
+        prepare, pull = 0, m["pull_check_sec"]
+    else:
+        prepare, pull = 0, download
+    return {
+        "booting": m["boot_sec"],
+        "installing_ollama": m["install_ollama_sec"],
+        "preparing_storage": prepare,
+        "pulling_model": pull,
+        "verifying": m["load_fixed_sec"] + size / (throughput * MIB),
+    }
+
+
+def startup_sec(file_size_gb, storage, cached):
+    """起動処理の目安(秒)。cached は S3 や EBS にモデルが置いてある場合"""
+    return round(sum(startup_stage_sec(file_size_gb, storage, cached).values()))
 
 
 def storage_options(file_size_gb, gp3_prices, s3_per_gb_month, model_store):

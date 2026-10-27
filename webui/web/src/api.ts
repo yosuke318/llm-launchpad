@@ -241,3 +241,67 @@ export interface LaunchVariables {
 export function launch(workspace: string, variables: LaunchVariables) {
   return request<RunSummary>("/api/launch", { method: "POST", body: JSON.stringify({ workspace, variables }) });
 }
+
+// 起動の進み具合(apply から使える状態になるまで)
+
+export const PROGRESS_STAGES = ["creating", "booting", "installing_ollama", "preparing_storage", "pulling_model", "verifying", "ready"] as const;
+export type ProgressStageId = (typeof PROGRESS_STAGES)[number];
+
+export interface ProgressStage {
+  id: ProgressStageId;
+  status: "done" | "active" | "failed" | "pending";
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+// 使える状態になったときの接続のしかた(terraform output)
+export interface Connection {
+  instance_id: string | null;
+  instance_type: string | null;
+  availability_zone: string | null;
+  purchase_option: string | null;
+  access_mode: "ssm" | "direct" | null;
+  ollama_endpoint: string | null;
+  ssm_port_forward_command: string | null;
+  curl_example: string | null;
+  openai_api_example: string | null;
+  ssm_session_command: string | null;
+  status_command: string | null;
+  bootstrap_log_path: string | null;
+  auto_stop: { idle_stop_minutes: number; stop_at: string | null; schedule_name: string | null } | null;
+}
+
+export interface Progress {
+  workspace: string;
+  region: string | null;
+  model: string | null;
+  model_storage: StorageId;
+  purchase_option: string | null;
+  run: RunSummary | null;
+  // unknown は、起動の記録はあるが状態をまだ読めていない
+  state: "running" | "ready" | "failed" | "unknown";
+  stage: ProgressStageId | null;
+  stages: ProgressStage[];
+  pull: { percent: number; completed_bytes: number; total_bytes: number; message: string } | null;
+  cache: { hit?: boolean; restore_sec?: number; formatted?: boolean } | null;
+  verify: { first_response_sec: number } | null;
+  error: { stage: ProgressStageId; message: string | null; log_path?: string | null; terraform_log?: string[] } | null;
+  started_at: string | null;
+  ready_at: string | null;
+  // サーバーの時刻。経過時間を手元の時計のずれに左右されずに出すため
+  now: string;
+  elapsed_sec: number | null;
+  expected_total_sec: number | null;
+  remaining_sec: number | null;
+  connection: Connection | null;
+  warnings: string[];
+}
+
+// 画面から起動した環境(tfvars を書いたもの)。新しく起動した順
+export function listEnvironments() {
+  return request<{ environments: string[] }>("/api/environments").then((r) => r.environments);
+}
+
+export function getProgress(workspace: string) {
+  return request<Progress>(`/api/environments/${encodeURIComponent(workspace)}/progress`);
+}
