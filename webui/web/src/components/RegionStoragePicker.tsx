@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { getRegionPlan, listRegions, type ModelEstimate, type Region, type RegionPlan, type StorageId } from "../api";
+import { getRegionPlan, listRegions, type ModelEstimate, type Preflight, type Region, type RegionPlan, type StorageId } from "../api";
 import { hourlyTotals, minutes } from "../cost";
+import LaunchDialog from "./LaunchDialog";
 import PreflightChecks from "./PreflightChecks";
 
 interface Props {
@@ -21,6 +22,9 @@ export default function RegionStoragePicker({ estimate, contextLength, kvCacheTy
   const [plan, setPlan] = useState<RegionPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [preflight, setPreflight] = useState<Preflight | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const onPreflight = useCallback((r: Preflight | null) => setPreflight(r), []);
 
   const usd = useMemo(
     () => new Intl.NumberFormat(i18n.language, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 4 }),
@@ -163,7 +167,24 @@ export default function RegionStoragePicker({ estimate, contextLength, kvCacheTy
           )}
 
           {/* 起動前の事前チェック。通らないものがあれば、起動の確認に進めない */}
-          <PreflightChecks region={region} instanceType={plan.instance_type} />
+          <PreflightChecks region={region} instanceType={plan.instance_type} onResult={onPreflight} />
+
+          {/* 事前チェックに通った購入方法が1つもなければ、起動の確認に進めない */}
+          <div className="confirm-row">
+            <button
+              className="primary"
+              onClick={() => setConfirming(true)}
+              disabled={!selected || !preflight || !(preflight.can_proceed.spot || preflight.can_proceed.on_demand) || preflight.region !== region}
+            >
+              {t("region.confirm")}
+            </button>
+            {preflight && !(preflight.can_proceed.spot || preflight.can_proceed.on_demand) && (
+              <span className="muted small">{t("region.confirmBlocked")}</span>
+            )}
+          </div>
+          {confirming && selected && preflight && (
+            <LaunchDialog estimate={estimate} plan={plan} option={selected} preflight={preflight} onClose={() => setConfirming(false)} />
+          )}
 
           {plan.warnings.length > 0 && (
             <ul className="warning small">

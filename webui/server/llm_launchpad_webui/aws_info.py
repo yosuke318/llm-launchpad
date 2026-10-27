@@ -247,3 +247,20 @@ class AwsInfo:
             return used
 
         return self._cached(("g_and_vt_vcpus_in_use", region), fetch, ttl_sec=30)
+
+    def spot_placement_scores(self, region, instance_type):
+        """スポットで1台を起動できる見込み(1〜10、10 が一番起動しやすい)。AWS の見立てで、AZ ごとに返す"""
+        def fetch():
+            ec2 = self._client("ec2", region)
+            res = ec2.get_spot_placement_scores(
+                InstanceTypes=[instance_type],
+                TargetCapacity=1,
+                SingleAvailabilityZone=True,
+                RegionNames=[region],
+            )
+            # AZ は ID(apne1-az4 など)で返ってくるので、名前(ap-northeast-1a など)に直す
+            names = {z["ZoneId"]: z["ZoneName"] for z in ec2.describe_availability_zones()["AvailabilityZones"]}
+            scores = {names.get(s["AvailabilityZoneId"], s["AvailabilityZoneId"]): s["Score"] for s in res["SpotPlacementScores"]}
+            return dict(sorted(scores.items()))
+
+        return self._cached(("spot_placement_scores", region, instance_type), fetch, ttl_sec=600)

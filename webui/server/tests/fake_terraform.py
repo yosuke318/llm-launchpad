@@ -2,6 +2,7 @@
 """テスト用の偽の terraform。受け取った引数と TF_WORKSPACE を出力し、少しずつ行を出す。
 
     validate は失敗(終了コード 1)、workspace list は default と qwen-test を返す
+    FAKE_TERRAFORM_FAIL にコマンド名(init など)を入れると、そのコマンドも失敗する
 """
 
 import os
@@ -27,4 +28,4 @@ for arg in args:
 for i in range(3):
     time.sleep(0.05)
     print(f"line {i} 日本語", flush=True)
-sys.exit(1 if command == "validate" else 0)
+sys.exit(1 if command in ("validate", os.environ.get("FAKE_TERRAFORM_FAIL")) else 0)

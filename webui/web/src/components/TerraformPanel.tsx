@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ApiError, COMMANDS, listWorkspaces, startRun, type Command, type Workspace } from "../api";
-import { useRunStream } from "../runStream";
+import { useRun } from "../runContext";
 
 // terraform のコマンドを実行し、出力を流す
 export default function TerraformPanel() {
@@ -12,7 +12,7 @@ export default function TerraformPanel() {
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
-  const { view, start } = useRunStream();
+  const { view, start } = useRun();
   const logRef = useRef<HTMLPreElement>(null);
   const running = view.status === "running";
 

@@ -92,6 +92,17 @@ cd webui/web && npm run dev    # http://127.0.0.1:5173 。/api はサーバー(8
 * 片方の購入方法だけ通るときは、そちらなら起動できると案内する
 * クォータと使用中の vCPU は1分(使用中は30秒)覚えておく。申請が通ったら「もう一度確かめる」を押す
 
+### 起動の確認
+
+起動前のチェックの下の「この内容で起動を確認する」を押すと、確認のポップアップが出る。チェックでスポットもオンデマンドも通らなければ、押せない。
+
+* 1時間あたりの目安(選んだ購入方法での合計)と、止めている間の保管の料金を一番上に出す
+* モデル、ライセンス、インスタンス型、リージョン、モデルの置き場所と起動時間の目安、ディスク容量、コンテキスト長と量子化、必要VRAMの内訳を並べる
+* 購入方法(スポット / オンデマンド)を選ぶ。チェックが通らなかった方は選べない。スポットでは、AWS の Spot placement score(1〜10)から中断されやすさを出す(7以上は低い、4以上は中くらい、それより下は高い)。AWS の見立てで、実際とは違うことがある(東京で 1/10 でも起動できた)ので、止めはしない
+* 自動停止(アイドルで止めるまでの分、最大の稼働時間)と環境ID(既定はモデル名から作る)を変えられる。書き込む tfvars の中身もそのまま見られる
+* 「はい」で、表示した内容を `terraform/tfvars/<環境ID>.tfvars.json` に書き、`terraform init` と `terraform apply -auto-approve` を続けて実行する。出力は Terraform のタブに流れる。init が失敗したら apply はしない
+* 「いいえ」なら閉じるだけで、何も書かない
+
 ### VRAM の見積もりは Python でも計算する
 
 * 画面でモデルを選んだときにすぐ推奨の型を出すため、`terraform/modules/sizing` と同じ計算を `server/llm_launchpad_webui/sizing.py` にも書いた
@@ -100,7 +111,8 @@ cd webui/web && npm run dev    # http://127.0.0.1:5173 。/api はサーバー(8
 
 ### terraform の実行
 
-* 画面から実行できるのは `version` / `init` / `validate` / `plan` だけ。`apply` / `destroy` は、料金の確認や環境の一覧の画面と一緒に足す
+* Terraform のタブから実行できるのは `version` / `init` / `validate` / `plan` だけ。`apply` は起動の確認(`POST /api/launch`)からだけ実行できる。`destroy` は環境の一覧の画面と一緒に足す
+* 起動では、`default` のワークスペースは使えない。渡せる変数は決めたもの(model、region、context_length、kv_cache_type、model_storage、purchase_option、idle_stop_minutes、max_lifetime_hours、instance_type)だけで、型も確かめる
 * 同時に動かすのは1つだけ(`init` は `.terraform` を書き換えるため)。実行中に別のコマンドを頼むと 409 を返す
 * ワークスペース名は、環境IDと同じ規則(`default` か、英小文字・数字・ハイフンの20文字以内)だけを受け付ける
 * 出力は1行ずつ SSE で送る(`event: log`、最後に `event: end` で終了コード)。各行に行番号を `id` として付けるので、接続が切れてもブラウザ(EventSource)が `Last-Event-ID` を送り、続きから受け取れる
@@ -116,7 +128,8 @@ cd webui/web && npm run dev    # http://127.0.0.1:5173 。/api はサーバー(8
 | GET | `/api/estimate` | 1つのモデルの見積もり。`?model=qwen3:8b&context_length=8192` |
 | GET | `/api/regions` | アカウントで使えるリージョンと名前 |
 | GET | `/api/preflight` | 起動前のチェック。`?instance_type=g4dn.xlarge&region=ap-northeast-1` |
-| GET | `/api/region-plan` | リージョンでの料金、AZ、ストレージ方式ごとの料金と起動時間の目安。`?model=qwen3:8b&region=ap-northeast-1` |
+| GET | `/api/region-plan` | リージョンでの料金、AZ、ストレージ方式ごとの料金と起動時間の目安、スポットの placement score。`?model=qwen3:8b&region=ap-northeast-1` |
+| POST | `/api/launch` | tfvars を書いて init と apply を実行する。`{"workspace": "qwen3-8b", "variables": {"model": "qwen3:8b", ...}}` |
 | GET | `/api/workspaces` | `terraform workspace list` の結果 |
 | POST | `/api/runs` | コマンドを実行する。`{"command": "plan", "workspace": "qwen-test", "variables": {...}}` |
 | GET | `/api/runs` | 実行の一覧(新しい順) |

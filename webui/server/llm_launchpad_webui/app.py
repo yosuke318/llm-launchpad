@@ -49,6 +49,13 @@ ENGINES = [{"id": "ollama", "available": True}, {"id": "vllm", "available": Fals
 DEFAULT_REGION = "ap-northeast-1"
 
 
+class LaunchRequest(BaseModel):
+    # 環境ID(ワークスペース名)。default 以外
+    workspace: str
+    # tfvars に書く値。runner.LAUNCH_VARIABLES のものだけ
+    variables: dict[str, object]
+
+
 class RunRequest(BaseModel):
     command: Literal[tuple(COMMANDS)]  # type: ignore[valid-type]
     workspace: str = "default"
@@ -110,6 +117,8 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
         # スポットは、インスタンス型を提供している AZ の中で一番安いところ
         spot_in_offered = {az: p for az, p in spot.items() if azs is None or az in azs}
         spot_min = min(spot_in_offered.items(), key=lambda kv: kv[1]) if spot_in_offered else None
+        placement = get(info.spot_placement_scores, region, itype)
+        placement_in_offered = {az: v for az, v in (placement or {}).items() if azs is None or az in azs}
         model_store = get(info.model_store, region)
         file_size_gb = est["model"]["file_size_gb"]
 
@@ -123,6 +132,8 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
                 "spot_hourly_usd_by_az": spot_in_offered,
                 "spot_min": {"availability_zone": spot_min[0], "hourly_usd": spot_min[1]} if spot_min else None,
             },
+            # スポットで起動できる見込み(1〜10)。AWS の見立てで、実際の起動のしやすさとは違うことがある
+            "spot_placement_scores": placement_in_offered if placement is not None else None,
             "storage_options": storage_options(
                 file_size_gb, get(info.gp3_prices, region), get(info.s3_standard_per_gb_month, region), model_store,
             ),
@@ -194,6 +205,21 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
     async def start_run(req: RunRequest):
         try:
             run = await app.state.runner.start(req.command, req.workspace, req.variables)
+        except BusyError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except RunnerError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        return run.summary()
+
+    @app.post("/api/launch", status_code=201)
+    async def launch(req: LaunchRequest):
+        """起動の確認で Yes を押したとき。tfvars/<環境ID>.tfvars.json を書き、init と apply を実行する。
+        料金がかかるインスタンスを作るので、画面の確認を通したときだけ呼ぶ"""
+        model = req.variables.get("model")
+        if not isinstance(model, str) or model not in catalog().models:
+            raise HTTPException(status_code=422, detail=f"model \"{model}\" はモデル定義にありません")
+        try:
+            run = await app.state.runner.launch(req.workspace, req.variables)
         except BusyError as e:
             raise HTTPException(status_code=409, detail=str(e))
         except RunnerError as e:

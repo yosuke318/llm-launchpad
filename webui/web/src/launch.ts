@@ -1,0 +1,76 @@
+import type { LaunchVariables, ModelEstimate, RegionPlan, StorageOption } from "./api";
+import { hourlyTotal } from "./cost";
+
+// モデルのタグから環境ID(ワークスペース名)の候補を作る。英小文字・数字・ハイフンの20文字以内(terraform の規則)
+export function defaultEnvId(tag: string) {
+  const id = tag
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 20)
+    .replace(/-+$/, "");
+  return id || "llm";
+}
+
+export const ENV_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,19}$/;
+
+export function isValidEnvId(id: string) {
+  return ENV_ID_PATTERN.test(id) && id !== "default";
+}
+
+// Spot placement score(1〜10)を、中断や起動できないリスクの目安に分ける
+export type PlacementRisk = "low" | "medium" | "high";
+
+export function placementRisk(score: number): PlacementRisk {
+  if (score >= 7) return "low";
+  if (score >= 4) return "medium";
+  return "high";
+}
+
+export function bestPlacement(scores: Record<string, number> | null) {
+  if (!scores) return null;
+  const entries = Object.entries(scores);
+  if (!entries.length) return null;
+  const [availabilityZone, score] = entries.reduce((a, b) => (b[1] > a[1] ? b : a));
+  return { availabilityZone, score, risk: placementRisk(score) };
+}
+
+export interface LaunchSettings {
+  purchaseOption: "spot" | "on-demand";
+  idleStopMinutes: number;
+  maxLifetimeHours: number;
+}
+
+// tfvars に書く値。画面に出した内容と同じものを書く
+export function launchVariables(
+  estimate: ModelEstimate,
+  plan: RegionPlan,
+  option: StorageOption,
+  settings: LaunchSettings,
+): LaunchVariables {
+  return {
+    model: estimate.model.tag,
+    region: plan.region,
+    context_length: estimate.vram_estimate.context_length,
+    kv_cache_type: estimate.vram_estimate.kv_cache_type,
+    model_storage: option.id,
+    purchase_option: settings.purchaseOption,
+    idle_stop_minutes: settings.idleStopMinutes,
+    max_lifetime_hours: settings.maxLifetimeHours,
+  };
+}
+
+// 選んだ購入方法での、1時間あたりの目安
+export function launchHourly(plan: RegionPlan, option: StorageOption, purchaseOption: "spot" | "on-demand") {
+  const instance = purchaseOption === "spot" ? plan.prices.spot_min?.hourly_usd : plan.prices.on_demand_hourly_usd;
+  return hourlyTotal(instance, option);
+}
+
+// 自動停止の値が terraform の変数の決まりに合うか(idle_stop_minutes は 0 か 10〜1440、max_lifetime_hours は 0〜720)
+export function validIdleStop(minutes: number) {
+  return Number.isInteger(minutes) && (minutes === 0 || (minutes >= 10 && minutes <= 1440));
+}
+
+export function validMaxLifetime(hours: number) {
+  return Number.isInteger(hours) && hours >= 0 && hours <= 720;
+}

@@ -39,6 +39,11 @@ class FakeAwsInfo:
         # 1d はインスタンス型を提供していない(offering にない)ので、一番安くても選ばない
         return {"ap-northeast-1a": 0.3409, "ap-northeast-1c": 0.3434, "ap-northeast-1d": 0.30}
 
+    def spot_placement_scores(self, region, instance_type):
+        self._maybe_fail("spot_placement_scores")
+        # 1d はインスタンス型を提供していない(offering にない)ので出さない
+        return {"ap-northeast-1a": 3, "ap-northeast-1c": 7, "ap-northeast-1d": 9}
+
     def gp3_prices(self, region):
         self._maybe_fail("gp3_prices")
         return GP3
@@ -86,6 +91,13 @@ def test_plan_prices_and_availability(tmp_path):
     assert p["prices"]["on_demand_hourly_usd"] == 0.71
     assert p["prices"]["spot_min"] == {"availability_zone": "ap-northeast-1a", "hourly_usd": 0.3409}, "提供していない AZ のスポット価格は使わない"
     assert p["warnings"] == []
+    assert p["spot_placement_scores"] == {"ap-northeast-1a": 3, "ap-northeast-1c": 7}, "提供していない AZ のスコアは出さない"
+
+
+def test_spot_placement_failure_is_warning(tmp_path):
+    with make_client(tmp_path, FakeAwsInfo(fail={"spot_placement_scores"})) as c:
+        p = plan(c)
+    assert p["spot_placement_scores"] is None and len(p["warnings"]) == 1
 
 
 def test_storage_options(tmp_path):

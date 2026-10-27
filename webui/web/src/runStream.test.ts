@@ -6,12 +6,14 @@ import ja from "./locales/ja.json";
 import { initialRunView, runReducer } from "./runStream";
 import { isTight, vramSegments } from "./vram";
 import { hourlyTotal, minutes } from "./cost";
+import { bestPlacement, defaultEnvId, isValidEnvId, placementRisk, validIdleStop, validMaxLifetime } from "./launch";
 
 const run: RunSummary = {
   id: "abc",
   command: "plan",
   workspace: "default",
   args: ["plan", "-input=false", "-no-color"],
+  steps: [["plan", "-input=false", "-no-color"]],
   status: "running",
   exit_code: null,
   started_at: "2026-10-24T00:00:00+00:00",
@@ -124,5 +126,31 @@ describe("hourlyTotal", () => {
   it("rounds startup time to minutes, at least 1", () => {
     expect(minutes(563)).toBe(9);
     expect(minutes(10)).toBe(1);
+  });
+});
+
+describe("launch helpers", () => {
+  it("makes an environment ID from a model tag", () => {
+    expect(defaultEnvId("qwen3:8b")).toBe("qwen3-8b");
+    expect(defaultEnvId("nemotron-3-super:120b")).toBe("nemotron-3-super-120");
+    expect(defaultEnvId("hf.co/user/Model:Q4_K_M")).toBe("hf-co-user-model-q4");
+    expect(isValidEnvId(defaultEnvId("mistral-small3.2:24b"))).toBe(true);
+  });
+
+  it("rejects default and invalid environment IDs", () => {
+    expect(isValidEnvId("default")).toBe(false);
+    expect(isValidEnvId("Bad_Name")).toBe(false);
+    expect(isValidEnvId("a".repeat(21))).toBe(false);
+  });
+
+  it("turns placement scores into risk", () => {
+    expect([placementRisk(9), placementRisk(5), placementRisk(1)]).toEqual(["low", "medium", "high"]);
+    expect(bestPlacement({ "ap-northeast-1a": 3, "ap-northeast-1c": 7 })).toEqual({ availabilityZone: "ap-northeast-1c", score: 7, risk: "low" });
+    expect(bestPlacement(null)).toBeNull();
+  });
+
+  it("checks auto stop values like terraform does", () => {
+    expect([validIdleStop(0), validIdleStop(10), validIdleStop(5), validIdleStop(1441)]).toEqual([true, true, false, false]);
+    expect([validMaxLifetime(0), validMaxLifetime(720), validMaxLifetime(721), validMaxLifetime(1.5)]).toEqual([true, true, false, false]);
   });
 });
