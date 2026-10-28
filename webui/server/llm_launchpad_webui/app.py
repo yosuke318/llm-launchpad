@@ -11,13 +11,14 @@ import json
 import os
 from typing import Literal
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .aws_info import AwsInfo, AwsInfoError
 from .environments import build_environment, find_leftovers, managed_resources, state_identifiers, state_instance
+from .messages import language, parse_accept_language, t
 from .runner import COMMANDS, WORKSPACE_PATTERN, BusyError, Runner, RunnerError, list_workspaces
 from .preflight import run_preflight
 from .progress import build_progress, connection_info
@@ -75,6 +76,15 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
     # terraform output の結果。apply が終わるまで変わらないので、ワークスペースと起動の実行ごとに1回だけ読む
     app.state.outputs = {}
 
+    @app.middleware("http")
+    async def select_language(request: Request, call_next):
+        """画面が送る Accept-Language で、エラーや警告の文言の言語を選ぶ"""
+        token = language.set(parse_accept_language(request.headers.get("accept-language")))
+        try:
+            return await call_next(request)
+        finally:
+            language.reset(token)
+
     def aws():
         if app.state.aws_info is None:
             app.state.aws_info = AwsInfo()
@@ -104,7 +114,7 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
             raise HTTPException(status_code=422, detail=str(e))
         itype = instance_type or est["instance_type"]
         if itype is None:
-            raise HTTPException(status_code=422, detail="このモデルが収まるインスタンス型がありません")
+            raise HTTPException(status_code=422, detail=t("instance_type.none_fits"))
 
         info = aws()
         warnings = []
@@ -171,9 +181,9 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
         """モデルの一覧と、それぞれの見積もり。context_length がモデルの最大を超えるときは、最大で見積もる"""
         c = catalog()
         if kv_cache_type not in KV_CACHE_BYTES:
-            raise HTTPException(status_code=422, detail=f"kv_cache_type は {' / '.join(KV_CACHE_BYTES)} のどれかを指定してください")
+            raise HTTPException(status_code=422, detail=t("kv_cache_type.invalid", choices=" / ".join(KV_CACHE_BYTES)))
         if context_length < 512:
-            raise HTTPException(status_code=422, detail="context_length は 512 以上にしてください")
+            raise HTTPException(status_code=422, detail=t("context_length.min"))
         result = []
         for tag, m in c.models.items():
             if vendor and m["vendor"] != vendor:
@@ -222,7 +232,7 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
         料金がかかるインスタンスを作るので、画面の確認を通したときだけ呼ぶ"""
         model = req.variables.get("model")
         if not isinstance(model, str) or model not in catalog().models:
-            raise HTTPException(status_code=422, detail=f"model \"{model}\" はモデル定義にありません")
+            raise HTTPException(status_code=422, detail=t("model.unknown", model=model))
         try:
             run = await app.state.runner.launch(req.workspace, req.variables)
         except BusyError as e:
@@ -259,11 +269,11 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
             workspaces = [w["name"] for w in await asyncio.to_thread(list_workspaces, runner.terraform_dir, runner.terraform_bin)]
         except RunnerError as e:
             workspaces = []
-            warnings.append(f"terraform workspace list に失敗しました: {e}")
+            warnings.append(t("workspace_list.failed", error=e))
         launched = runner.launched_environments()
         names = list(dict.fromkeys(launched + workspaces))
         states, state_errors = await read_states(names)
-        warnings += [f"{ws} の state を読めませんでした: {e}" for ws, e in state_errors.items()]
+        warnings += [t("env.state_read_failed", workspace=ws, error=e) for ws, e in state_errors.items()]
 
         tfvars = {ws: runner.read_var_file(ws) for ws in names}
         # default は、何か作ってあるときだけ出す
@@ -332,14 +342,14 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
     async def environment_instance(workspace):
         """その環境の state にあるインスタンスを、AWS で見たもの。管理用タグがその環境のものか確かめる"""
         if not WORKSPACE_PATTERN.match(workspace):
-            raise HTTPException(status_code=422, detail="環境ID が正しくありません")
+            raise HTTPException(status_code=422, detail=t("env.invalid"))
         try:
             state = await app.state.runner.state(workspace)
         except RunnerError as e:
-            raise HTTPException(status_code=502, detail=f"state を読めませんでした: {e}")
+            raise HTTPException(status_code=502, detail=t("state.read_failed", error=e))
         attrs = state_instance(state)
         if not attrs:
-            raise HTTPException(status_code=404, detail=f"環境 {workspace} にはインスタンスがありません")
+            raise HTTPException(status_code=404, detail=t("env.no_instance", workspace=workspace))
         tfvars = app.state.runner.read_var_file(workspace) or {}
         region = attrs.get("region") or tfvars.get("region") or DEFAULT_REGION
         try:
@@ -348,7 +358,7 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
             raise HTTPException(status_code=502, detail=str(e))
         instance = found.get(attrs.get("id"))
         if instance is None or instance["env_id"] != workspace:
-            raise HTTPException(status_code=404, detail=f"環境 {workspace} のインスタンスが AWS に見つかりません")
+            raise HTTPException(status_code=404, detail=t("env.instance_not_found", workspace=workspace))
         return region, instance
 
     @app.post("/api/environments/{workspace}/stop")
@@ -385,12 +395,12 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
         """起動の進み具合。apply の実行(サーバーのメモリにある最後の起動)と、インスタンスが SSM パラメータに書く状態を
         段階に並べ直す。使える状態になったら、terraform output から接続のしかたを足す"""
         if not WORKSPACE_PATTERN.match(workspace) or workspace == "default":
-            raise HTTPException(status_code=422, detail="環境ID が正しくありません")
+            raise HTTPException(status_code=422, detail=t("env.invalid"))
         runner = app.state.runner
         tfvars = runner.read_var_file(workspace)
         run = runner.latest_launch(workspace)
         if tfvars is None and run is None:
-            raise HTTPException(status_code=404, detail=f"環境 {workspace} を起動した記録がありません")
+            raise HTTPException(status_code=404, detail=t("env.no_record", workspace=workspace))
 
         warnings = []
         region = (tfvars or {}).get("region", DEFAULT_REGION)
@@ -414,13 +424,13 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
                     outputs = await runner.outputs(workspace)
                     app.state.outputs[key] = outputs
                 except RunnerError as e:
-                    warnings.append(f"terraform output を読めませんでした: {e}")
+                    warnings.append(t("output.read_failed", error=e))
         return {**result, "connection": connection_info(outputs), "warnings": warnings}
 
     def get_run(run_id):
         run = app.state.runner.runs.get(run_id)
         if run is None:
-            raise HTTPException(status_code=404, detail="実行が見つかりません")
+            raise HTTPException(status_code=404, detail=t("run.not_found"))
         return run
 
     @app.get("/api/runs/{run_id}")

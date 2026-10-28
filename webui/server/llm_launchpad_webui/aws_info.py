@@ -13,13 +13,15 @@ import time
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
+from .messages import MessageError
+
 PROJECT = "llm-launchpad"
 
 # Price List API はこのリージョンにある
 PRICING_REGION = "us-east-1"
 
 
-class AwsInfoError(RuntimeError):
+class AwsInfoError(MessageError):
     pass
 
 
@@ -54,7 +56,7 @@ class AwsInfo:
         try:
             value = fetch()
         except (BotoCoreError, ClientError) as e:
-            raise AwsInfoError(f"{key[0]} を取れませんでした: {e}") from e
+            raise AwsInfoError("aws.fetch_failed", what=key[0], error=e) from e
         with self._lock:
             for k in [k for k, (expires, _) in self._cache.items() if expires <= now]:
                 del self._cache[k]
@@ -329,7 +331,7 @@ class AwsInfo:
             else:
                 res = ec2.start_instances(InstanceIds=[instance_id])["StartingInstances"]
         except (BotoCoreError, ClientError) as e:
-            raise AwsInfoError(f"{instance_id} を{'止め' if action == 'stop' else '動かし直せ'}ませんでした: {e}") from e
+            raise AwsInfoError(f"aws.{action}_failed", instance_id=instance_id, error=e) from e
         with self._lock:
             self._cache.pop(("project_instances", region), None)
         return res[0]["CurrentState"]["Name"]

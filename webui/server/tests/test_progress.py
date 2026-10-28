@@ -109,7 +109,7 @@ class FakeAwsInfo:
     def bootstrap_status(self, region, env_id):
         self.calls += 1
         if self.fail:
-            raise AwsInfoError("bootstrap_status を取れませんでした: AccessDenied")
+            raise AwsInfoError("aws.fetch_failed", what="bootstrap_status", error="AccessDenied")
         return self.status
 
 

@@ -1,5 +1,7 @@
 // サーバー(webui/server)の API
 
+import i18n from "./i18n";
+
 export const COMMANDS = ["version", "init", "validate", "plan"] as const;
 export type Command = (typeof COMMANDS)[number];
 
@@ -36,7 +38,8 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    // エラーや警告の文言を、表示している言語で返してもらう
+    headers: { "Content-Type": "application/json", "Accept-Language": i18n.language, ...init?.headers },
   });
   if (!res.ok) {
     let detail = res.statusText;

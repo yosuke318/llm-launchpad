@@ -20,7 +20,7 @@ class FakeAwsInfo:
 
     def _maybe_fail(self, name):
         if name in self.fail:
-            raise AwsInfoError(f"{name} を取れませんでした: AccessDenied")
+            raise AwsInfoError("aws.fetch_failed", what=name, error="AccessDenied")
 
     def regions(self):
         self._maybe_fail("regions")

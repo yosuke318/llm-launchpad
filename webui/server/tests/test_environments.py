@@ -59,12 +59,12 @@ class FakeAwsInfo:
 
     def project_instances(self, region):
         if self.fail:
-            raise AwsInfoError("project_instances を取れませんでした: AccessDenied")
+            raise AwsInfoError("aws.fetch_failed", what="project_instances", error="AccessDenied")
         return [i for i in self.instances if region == REGION]
 
     def tagged_resources(self, region):
         if self.fail:
-            raise AwsInfoError("tagged_resources を取れませんでした: AccessDenied")
+            raise AwsInfoError("aws.fetch_failed", what="tagged_resources", error="AccessDenied")
         return self.tagged if region == REGION else []
 
     def spot_hourly_by_az(self, region, instance_type):

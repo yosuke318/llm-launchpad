@@ -271,7 +271,7 @@ function ConnectionCard({ progress }: { progress: Progress }) {
       )}
       {c.curl_example && <CommandBlock label={t("progress.curl")} command={c.curl_example} />}
       {c.openai_api_example && <CommandBlock label={t("progress.openaiCurl")} command={c.openai_api_example} />}
-      {progress.model && <CommandBlock label={t("progress.openaiPython")} help={t("progress.openaiPythonHelp")} command={openaiPythonExample(endpoint, progress.model)} />}
+      {progress.model && <CommandBlock label={t("progress.openaiPython")} help={t("progress.openaiPythonHelp")} command={openaiPythonExample(endpoint, progress.model, t("progress.samplePrompt"))} />}
       {c.ssm_session_command && <CommandBlock label={t("progress.openShell")} command={c.ssm_session_command} />}
     </section>
   );

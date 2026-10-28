@@ -233,6 +233,8 @@ describe("progress helpers", () => {
   });
 
   it("writes the OpenAI SDK example with /v1", () => {
-    expect(openaiPythonExample("http://localhost:11434", "qwen3:8b")).toContain('base_url="http://localhost:11434/v1"');
+    const example = openaiPythonExample("http://localhost:11434", "qwen3:8b", "Hello");
+    expect(example).toContain('base_url="http://localhost:11434/v1"');
+    expect(example).toContain('"content": "Hello"');
   });
 });

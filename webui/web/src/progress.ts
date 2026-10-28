@@ -30,15 +30,15 @@ export function stageSec(startedAt: string | null, finishedAt: string | null, no
   return Math.max(0, (end - Date.parse(startedAt)) / 1000);
 }
 
-// OpenAI の Python SDK で送る例。base_url は /v1 まで、api_key は任意の文字列でよい
-export function openaiPythonExample(endpoint: string, model: string) {
+// OpenAI の Python SDK で送る例。base_url は /v1 まで、api_key は任意の文字列でよい。prompt は表示している言語の短いあいさつ
+export function openaiPythonExample(endpoint: string, model: string, prompt: string) {
   return [
     "from openai import OpenAI",
     "",
     `client = OpenAI(base_url="${endpoint}/v1", api_key="ollama")`,
     "res = client.chat.completions.create(",
     `    model="${model}",`,
-    '    messages=[{"role": "user", "content": "こんにちは"}],',
+    `    messages=[{"role": "user", "content": ${JSON.stringify(prompt)}}],`,
     ")",
     "print(res.choices[0].message.content)",
   ].join("\n");
