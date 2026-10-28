@@ -6,6 +6,7 @@
 """
 
 import asyncio
+import datetime
 import json
 import os
 from typing import Literal
@@ -16,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .aws_info import AwsInfo, AwsInfoError
+from .environments import build_environment, find_leftovers, managed_resources, state_identifiers, state_instance
 from .runner import COMMANDS, WORKSPACE_PATTERN, BusyError, Runner, RunnerError, list_workspaces
 from .preflight import run_preflight
 from .progress import build_progress, connection_info
@@ -233,6 +235,150 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
     def environments():
         """画面から起動した環境(tfvars を書いたもの)。新しく起動した順"""
         return {"environments": app.state.runner.launched_environments()}
+
+    async def read_states(workspaces):
+        """ワークスペースごとの state。読めなかったものは errors に理由を入れる"""
+        runner = app.state.runner
+        results = await asyncio.gather(*(runner.state(ws) for ws in workspaces), return_exceptions=True)
+        states, errors = {}, {}
+        for ws, result in zip(workspaces, results):
+            if isinstance(result, RunnerError):
+                errors[ws] = str(result)
+            elif isinstance(result, BaseException):
+                raise result
+            else:
+                states[ws] = result
+        return states, errors
+
+    @app.get("/api/environments/overview")
+    async def environments_overview():
+        """環境の一覧(インスタンスの状態、経過時間、料金の目安)と、どの state にもない消し忘れのリソース"""
+        runner = app.state.runner
+        warnings = []
+        try:
+            workspaces = [w["name"] for w in await asyncio.to_thread(list_workspaces, runner.terraform_dir, runner.terraform_bin)]
+        except RunnerError as e:
+            workspaces = []
+            warnings.append(f"terraform workspace list に失敗しました: {e}")
+        launched = runner.launched_environments()
+        names = list(dict.fromkeys(launched + workspaces))
+        states, state_errors = await read_states(names)
+        warnings += [f"{ws} の state を読めませんでした: {e}" for ws, e in state_errors.items()]
+
+        tfvars = {ws: runner.read_var_file(ws) for ws in names}
+        # default は、何か作ってあるときだけ出す
+        shown = [ws for ws in names if ws in state_errors or managed_resources(states.get(ws)) or (tfvars[ws] and ws != "default")]
+
+        # 環境のあるリージョンと既定のリージョンを見る(消し忘れもここから探す)
+        regions = {DEFAULT_REGION}
+        for ws in names:
+            attrs = state_instance(states.get(ws)) or {}
+            regions.add(attrs.get("region") or (tfvars[ws] or {}).get("region") or DEFAULT_REGION)
+        regions = sorted(regions)
+
+        info = aws()
+
+        def get(fn, *args):
+            try:
+                return fn(*args)
+            except AwsInfoError as e:
+                warnings.append(str(e))
+                return None
+
+        instances, tagged, failed_regions = {}, [], set()
+        for region in regions:
+            found = get(info.project_instances, region)
+            resources = get(info.tagged_resources, region)
+            if found is None or resources is None:
+                failed_regions.add(region)
+            for inst in found or []:
+                instances[inst["id"]] = {**inst, "region": region}
+            tagged += [{**r, "region": region} for r in resources or []]
+
+        now = datetime.datetime.now(datetime.timezone.utc)
+        environments = []
+        for ws in shown:
+            state = states.get(ws)
+            attrs = state_instance(state) or {}
+            instance = instances.get(attrs.get("id")) if attrs.get("id") else None
+            prices = None
+            if instance and instance["state"] == "running":
+                region = instance["region"]
+                if instance["purchase_option"] == "spot":
+                    prices = {"spot_by_az": get(info.spot_hourly_by_az, region, instance["instance_type"])}
+                else:
+                    prices = {"on_demand": get(info.on_demand_hourly, region, instance["instance_type"])}
+            env = build_environment(ws, tfvars[ws], state, instance, runner.latest_run(ws), prices, now, DEFAULT_REGION)
+            environments.append({**env, "state_error": state_errors.get(ws)})
+
+        # apply や destroy の途中の環境は、state に書く前のリソースがあるので、消し忘れとは決めない
+        busy = {r.workspace for r in runner.running()}
+        known = set().union(*(state_identifiers(s) for s in states.values())) if states else set()
+        leftovers = find_leftovers(tagged, known, set(instances), skip_env_ids=set(state_errors) | busy)
+        for x in leftovers:
+            if x["resource_type"] == "ec2:instance":
+                x["instance_state"] = instances[x["resource_id"]]["state"]
+
+        return {
+            "environments": environments,
+            "leftovers": leftovers,
+            "regions": regions,
+            # 問い合わせに失敗したリージョンでは、消し忘れがあっても出せない
+            "unchecked_regions": sorted(failed_regions),
+            "now": now.isoformat(timespec="seconds").replace("+00:00", "Z"),
+            "warnings": warnings,
+        }
+
+    async def environment_instance(workspace):
+        """その環境の state にあるインスタンスを、AWS で見たもの。管理用タグがその環境のものか確かめる"""
+        if not WORKSPACE_PATTERN.match(workspace):
+            raise HTTPException(status_code=422, detail="環境ID が正しくありません")
+        try:
+            state = await app.state.runner.state(workspace)
+        except RunnerError as e:
+            raise HTTPException(status_code=502, detail=f"state を読めませんでした: {e}")
+        attrs = state_instance(state)
+        if not attrs:
+            raise HTTPException(status_code=404, detail=f"環境 {workspace} にはインスタンスがありません")
+        tfvars = app.state.runner.read_var_file(workspace) or {}
+        region = attrs.get("region") or tfvars.get("region") or DEFAULT_REGION
+        try:
+            found = {i["id"]: i for i in aws().project_instances(region)}
+        except AwsInfoError as e:
+            raise HTTPException(status_code=502, detail=str(e))
+        instance = found.get(attrs.get("id"))
+        if instance is None or instance["env_id"] != workspace:
+            raise HTTPException(status_code=404, detail=f"環境 {workspace} のインスタンスが AWS に見つかりません")
+        return region, instance
+
+    @app.post("/api/environments/{workspace}/stop")
+    async def stop_environment(workspace: str):
+        """インスタンスを止める。ディスクと、ほかのリソースは残る"""
+        region, instance = await environment_instance(workspace)
+        try:
+            return {"instance_id": instance["id"], "state": aws().stop_instance(region, instance["id"])}
+        except AwsInfoError as e:
+            raise HTTPException(status_code=502, detail=str(e))
+
+    @app.post("/api/environments/{workspace}/start")
+    async def start_environment(workspace: str):
+        """止めたインスタンスを動かし直す"""
+        region, instance = await environment_instance(workspace)
+        try:
+            return {"instance_id": instance["id"], "state": aws().start_instance(region, instance["id"])}
+        except AwsInfoError as e:
+            raise HTTPException(status_code=502, detail=str(e))
+
+    @app.post("/api/environments/{workspace}/destroy", status_code=201)
+    async def destroy_environment(workspace: str):
+        """環境を削除する(terraform destroy)。画面で確認を通したときだけ呼ぶ"""
+        try:
+            run = await app.state.runner.destroy(workspace)
+        except BusyError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except RunnerError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        return run.summary()
 
     @app.get("/api/environments/{workspace}/progress")
     async def progress(workspace: str):

@@ -974,3 +974,83 @@ button.secondary:disabled {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* 環境の一覧 */
+.environments-page {
+  display: grid;
+  gap: 16px;
+  max-width: 880px;
+}
+
+.environments-page .card > * + * {
+  margin-top: 12px;
+}
+
+.environment-list,
+.leftover-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.environment,
+.leftover {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.leftover code {
+  overflow-wrap: anywhere;
+}
+
+.environment .launch-summary div {
+  grid-template-columns: minmax(0, 11em) minmax(0, 1fr);
+}
+
+.environment-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.environment-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+button.danger {
+  font: inherit;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid var(--ng);
+  background: var(--surface);
+  color: var(--ng);
+}
+
+.launch-dialog button.danger,
+.dialog-buttons button.danger {
+  background: var(--ng);
+  color: #ffffff;
+}
+
+button.danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.badge.stopped {
+  background: var(--muted);
+}
+
+.leftover .badge {
+  margin-left: 6px;
+}

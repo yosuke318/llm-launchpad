@@ -3,6 +3,7 @@
 
     validate は失敗(終了コード 1)、workspace list は default と qwen-test を返す
     output -json は、TF_WORKSPACE を入れた接続のしかたを返す
+    state pull は、fake-state/<ワークスペース>.json を返す
     FAKE_TERRAFORM_FAIL にコマンド名(init など)を入れると、そのコマンドも失敗する
 """
 
@@ -33,6 +34,17 @@ if command == "output":
         "vpc_id": "vpc-1",
     }
     print(json.dumps({k: {"value": v, "type": "string", "sensitive": False} for k, v in values.items()}))
+    sys.exit(0)
+
+if command == "state":
+    # state pull は <terraform のディレクトリ>/fake-state/<ワークスペース>.json を返す。なければ空(まだ apply していない)
+    if os.environ.get("FAKE_TERRAFORM_FAIL") == "state":
+        print("Failed to load state", file=sys.stderr)
+        sys.exit(1)
+    path = os.path.join(chdir.removeprefix("-chdir="), "fake-state", f"{os.environ.get('TF_WORKSPACE', '')}.json")
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            print(f.read())
     sys.exit(0)
 
 print(f"fake terraform {' '.join(args)}", flush=True)
