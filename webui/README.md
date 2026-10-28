@@ -42,6 +42,8 @@ cd webui/web && npm run dev    # http://127.0.0.1:5173 。/api はサーバー(8
 * サーバーは FastAPI。起動処理(`terraform/modules/bootstrap/files/launchpad.py`)や消し忘れ検出(`scripts/find_leftovers.py`)と同じ Python にして、AWS への問い合わせやベンチマークを同じ言語で書けるようにする
 * 画面は React。チャットのストリーミング表示や、料金の確認、進み具合の画面を作るため
 * 日本語と英語は react-i18next で切り替える。文言は `web/src/locales/ja.json` と `en.json` に分け、キーがそろっているかをテストで確かめる。選んだ言語はブラウザに覚えておく
+* サーバーが返すエラーや警告の文言も、日本語と英語を `server/llm_launchpad_webui/messages.py` に置く。画面は表示している言語を `Accept-Language` で送り、サーバーはそれが英語(`en`)で始まれば英語、それ以外は日本語で返す。AWS や terraform が返す詳しいメッセージは訳さずに後ろに付ける。両方の言語に同じ値が入るかはテストで確かめる
+* terraform の output(curl の例のプロンプト)と、インスタンスの起動処理が書く失敗の理由は、日本語のまま
 
 ### UI は tfvars を作るだけの薄い層にする
 

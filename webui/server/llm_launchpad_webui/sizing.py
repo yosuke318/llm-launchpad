@@ -15,6 +15,8 @@ from functools import lru_cache
 
 import yaml
 
+from .messages import MessageError
+
 GIB = 1024 ** 3
 
 # KVキャッシュの1要素あたりのバイト数(Ollama の OLLAMA_KV_CACHE_TYPE)
@@ -26,7 +28,7 @@ DEFAULT_KV_CACHE_TYPE = "f16"
 DEFAULT_VRAM_OVERHEAD_GIB = 1.5
 
 
-class SizingError(ValueError):
+class SizingError(MessageError, ValueError):
     pass
 
 
@@ -62,12 +64,12 @@ def estimate(catalog, model, context_length=DEFAULT_CONTEXT_LENGTH, kv_cache_typ
              vram_overhead_gib=DEFAULT_VRAM_OVERHEAD_GIB):
     """必要VRAMの見積もりと、収まるインスタンス型。terraform の sizing モジュールの出力と同じ形にする"""
     if model not in catalog.models:
-        raise SizingError(f"model \"{model}\" はモデル定義にありません")
+        raise SizingError("model.unknown", model=model)
     if kv_cache_type not in KV_CACHE_BYTES:
-        raise SizingError(f"kv_cache_type は {' / '.join(KV_CACHE_BYTES)} のどれかを指定してください")
+        raise SizingError("kv_cache_type.invalid", choices=" / ".join(KV_CACHE_BYTES))
     m = catalog.models[model]
     if not 512 <= context_length <= m["max_context"]:
-        raise SizingError(f"context_length は 512〜{m['max_context']}({model} の最大コンテキスト長)の範囲で指定してください")
+        raise SizingError("context_length.range", max=m["max_context"], model=model)
 
     # Mamba や線形注意を混ぜたモデルは、注意層だけがKVキャッシュを持つ
     attention_layers = m.get("attention_layers") or m["layers"]

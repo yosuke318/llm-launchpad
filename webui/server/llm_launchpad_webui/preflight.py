@@ -5,6 +5,7 @@
 """
 
 from .aws_info import AwsInfoError
+from .messages import t
 
 # G 系と VT 系のインスタンスの vCPU クォータ(オンデマンドとスポットは別枠)
 QUOTAS = {
@@ -67,7 +68,7 @@ def run_preflight(info, region, instance_type, catalog_vcpus=None):
             pending = []
         detail.update(limit_vcpus=limit, used_vcpus=used, pending_requests=pending)
         if needed is None or used is None:
-            checks.append(check(f"quota_{option}", "unknown", error=in_use_error if used is None else "vCPU の数が分かりません", **detail))
+            checks.append(check(f"quota_{option}", "unknown", error=in_use_error if used is None else t("vcpus.unknown"), **detail))
         else:
             detail["available_vcpus"] = limit - used
             checks.append(check(f"quota_{option}", "ok" if limit - used >= needed else "ng", **detail))

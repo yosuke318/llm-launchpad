@@ -8,6 +8,7 @@
 
 import datetime
 
+from .messages import t
 from .storage import startup_stage_sec
 
 # 画面に出す段階。creating は terraform apply、そのあとはインスタンスが書く stage
@@ -94,7 +95,7 @@ def build_progress(workspace, tfvars, run, status, file_size_gb, now=None, run_l
         current, state = "creating", "failed"
         error = {
             "stage": "creating",
-            "message": f"terraform apply が失敗しました(終了コード {run.exit_code})",
+            "message": t("apply.failed", code=run.exit_code),
             "terraform_log": (run_lines or run.lines)[-TERRAFORM_LOG_LINES:],
         }
     elif status:

@@ -13,6 +13,8 @@ import re
 import uuid
 from dataclasses import dataclass, field
 
+from .messages import MessageError, t
+
 # 画面から実行できるコマンド。apply は起動の確認(/api/launch)からだけ動かし、ここには入れない
 COMMANDS = {
     "version": ["version"],
@@ -41,7 +43,7 @@ LAUNCH_VARIABLES = {
 WORKSPACE_PATTERN = re.compile(r"^(default|[a-z0-9][a-z0-9-]{0,19})$")
 
 
-class RunnerError(Exception):
+class RunnerError(MessageError):
     pass
 
 
@@ -133,7 +135,8 @@ class Runner:
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
-            raise RunnerError(stderr.decode("utf-8", errors="replace").strip() or f"terraform {args[0]} に失敗しました")
+            text = stderr.decode("utf-8", errors="replace").strip()
+            raise RunnerError("terraform.stderr", text=text) if text else RunnerError("terraform.command_failed", command=args[0])
         return stdout
 
     async def outputs(self, workspace):
@@ -142,7 +145,7 @@ class Runner:
         try:
             return {name: o.get("value") for name, o in json.loads(stdout or b"{}").items()}
         except (json.JSONDecodeError, AttributeError) as e:
-            raise RunnerError(f"terraform output の結果を読めませんでした: {e}") from e
+            raise RunnerError("terraform.parse_failed", command="output", error=e) from e
 
     async def state(self, workspace):
         """terraform state pull の結果。まだ apply していないワークスペースでは None"""
@@ -152,7 +155,7 @@ class Runner:
         try:
             return json.loads(stdout)
         except json.JSONDecodeError as e:
-            raise RunnerError(f"terraform state pull の結果を読めませんでした: {e}") from e
+            raise RunnerError("terraform.parse_failed", command="state pull", error=e) from e
 
     def latest_run(self, workspace, commands=("launch", "destroy")):
         """そのワークスペースで最後に始めた起動か削除"""
@@ -164,14 +167,14 @@ class Runner:
 
     async def start(self, command, workspace="default", variables=None):
         if command not in COMMANDS:
-            raise RunnerError(f"実行できないコマンドです: {command}")
+            raise RunnerError("command.unknown", command=command)
         if not WORKSPACE_PATTERN.match(workspace):
-            raise RunnerError("ワークスペース名は default か、英小文字・数字・ハイフンの20文字以内にしてください")
+            raise RunnerError("workspace.invalid")
         if variables is not None and command not in ACCEPTS_VAR_FILE:
-            raise RunnerError(f"{command} には変数を渡せません")
+            raise RunnerError("command.no_variables", command=command)
         # init は .terraform を書き換えるため、同時に動かすのは1つだけにする
         if self.running():
-            raise BusyError("別のコマンドが実行中です。終わってから実行してください")
+            raise BusyError("busy")
 
         args = list(COMMANDS[command])
         if variables is not None:
@@ -183,19 +186,19 @@ class Runner:
     async def launch(self, workspace, variables):
         """起動の確認で Yes を押したとき。tfvars を書き、init と apply を順に実行する"""
         if not WORKSPACE_PATTERN.match(workspace) or workspace == "default":
-            raise RunnerError("環境ID は、英小文字・数字・ハイフンの20文字以内で、default 以外にしてください")
+            raise RunnerError("env_id.invalid")
         unknown = sorted(set(variables) - set(LAUNCH_VARIABLES))
         if unknown:
-            raise RunnerError(f"起動では渡せない変数です: {', '.join(unknown)}")
+            raise RunnerError("launch.unknown_variables", names=", ".join(unknown))
         for name, typ in LAUNCH_VARIABLES.items():
             if name in variables and variables[name] is not None and not (
                 isinstance(variables[name], typ) and not isinstance(variables[name], bool)
             ):
-                raise RunnerError(f"{name} の値の型が違います")
+                raise RunnerError("launch.wrong_type", name=name)
         if "model" not in variables:
-            raise RunnerError("model は必須です")
+            raise RunnerError("launch.model_required")
         if self.running():
-            raise BusyError("別のコマンドが実行中です。終わってから実行してください")
+            raise BusyError("busy")
 
         path = self.write_var_file(workspace, {k: v for k, v in variables.items() if v is not None})
         var_file = f"-var-file={os.path.relpath(path, self.terraform_dir)}"
@@ -207,14 +210,11 @@ class Runner:
     async def destroy(self, workspace):
         """環境の削除。起動したときの tfvars を使って init と destroy を順に実行し、終わったら tfvars を消す"""
         if not WORKSPACE_PATTERN.match(workspace) or workspace == "default":
-            raise RunnerError("環境ID は、英小文字・数字・ハイフンの20文字以内で、default 以外にしてください")
+            raise RunnerError("env_id.invalid")
         if not os.path.exists(self.var_file_path(workspace)):
-            raise RunnerError(
-                f"tfvars/{workspace}.tfvars.json がないため、画面からは削除できません。"
-                f"起動したときの変数を渡して、TF_WORKSPACE={workspace} terraform destroy を実行してください"
-            )
+            raise RunnerError("destroy.no_tfvars", workspace=workspace)
         if self.running():
-            raise BusyError("別のコマンドが実行中です。終わってから実行してください")
+            raise BusyError("busy")
 
         var_file = f"-var-file={os.path.relpath(self.var_file_path(workspace), self.terraform_dir)}"
         destroy_args = ["destroy", "-input=false", "-no-color", "-auto-approve", var_file]
@@ -250,7 +250,7 @@ class Runner:
                     await self._append(run, raw.decode("utf-8", errors="replace").rstrip("\n"))
                 exit_code = await proc.wait()
             except (OSError, asyncio.CancelledError) as e:
-                await self._append(run, f"terraform を実行できませんでした: {e}")
+                await self._append(run, t("terraform.exec_failed", error=e))
                 exit_code = -1
             if exit_code != 0:
                 break
@@ -290,7 +290,7 @@ def list_workspaces(terraform_dir, terraform_bin="terraform"):
         capture_output=True, text=True, timeout=60,
     )
     if result.returncode != 0:
-        raise RunnerError(result.stderr.strip() or "terraform workspace list に失敗しました")
+        raise RunnerError("terraform.stderr", text=result.stderr.strip()) if result.stderr.strip() else RunnerError("terraform.command_failed", command="workspace list")
     workspaces = []
     for line in result.stdout.splitlines():
         name = line.strip().lstrip("*").strip()

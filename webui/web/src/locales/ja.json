@@ -266,6 +266,7 @@
     "openaiCurl": "OpenAI 互換 API に curl で送る",
     "openaiPython": "OpenAI の Python SDK で送る",
     "openaiPythonHelp": "base_url は /v1 まで、api_key は任意の文字列でかまいません。",
+    "samplePrompt": "こんにちは",
     "copy": "コピー",
     "copied": "コピーしました"
   },

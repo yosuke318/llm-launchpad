@@ -266,6 +266,7 @@
     "openaiCurl": "Send to the OpenAI-compatible API with curl",
     "openaiPython": "Send with the OpenAI Python SDK",
     "openaiPythonHelp": "Set base_url up to /v1. api_key can be any string.",
+    "samplePrompt": "Hello",
     "copy": "Copy",
     "copied": "Copied"
   },
