@@ -122,23 +122,42 @@ class Runner:
 
     def latest_launch(self, workspace):
         """そのワークスペースで最後に始めた起動。サーバーを起動し直すと消える"""
-        launches = [r for r in self.runs.values() if r.command == "launch" and r.workspace == workspace]
-        return launches[-1] if launches else None
+        return self.latest_run(workspace, ("launch",))
 
-    async def outputs(self, workspace):
-        """terraform output -json の値。state を読むだけなので、ほかのコマンドの実行中でも動かせる"""
+    async def _read_only(self, workspace, *args):
+        """state を読むだけのコマンド。ロックを取らないので、ほかのコマンドの実行中でも動かせる"""
         env = {**os.environ, "TF_WORKSPACE": workspace, "TF_IN_AUTOMATION": "1"}
         proc = await asyncio.create_subprocess_exec(
-            self.terraform_bin, f"-chdir={self.terraform_dir}", "output", "-json", "-no-color",
+            self.terraform_bin, f"-chdir={self.terraform_dir}", *args,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, stdin=asyncio.subprocess.DEVNULL, env=env,
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
-            raise RunnerError(stderr.decode("utf-8", errors="replace").strip() or "terraform output に失敗しました")
+            raise RunnerError(stderr.decode("utf-8", errors="replace").strip() or f"terraform {args[0]} に失敗しました")
+        return stdout
+
+    async def outputs(self, workspace):
+        """terraform output -json の値"""
+        stdout = await self._read_only(workspace, "output", "-json", "-no-color")
         try:
             return {name: o.get("value") for name, o in json.loads(stdout or b"{}").items()}
         except (json.JSONDecodeError, AttributeError) as e:
             raise RunnerError(f"terraform output の結果を読めませんでした: {e}") from e
+
+    async def state(self, workspace):
+        """terraform state pull の結果。まだ apply していないワークスペースでは None"""
+        stdout = await self._read_only(workspace, "state", "pull")
+        if not stdout.strip():
+            return None
+        try:
+            return json.loads(stdout)
+        except json.JSONDecodeError as e:
+            raise RunnerError(f"terraform state pull の結果を読めませんでした: {e}") from e
+
+    def latest_run(self, workspace, commands=("launch", "destroy")):
+        """そのワークスペースで最後に始めた起動か削除"""
+        found = [r for r in self.runs.values() if r.command in commands and r.workspace == workspace]
+        return found[-1] if found else None
 
     def running(self):
         return [r for r in self.runs.values() if r.status == "running"]
@@ -185,6 +204,23 @@ class Runner:
         steps = [list(COMMANDS["init"]), apply_args]
         return self._spawn(Run(id=uuid.uuid4().hex[:12], command="launch", workspace=workspace, args=apply_args, steps=steps))
 
+    async def destroy(self, workspace):
+        """環境の削除。起動したときの tfvars を使って init と destroy を順に実行し、終わったら tfvars を消す"""
+        if not WORKSPACE_PATTERN.match(workspace) or workspace == "default":
+            raise RunnerError("環境ID は、英小文字・数字・ハイフンの20文字以内で、default 以外にしてください")
+        if not os.path.exists(self.var_file_path(workspace)):
+            raise RunnerError(
+                f"tfvars/{workspace}.tfvars.json がないため、画面からは削除できません。"
+                f"起動したときの変数を渡して、TF_WORKSPACE={workspace} terraform destroy を実行してください"
+            )
+        if self.running():
+            raise BusyError("別のコマンドが実行中です。終わってから実行してください")
+
+        var_file = f"-var-file={os.path.relpath(self.var_file_path(workspace), self.terraform_dir)}"
+        destroy_args = ["destroy", "-input=false", "-no-color", "-auto-approve", var_file]
+        steps = [list(COMMANDS["init"]), destroy_args]
+        return self._spawn(Run(id=uuid.uuid4().hex[:12], command="destroy", workspace=workspace, args=destroy_args, steps=steps))
+
     def _spawn(self, run):
         self.runs[run.id] = run
         task = asyncio.create_task(self._execute(run))
@@ -218,6 +254,12 @@ class Runner:
                 exit_code = -1
             if exit_code != 0:
                 break
+        if run.command == "destroy" and exit_code == 0:
+            # 消した環境は一覧に出さない。同じ環境ID でまた起動すれば、そのときに書き直す
+            try:
+                os.remove(self.var_file_path(run.workspace))
+            except FileNotFoundError:
+                pass
         async with run.changed:
             run.exit_code = exit_code
             run.status = "succeeded" if exit_code == 0 else "failed"

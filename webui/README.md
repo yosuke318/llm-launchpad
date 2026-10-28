@@ -121,6 +121,18 @@ cd webui/web && npm run dev    # http://127.0.0.1:5173 。/api はサーバー(8
 * 使える状態になったら、`terraform output` から接続のしかた(エンドポイント、SSM のポートフォワードのコマンド、curl の例、OpenAI 互換 API の例)と自動停止の設定を出す。OpenAI の Python SDK の例は画面で作る。output は起動ごとに1回だけ読む
 * サーバーを起動し直すと apply の記録は消えるが、tfvars と SSM パラメータから段階を出せる
 
+### 環境の一覧
+
+terraform のワークスペースのうち、state にリソースがあるものと、画面から起動したもの(tfvars を書いたもの)を出す。
+
+* 環境ごとに、モデル、インスタンス型と購入方法、リージョン、インスタンスの状態、動かし始めてからの時間、ここまでの料金の目安を出す。インスタンスの状態は `describe_instances`(管理用タグ `Project=llm-launchpad` で探す)から読む
+* 料金の目安は、インスタンスを最後に動かし始めてから(`LaunchTime`)の時間に、今の1時間あたりの料金(スポットはその AZ のスポット価格、オンデマンドは Price List API)を掛けたもの。止めていた間、ディスク、データ転送の料金は入れない
+* 「停止」と「再開」は、state にあるインスタンスを EC2 の API で止める・動かす。インスタンスに付いた `EnvId` のタグがその環境のものか確かめてから動かす。ディスクとほかのリソースは残る
+* 「削除(destroy)」は、確認で環境IDを入れたときだけ、起動したときの tfvars を渡して `init` と `destroy` を実行する。成功したら tfvars も消す。tfvars がない環境(terraform を手で実行して作ったもの)は、画面からは削除できない
+* model-store の S3 バケットと EBS ボリュームは、環境とは別の state なので、削除しても残る
+* 消し忘れたリソースは、管理用タグ `Project=llm-launchpad` が付いているのに、どの環境の state にもないもの(Resource Groups Tagging API で探す)。model-store と budget のリソース(`Persistent=true`)は除く。state を読めなかった環境と、apply や destroy の途中の環境のリソースは、消し忘れと決めない。探すのは、環境のあるリージョンと既定のリージョン(ap-northeast-1)。IAM のロールなどリージョンのないものは探さない
+* 一覧は、タブを開いている間だけ30秒ごと(状態が変わっている途中は5秒ごと)に読み直す。読むたびにワークスペースごとに `terraform state pull` を実行する
+
 ### VRAM の見積もりは Python でも計算する
 
 * 画面でモデルを選んだときにすぐ推奨の型を出すため、`terraform/modules/sizing` と同じ計算を `server/llm_launchpad_webui/sizing.py` にも書いた
@@ -129,7 +141,7 @@ cd webui/web && npm run dev    # http://127.0.0.1:5173 。/api はサーバー(8
 
 ### terraform の実行
 
-* Terraform のタブから実行できるのは `version` / `init` / `validate` / `plan` だけ。`apply` は起動の確認(`POST /api/launch`)からだけ実行できる。`destroy` は環境の一覧の画面と一緒に足す
+* Terraform のタブから実行できるのは `version` / `init` / `validate` / `plan` だけ。`apply` は起動の確認(`POST /api/launch`)から、`destroy` は環境の一覧(`POST /api/environments/{環境ID}/destroy`)からだけ実行できる
 * 起動では、`default` のワークスペースは使えない。渡せる変数は決めたもの(model、region、context_length、kv_cache_type、model_storage、purchase_option、idle_stop_minutes、max_lifetime_hours、instance_type)だけで、型も確かめる
 * 同時に動かすのは1つだけ(`init` は `.terraform` を書き換えるため)。実行中に別のコマンドを頼むと 409 を返す
 * ワークスペース名は、環境IDと同じ規則(`default` か、英小文字・数字・ハイフンの20文字以内)だけを受け付ける
@@ -149,6 +161,10 @@ cd webui/web && npm run dev    # http://127.0.0.1:5173 。/api はサーバー(8
 | GET | `/api/region-plan` | リージョンでの料金、AZ、ストレージ方式ごとの料金と起動時間の目安、スポットの placement score。`?model=qwen3:8b&region=ap-northeast-1` |
 | GET | `/api/environments` | 画面から起動した環境(tfvars を書いたもの)。新しく起動した順 |
 | GET | `/api/environments/{環境ID}/progress` | 起動の進み具合。段階、取得の進み具合、経過時間と残り時間の目安、失敗の理由、使える状態なら接続のしかた |
+| GET | `/api/environments/overview` | 環境の一覧(インスタンスの状態、経過時間、料金の目安)と、どの state にもない消し忘れのリソース |
+| POST | `/api/environments/{環境ID}/stop` | その環境のインスタンスを止める |
+| POST | `/api/environments/{環境ID}/start` | 止めたインスタンスを動かし直す |
+| POST | `/api/environments/{環境ID}/destroy` | 起動したときの tfvars を渡して init と destroy を実行する。成功したら tfvars を消す |
 | POST | `/api/launch` | tfvars を書いて init と apply を実行する。`{"workspace": "qwen3-8b", "variables": {"model": "qwen3:8b", ...}}` |
 | GET | `/api/workspaces` | `terraform workspace list` の結果 |
 | POST | `/api/runs` | コマンドを実行する。`{"command": "plan", "workspace": "qwen-test", "variables": {...}}` |

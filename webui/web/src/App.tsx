@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import EnvironmentsPanel from "./components/EnvironmentsPanel";
 import ModelPicker from "./components/ModelPicker";
 import ProgressPanel from "./components/ProgressPanel";
 import TerraformPanel from "./components/TerraformPanel";
 import { LANGUAGES, saveLanguage, type Language } from "./i18n";
 import { RunProvider } from "./runContext";
 
-const TABS = ["models", "progress", "terraform"] as const;
+const TABS = ["models", "progress", "environments", "terraform"] as const;
 type Tab = (typeof TABS)[number];
 
 // タブとパネルを ARIA で結びつける id(WAI-ARIA の tabs パターン)
@@ -66,6 +67,10 @@ export default function App() {
         </div>
         <div id={panelId("progress")} role="tabpanel" aria-labelledby={tabId("progress")} hidden={tab !== "progress"}>
           <ProgressPanel />
+        </div>
+        <div id={panelId("environments")} role="tabpanel" aria-labelledby={tabId("environments")} hidden={tab !== "environments"}>
+          {/* 一覧は読むたびに terraform state pull と AWS への問い合わせをするので、開いている間だけ動かす */}
+          {tab === "environments" && <EnvironmentsPanel />}
         </div>
         <div id={panelId("terraform")} role="tabpanel" aria-labelledby={tabId("terraform")} hidden={tab !== "terraform"}>
           <TerraformPanel />

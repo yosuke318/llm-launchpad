@@ -7,8 +7,8 @@ export type RunStatus = "running" | "succeeded" | "failed";
 
 export interface RunSummary {
   id: string;
-  // launch は起動の確認から(init と apply を続けて実行する)
-  command: Command | "launch";
+  // launch は起動の確認から(init と apply を続けて実行する)、destroy は環境の一覧から(init と destroy)
+  command: Command | "launch" | "destroy";
   workspace: string;
   args: string[];
   steps: string[][];
@@ -304,4 +304,71 @@ export function listEnvironments() {
 
 export function getProgress(workspace: string) {
   return request<Progress>(`/api/environments/${encodeURIComponent(workspace)}/progress`);
+}
+
+// 環境の一覧と、どの state にもない消し忘れのリソース
+
+export interface EnvironmentInstance {
+  id: string;
+  state: "pending" | "running" | "stopping" | "stopped" | "shutting-down";
+  instance_type: string;
+  availability_zone: string;
+  launch_time: string;
+  purchase_option: "spot" | "on-demand";
+  env_id: string | null;
+  region: string;
+}
+
+export interface Environment {
+  workspace: string;
+  region: string;
+  model: string | null;
+  instance_type: string | null;
+  purchase_option: string | null;
+  resource_count: number;
+  // 起動したときの tfvars があるか。なければ画面からは削除できない
+  has_tfvars: boolean;
+  instance: EnvironmentInstance | null;
+  // インスタンスを最後に動かし始めてから(動いている間だけ)
+  elapsed_sec: number | null;
+  hourly_usd: number | null;
+  cost_usd: number | null;
+  run: RunSummary | null;
+  state_error: string | null;
+}
+
+export interface Leftover {
+  region: string;
+  arn: string;
+  resource_type: string;
+  resource_id: string;
+  env_id: string | null;
+  name: string | null;
+  created_at: string | null;
+  instance_state?: EnvironmentInstance["state"];
+}
+
+export interface EnvironmentsOverview {
+  environments: Environment[];
+  leftovers: Leftover[];
+  regions: string[];
+  unchecked_regions: string[];
+  now: string;
+  warnings: string[];
+}
+
+export function getEnvironmentsOverview() {
+  return request<EnvironmentsOverview>("/api/environments/overview");
+}
+
+export function stopEnvironment(workspace: string) {
+  return request<{ instance_id: string; state: string }>(`/api/environments/${encodeURIComponent(workspace)}/stop`, { method: "POST" });
+}
+
+export function startEnvironment(workspace: string) {
+  return request<{ instance_id: string; state: string }>(`/api/environments/${encodeURIComponent(workspace)}/start`, { method: "POST" });
+}
+
+export function destroyEnvironment(workspace: string) {
+  return request<RunSummary>(`/api/environments/${encodeURIComponent(workspace)}/destroy`, { method: "POST" });
 }

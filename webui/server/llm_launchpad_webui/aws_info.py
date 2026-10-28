@@ -1,7 +1,8 @@
 """画面に出す AWS の情報(リージョン、インスタンス型が使えるか、料金、model-store があるか)を問い合わせる。
 
 単価は持たず、その都度 AWS の API から取る(Price List API、スポット価格の履歴)。同じ問い合わせは
-しばらく覚えておく。AWS の認証情報は、サーバーを起動した端末のものを使う。読み取りだけを行う。
+しばらく覚えておく。AWS の認証情報は、サーバーを起動した端末のものを使う。
+書き込むのは、環境の一覧から止めたり動かし直したりするとき(stop_instance、start_instance)だけ。
 """
 
 import datetime
@@ -278,3 +279,64 @@ class AwsInfo:
 
         # 画面は数秒ごとに読むので、同時に開いた画面からの問い合わせをまとめる程度に覚えておく
         return self._cached(("bootstrap_status", region, env_id), fetch, ttl_sec=2)
+
+    # 環境の一覧(environments.py)で使う
+
+    def project_instances(self, region):
+        """そのリージョンにある、管理用タグ(Project)が付いたインスタンス。終了したものは除く"""
+        def fetch():
+            pages = self._client("ec2", region).get_paginator("describe_instances").paginate(Filters=[
+                {"Name": "tag:Project", "Values": [PROJECT]},
+                {"Name": "instance-state-name", "Values": ["pending", "running", "stopping", "stopped", "shutting-down"]},
+            ])
+            instances = []
+            for page in pages:
+                for reservation in page["Reservations"]:
+                    for inst in reservation["Instances"]:
+                        tags = {t["Key"]: t["Value"] for t in inst.get("Tags", [])}
+                        instances.append({
+                            "id": inst["InstanceId"],
+                            "state": inst["State"]["Name"],
+                            "instance_type": inst["InstanceType"],
+                            "availability_zone": inst["Placement"]["AvailabilityZone"],
+                            "launch_time": inst["LaunchTime"].isoformat(),
+                            "purchase_option": "spot" if inst.get("InstanceLifecycle") == "spot" else "on-demand",
+                            "env_id": tags.get("EnvId"),
+                        })
+            return instances
+
+        # 止めたり動かし直したりした結果が、すぐ画面に出るよう短くする
+        return self._cached(("project_instances", region), fetch, ttl_sec=5)
+
+    def tagged_resources(self, region):
+        """そのリージョンにある、管理用タグ(Project)が付いたリソースの ARN とタグ(Resource Groups Tagging API)"""
+        def fetch():
+            pages = self._client("resourcegroupstaggingapi", region).get_paginator("get_resources").paginate(
+                TagFilters=[{"Key": "Project", "Values": [PROJECT]}],
+            )
+            return [
+                {"arn": r["ResourceARN"], "tags": {t["Key"]: t["Value"] for t in r.get("Tags", [])}}
+                for page in pages for r in page["ResourceTagMappingList"]
+            ]
+
+        return self._cached(("tagged_resources", region), fetch, ttl_sec=30)
+
+    def _change_instance(self, region, instance_id, action):
+        try:
+            ec2 = self._client("ec2", region)
+            if action == "stop":
+                res = ec2.stop_instances(InstanceIds=[instance_id])["StoppingInstances"]
+            else:
+                res = ec2.start_instances(InstanceIds=[instance_id])["StartingInstances"]
+        except (BotoCoreError, ClientError) as e:
+            raise AwsInfoError(f"{instance_id} を{'止め' if action == 'stop' else '動かし直せ'}ませんでした: {e}") from e
+        with self._lock:
+            self._cache.pop(("project_instances", region), None)
+        return res[0]["CurrentState"]["Name"]
+
+    def stop_instance(self, region, instance_id):
+        """インスタンスを止める。ディスクは残るので、動かし直せば同じ状態から使える"""
+        return self._change_instance(region, instance_id, "stop")
+
+    def start_instance(self, region, instance_id):
+        return self._change_instance(region, instance_id, "start")
