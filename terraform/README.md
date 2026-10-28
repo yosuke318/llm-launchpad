@@ -101,6 +101,7 @@ catalog/                      # リポジトリ直下。WebUI からも読む
 * インスタンスには、その環境のパラメータにだけ書ける権限(`ssm:PutParameter`、`ssm:GetParameter`)を付ける
 * パラメータは Terraform が作るときの値だけを持ち、あとはインスタンスが書き換える(`ignore_changes`)。destroy で消える
 * 補助スクリプト(`modules/bootstrap/files/launchpad.py`)は標準ライブラリと AWS CLI だけを使い、user data に埋め込む
+* `launchpad.py bench <モデル>` で、決まったプロンプトを流して TTFT と tok/s を測れる(結果は JSON で標準出力に出す)。WebUI のベンチマークは、これを SSM の send-command で動かす
 * user data は 16KB までで、そのままでは約20KBになるため、gzip で圧縮して渡す(cloud-init が展開して実行する)。テストで圧縮後の大きさを確かめている
 
 Ollama は見積もりと同じ条件で動かす(systemd の設定で渡す)。

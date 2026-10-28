@@ -13,6 +13,7 @@
     "models": "モデルを選ぶ",
     "progress": "起動の進み具合",
     "environments": "環境の一覧",
+    "benchmark": "ベンチマーク",
     "terraform": "Terraform"
   },
   "models": {
@@ -320,6 +321,45 @@
     "destroyType": "確認のため、環境ID「{{workspace}}」を入れてください",
     "cancel": "やめる",
     "destroyYes": "削除する"
+  },
+  "benchmark": {
+    "heading": "ベンチマーク",
+    "lead": "起動した環境のインスタンスで決まったプロンプト(3つ)を流して、最初のトークンまでの時間(TTFT)、出力の速さ(tok/s)、VRAM の使用量を測り、$/100万トークンを出します。",
+    "runs": "何周流すか",
+    "runsInvalid": "{{min}}〜{{max}} の整数にしてください",
+    "run": "計測する",
+    "running": "計測しています…",
+    "howItRuns": "SSM の send-command でインスタンスの launchpad.py bench を動かします。最初の1回はモデルを GPU に載せるためで、数えません。数分かかります。",
+    "waiting": "{{workspace}} で {{model}} を測っています。終わるとここに結果が出ます。",
+    "vramDetail": "実測 {{measured}} GiB / 見積もり {{estimate}} GiB(差 {{diff}})",
+    "historyHeading": "計測の履歴",
+    "downloadCsv": "CSV で保存",
+    "downloadJson": "JSON で保存",
+    "noHistory": "まだ計測していません。",
+    "note": "TTFT と tok/s は、インスタンスの中から Ollama に送って測った値です(ネットワークの遅れは入りません)。VRAM の実測は nvidia-smi の使用量の合計です。$/100万トークンは、1時間あたりの料金を出力の tok/s で割ったもので、リクエストを1つずつ順に送ったときの値です。",
+    "columns": {
+      "measuredAt": "測った日時",
+      "model": "モデル",
+      "instance": "インスタンス",
+      "ttft": "TTFT(秒)",
+      "tokensPerSec": "出力 tok/s",
+      "vram": "VRAM",
+      "vramMeasured": "VRAM 実測(GiB)",
+      "vramDiff": "見積もりとの差(GiB)",
+      "costPerMillion": "$/100万トークン"
+    },
+    "chatHeading": "チャットで試す",
+    "chatLead": "モデルに話しかけて、応答を確かめます。terraform output の ollama_endpoint に送るので、SSM で接続する環境では、別の端末でポートフォワードを動かしたままにしてください。",
+    "roles": {
+      "system": "システム",
+      "user": "あなた",
+      "assistant": "モデル"
+    },
+    "chatStats": "{{sec}} 秒、{{tps}} tok/s",
+    "chatPlaceholder": "メッセージを入力(Ctrl+Enter / ⌘+Enter で送る)",
+    "chatSend": "送る",
+    "chatSending": "応答を待っています…",
+    "chatClear": "会話を消す"
   },
   "terraform": {
     "heading": "Terraform",

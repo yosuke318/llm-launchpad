@@ -13,6 +13,7 @@
     "models": "Pick a model",
     "progress": "Launch progress",
     "environments": "Environments",
+    "benchmark": "Benchmark",
     "terraform": "Terraform"
   },
   "models": {
@@ -320,6 +321,45 @@
     "destroyType": "To confirm, enter the environment ID \"{{workspace}}\"",
     "cancel": "Cancel",
     "destroyYes": "Delete"
+  },
+  "benchmark": {
+    "heading": "Benchmark",
+    "lead": "Runs fixed prompts (three) on the environment's instance and measures the time to first token (TTFT), output speed (tok/s), and VRAM usage, then works out $ per 1M tokens.",
+    "runs": "Rounds",
+    "runsInvalid": "Enter an integer from {{min}} to {{max}}",
+    "run": "Measure",
+    "running": "Measuring…",
+    "howItRuns": "Runs launchpad.py bench on the instance with SSM send-command. The first request only loads the model onto the GPU and is not counted. This takes a few minutes.",
+    "waiting": "Measuring {{model}} on {{workspace}}. The result appears here when it finishes.",
+    "vramDetail": "Measured {{measured}} GiB / estimate {{estimate}} GiB (difference {{diff}})",
+    "historyHeading": "Measurement history",
+    "downloadCsv": "Save as CSV",
+    "downloadJson": "Save as JSON",
+    "noHistory": "Nothing has been measured yet.",
+    "note": "TTFT and tok/s are measured by sending to Ollama from inside the instance (network latency is not included). Measured VRAM is the total usage from nvidia-smi. $ per 1M tokens is the hourly price divided by the output tok/s, with one request at a time.",
+    "columns": {
+      "measuredAt": "Measured at",
+      "model": "Model",
+      "instance": "Instance",
+      "ttft": "TTFT (s)",
+      "tokensPerSec": "Output tok/s",
+      "vram": "VRAM",
+      "vramMeasured": "Measured VRAM (GiB)",
+      "vramDiff": "Difference from estimate (GiB)",
+      "costPerMillion": "$ per 1M tokens"
+    },
+    "chatHeading": "Try it in a chat",
+    "chatLead": "Talk to the model to check its responses. Messages go to ollama_endpoint in terraform output, so for environments you reach through SSM, keep the port forward running in another terminal.",
+    "roles": {
+      "system": "System",
+      "user": "You",
+      "assistant": "Model"
+    },
+    "chatStats": "{{sec}} s, {{tps}} tok/s",
+    "chatPlaceholder": "Type a message (Ctrl+Enter / ⌘+Enter to send)",
+    "chatSend": "Send",
+    "chatSending": "Waiting for the response…",
+    "chatClear": "Clear the chat"
   },
   "terraform": {
     "heading": "Terraform",

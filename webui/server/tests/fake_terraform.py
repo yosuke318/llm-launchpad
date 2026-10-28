@@ -28,7 +28,8 @@ if command == "output":
         sys.exit(1)
     values = {
         "instance_id": "i-0123456789abcdef0",
-        "ollama_endpoint": "http://localhost:11434",
+        # 手元で Ollama が動いていても届かないよう、何も待ち受けていないポート(discard)にする
+        "ollama_endpoint": "http://127.0.0.1:9",
         "ssm_port_forward_command": f"aws ssm start-session --target i-0123456789abcdef0 # {ws}",
         "curl_example": "curl http://localhost:11434/api/generate",
         "vpc_id": "vpc-1",

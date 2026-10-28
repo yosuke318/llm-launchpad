@@ -375,3 +375,89 @@ export function startEnvironment(workspace: string) {
 export function destroyEnvironment(workspace: string) {
   return request<RunSummary>(`/api/environments/${encodeURIComponent(workspace)}/destroy`, { method: "POST" });
 }
+
+// ベンチマーク(インスタンスで決まったプロンプトを流して測る)とチャット
+
+export interface BenchmarkPromptResult {
+  prompt_id: string;
+  run: number;
+  ttft_sec: number | null;
+  total_sec: number;
+  prompt_tokens: number;
+  prompt_tokens_per_sec: number | null;
+  output_tokens: number;
+  output_tokens_per_sec: number | null;
+  load_sec: number;
+}
+
+export interface Benchmark {
+  id: string;
+  measured_at: string;
+  workspace: string;
+  model: string;
+  region: string | null;
+  availability_zone: string | null;
+  instance_type: string | null;
+  gpu: string | null;
+  purchase_option: string | null;
+  model_storage: string | null;
+  context_length: number | null;
+  kv_cache_type: string | null;
+  runs: number;
+  num_predict: number;
+  ttft_sec: number | null;
+  output_tokens_per_sec: number | null;
+  prompt_tokens_per_sec: number | null;
+  warmup_load_sec: number | null;
+  vram_estimate_gib: number | null;
+  vram_measured_gib: number | null;
+  vram_diff_gib: number | null;
+  vram_total_gib: number | null;
+  hourly_usd: number | null;
+  usd_per_million_tokens: number | null;
+  results: BenchmarkPromptResult[];
+}
+
+export interface BenchmarkJob {
+  id: string;
+  workspace: string;
+  model: string;
+  runs: number;
+  status: RunStatus;
+  started_at: string;
+  finished_at: string | null;
+  result: Benchmark | null;
+  error: string | null;
+  warnings: string[];
+}
+
+export const BENCHMARKS_CSV_URL = "/api/benchmarks.csv";
+export const BENCHMARKS_JSON_URL = "/api/benchmarks";
+
+export function startBenchmark(workspace: string, runs: number) {
+  return request<BenchmarkJob>(`/api/environments/${encodeURIComponent(workspace)}/benchmark`, { method: "POST", body: JSON.stringify({ runs }) });
+}
+
+export function getBenchmarkJob(id: string) {
+  return request<BenchmarkJob>(`/api/benchmarks/jobs/${encodeURIComponent(id)}`);
+}
+
+export function listBenchmarks() {
+  return request<{ benchmarks: Benchmark[] }>(BENCHMARKS_JSON_URL).then((r) => r.benchmarks);
+}
+
+export interface ChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface ChatReply {
+  message: ChatMessage;
+  total_sec: number;
+  output_tokens: number | null;
+  output_tokens_per_sec: number | null;
+}
+
+export function sendChat(workspace: string, messages: ChatMessage[]) {
+  return request<ChatReply>(`/api/environments/${encodeURIComponent(workspace)}/chat`, { method: "POST", body: JSON.stringify({ messages }) });
+}
