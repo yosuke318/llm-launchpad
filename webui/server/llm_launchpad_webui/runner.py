@@ -37,6 +37,8 @@ LAUNCH_VARIABLES = {
     "idle_stop_minutes": int,
     "max_lifetime_hours": int,
     "instance_type": str,
+    # 在庫のないAZを避けたいとき。省くと、インスタンス型を提供しているAZから選ぶ
+    "availability_zone": str,
 }
 
 # 環境ID と同じ規則(terraform/main.tf の time_static.created の precondition)。default はそのまま使える

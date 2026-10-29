@@ -28,7 +28,7 @@ class FakeOllama(http.server.BaseHTTPRequestHandler):
         FakeOllama.requests.append(body)
         self.send_response(200)
         self.end_headers()
-        chunks = [{"response": "Hel", "done": False}, {"response": "lo", "done": False}, {
+        chunks = [{"response": "", "thinking": "Let me", "done": False}, {"response": "Hel", "done": False}, {"response": "lo", "done": False}, {
             "response": "", "done": True,
             "eval_count": 100, "eval_duration": 2_000_000_000,
             "prompt_eval_count": 20, "prompt_eval_duration": 100_000_000,
@@ -65,7 +65,8 @@ def test_bench_measures_and_prints_json(launchpad, capsys):
     assert len(FakeOllama.requests) == 1 + 2 * len(launchpad.BENCH_PROMPTS), "最初の1回はモデルを載せるためで、数えない"
     assert FakeOllama.requests[1]["options"] == {"num_predict": 64, "temperature": 0, "seed": 0}
     assert out["output_tokens_per_sec"] == 50.0 and out["prompt_tokens_per_sec"] == 200.0
-    assert out["warmup_load_sec"] == 3.0 and out["ttft_sec"] is not None
+    assert out["warmup_load_sec"] == 3.0 and out["thinking"] is True
+    assert out["ttft_sec"] <= out["first_response_sec"], "TTFT は考えている間のトークンも数える"
     assert out["loaded"]["size_vram_bytes"] == 5_500_000_000 and out["gpus"][0]["memory_used_mib"] == 6000
     assert {r["prompt_id"] for r in out["results"]} == {p["id"] for p in launchpad.BENCH_PROMPTS}
     last = capsys.readouterr().out.strip().splitlines()[-1]

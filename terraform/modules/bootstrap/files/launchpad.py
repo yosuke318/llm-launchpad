@@ -248,6 +248,8 @@ def generate_timed(model, prompt, num_predict):
     }
     started = time.monotonic()
     ttft = None
+    first_response = None
+    thinking = False
     final = None
     with request("/api/generate", body, timeout=1800) as res:
         for line in res:
@@ -257,8 +259,14 @@ def generate_timed(model, prompt, num_predict):
             event = json.loads(line)
             if "error" in event:
                 raise RuntimeError(f"生成に失敗しました: {event['error']}")
-            if ttft is None and event.get("response"):
+            # 考えてから答えるモデル(qwen3、gpt-oss など)は、考えている間の出力を thinking に入れて返す。
+            # TTFT はどちらでも最初のトークンが届くまで、答え(response)の最初のトークンまでは別に残す
+            if event.get("thinking"):
+                thinking = True
+            if ttft is None and (event.get("response") or event.get("thinking")):
                 ttft = time.monotonic() - started
+            if first_response is None and event.get("response"):
+                first_response = time.monotonic() - started
             if event.get("done"):
                 final = event
     if final is None:
@@ -267,6 +275,8 @@ def generate_timed(model, prompt, num_predict):
     prompt_eval_sec = final.get("prompt_eval_duration", 0) / 1e9
     return {
         "ttft_sec": None if ttft is None else round(ttft, 3),
+        "first_response_sec": None if first_response is None else round(first_response, 3),
+        "thinking": thinking,
         "total_sec": round(time.monotonic() - started, 3),
         "prompt_tokens": final.get("prompt_eval_count", 0),
         "prompt_tokens_per_sec": round(final.get("prompt_eval_count", 0) / prompt_eval_sec, 2) if prompt_eval_sec else None,
@@ -308,6 +318,8 @@ def bench(model, runs=1, num_predict=BENCH_NUM_PREDICT):
         "runs": runs,
         "warmup_load_sec": warmup["load_sec"],
         "ttft_sec": mean("ttft_sec"),
+        "first_response_sec": mean("first_response_sec"),
+        "thinking": any(r["thinking"] for r in results),
         "output_tokens_per_sec": mean("output_tokens_per_sec"),
         "prompt_tokens_per_sec": mean("prompt_tokens_per_sec"),
         "results": results,
