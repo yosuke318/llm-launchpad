@@ -271,6 +271,7 @@ function ChatCard({ workspace }: { workspace: string }) {
         <textarea
           value={input}
           rows={3}
+          aria-label={t("benchmark.chatInputLabel")}
           placeholder={t("benchmark.chatPlaceholder")}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {

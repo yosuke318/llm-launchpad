@@ -356,6 +356,7 @@
       "assistant": "モデル"
     },
     "chatStats": "{{sec}} 秒、{{tps}} tok/s",
+    "chatInputLabel": "モデルに送るメッセージ",
     "chatPlaceholder": "メッセージを入力(Ctrl+Enter / ⌘+Enter で送る)",
     "chatSend": "送る",
     "chatSending": "応答を待っています…",

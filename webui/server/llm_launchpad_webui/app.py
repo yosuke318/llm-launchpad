@@ -451,6 +451,9 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
             job.update(status="succeeded", result=record)
         except (AwsInfoError, BenchmarkError) as e:
             job.update(status="failed", error=e)
+        except Exception as e:
+            # 結果のファイルに書けないときなど。running のまま残すと、画面が待ち続ける
+            job.update(status="failed", error=BenchmarkError("bench.unexpected", error=f"{type(e).__name__}: {e}"))
         finally:
             job["finished_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 

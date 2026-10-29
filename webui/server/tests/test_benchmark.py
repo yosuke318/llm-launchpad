@@ -93,7 +93,7 @@ def test_parse_output_reads_last_json_line():
 
 
 def test_usd_per_million_tokens():
-    # 1時間 0.36 ドルで 40 tok/s → 100万トークンに 6944 秒 → 0.6944 時間
+    # 40 tok/s → 100万トークンに 25000 秒(約 6.944 時間)→ 1時間 0.36 ドルなら 2.5 ドル
     assert usd_per_million_tokens(0.36, 40.0) == 2.5
     assert usd_per_million_tokens(None, 40.0) is None and usd_per_million_tokens(0.36, 0) is None
 
@@ -138,6 +138,17 @@ def test_benchmark_failure_is_reported_in_the_language(client, aws):
     done = wait_job(client, job["id"], headers={"Accept-Language": "en"})
     assert done["status"] == "failed" and done["error"].startswith("The benchmark failed (Failed, exit code 2)")
     assert client.get("/api/benchmarks").json()["benchmarks"] == []
+
+
+def test_benchmark_unexpected_error_marks_job_failed(client, monkeypatch):
+    """結果のファイルに書けないときなど、想定していないエラーでも running のまま残さない"""
+    def fail(record):
+        raise OSError("Read-only file system")
+
+    monkeypatch.setattr(client.app.state.benchmarks, "append", fail)
+    done = wait_job(client, client.post("/api/environments/qwen3-8b/benchmark", json={}).json()["id"], headers={"Accept-Language": "en"})
+    assert done["status"] == "failed" and done["finished_at"]
+    assert done["error"] == "An unexpected error occurred during the benchmark: OSError: Read-only file system"
 
 
 def test_benchmark_aws_error(client, aws):

@@ -356,6 +356,7 @@
       "assistant": "Model"
     },
     "chatStats": "{{sec}} s, {{tps}} tok/s",
+    "chatInputLabel": "Message to send to the model",
     "chatPlaceholder": "Type a message (Ctrl+Enter / ⌘+Enter to send)",
     "chatSend": "Send",
     "chatSending": "Waiting for the response…",

@@ -43,6 +43,10 @@ MESSAGES = {
         "ja": "ベンチマークの結果を読めませんでした。インスタンスの launchpad.py が古いときは、環境を作り直してください",
         "en": "Could not read the benchmark result. If launchpad.py on the instance is old, recreate the environment",
     },
+    "bench.unexpected": {
+        "ja": "計測の途中で、想定していないエラーが起きました: {error}",
+        "en": "An unexpected error occurred during the benchmark: {error}",
+    },
     "bench.not_running": {
         "ja": "環境 {workspace} のインスタンスが動いていません(状態: {state})",
         "en": "The instance of environment {workspace} is not running (state: {state})",
