@@ -26,6 +26,55 @@ MESSAGES = {
         "ja": "{instance_id} を動かし直せませんでした: {error}",
         "en": "Could not start {instance_id}: {error}",
     },
+    "aws.command_failed": {
+        "ja": "{instance_id} でコマンドを動かせませんでした: {error}",
+        "en": "Could not run the command on {instance_id}: {error}",
+    },
+    "aws.command_timeout": {
+        "ja": "{instance_id} のコマンドが {sec} 秒たっても終わりませんでした",
+        "en": "The command on {instance_id} did not finish in {sec} seconds",
+    },
+    # ベンチマークとチャット(benchmark.py、app.py)
+    "bench.failed": {
+        "ja": "ベンチマークが失敗しました({status}、終了コード {code}): {stderr}",
+        "en": "The benchmark failed ({status}, exit code {code}): {stderr}",
+    },
+    "bench.no_output": {
+        "ja": "ベンチマークの結果を読めませんでした。インスタンスの launchpad.py が古いときは、環境を作り直してください",
+        "en": "Could not read the benchmark result. If launchpad.py on the instance is old, recreate the environment",
+    },
+    "bench.unexpected": {
+        "ja": "計測の途中で、想定していないエラーが起きました: {error}",
+        "en": "An unexpected error occurred during the benchmark: {error}",
+    },
+    "bench.not_running": {
+        "ja": "環境 {workspace} のインスタンスが動いていません(状態: {state})",
+        "en": "The instance of environment {workspace} is not running (state: {state})",
+    },
+    "bench.busy": {
+        "ja": "環境 {workspace} は計測中です。終わってから実行してください",
+        "en": "Environment {workspace} is being measured. Run this after it finishes",
+    },
+    "bench.runs_range": {
+        "ja": "runs は 1〜{max} にしてください",
+        "en": "runs must be between 1 and {max}",
+    },
+    "bench.job_not_found": {
+        "ja": "計測が見つかりません",
+        "en": "The benchmark was not found",
+    },
+    "chat.no_endpoint": {
+        "ja": "環境 {workspace} の接続先(terraform output の ollama_endpoint)を読めませんでした: {error}",
+        "en": "Could not read the endpoint of environment {workspace} (ollama_endpoint in terraform output): {error}",
+    },
+    "chat.unreachable": {
+        "ja": "{endpoint} に接続できませんでした。SSM で接続するときは、別の端末でポートフォワードを動かしたままにしてください({command}): {error}",
+        "en": "Could not connect to {endpoint}. When you connect through SSM, keep the port forward running in another terminal ({command}): {error}",
+    },
+    "chat.failed": {
+        "ja": "応答を受け取れませんでした: {error}",
+        "en": "Could not get a response: {error}",
+    },
     # モデル定義と見積もり(sizing.py、app.py)
     "model.unknown": {
         "ja": "model \"{model}\" はモデル定義にありません",

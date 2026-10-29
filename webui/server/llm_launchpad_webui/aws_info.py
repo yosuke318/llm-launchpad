@@ -2,7 +2,8 @@
 
 単価は持たず、その都度 AWS の API から取る(Price List API、スポット価格の履歴)。同じ問い合わせは
 しばらく覚えておく。AWS の認証情報は、サーバーを起動した端末のものを使う。
-書き込むのは、環境の一覧から止めたり動かし直したりするとき(stop_instance、start_instance)だけ。
+書き込むのは、環境の一覧から止めたり動かし直したりするとき(stop_instance、start_instance)と、
+ベンチマークをインスタンスで動かすとき(run_command)だけ。
 """
 
 import datetime
@@ -335,6 +336,38 @@ class AwsInfo:
         with self._lock:
             self._cache.pop(("project_instances", region), None)
         return res[0]["CurrentState"]["Name"]
+
+    def run_command(self, region, instance_id, command, timeout_sec=3600, poll_sec=3):
+        """インスタンスでシェルのコマンドを動かし(SSM の send-command)、終わるまで待つ。標準出力は 24000 文字まで"""
+        try:
+            ssm = self._client("ssm", region)
+            command_id = ssm.send_command(
+                InstanceIds=[instance_id],
+                DocumentName="AWS-RunShellScript",
+                Parameters={"commands": [command], "executionTimeout": [str(timeout_sec)]},
+                Comment="llm-launchpad benchmark",
+            )["Command"]["CommandId"]
+            deadline = time.monotonic() + timeout_sec + 60
+            while True:
+                time.sleep(poll_sec)
+                try:
+                    inv = ssm.get_command_invocation(CommandId=command_id, InstanceId=instance_id)
+                except ssm.exceptions.InvocationDoesNotExist:
+                    # 送った直後は、まだ見つからないことがある
+                    inv = {"Status": "Pending"}
+                if inv["Status"] in ("Pending", "InProgress", "Delayed"):
+                    if time.monotonic() > deadline:
+                        raise AwsInfoError("aws.command_timeout", instance_id=instance_id, sec=timeout_sec)
+                    continue
+                return {
+                    "command_id": command_id,
+                    "status": inv["Status"],
+                    "exit_code": inv.get("ResponseCode"),
+                    "stdout": inv.get("StandardOutputContent", ""),
+                    "stderr": inv.get("StandardErrorContent", ""),
+                }
+        except (BotoCoreError, ClientError) as e:
+            raise AwsInfoError("aws.command_failed", instance_id=instance_id, error=e) from e
 
     def stop_instance(self, region, instance_id):
         """インスタンスを止める。ディスクは残るので、動かし直せば同じ状態から使える"""

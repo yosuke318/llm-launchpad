@@ -9,15 +9,18 @@ import asyncio
 import datetime
 import json
 import os
+import uuid
 from typing import Literal
 
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .aws_info import AwsInfo, AwsInfoError
-from .environments import build_environment, find_leftovers, managed_resources, state_identifiers, state_instance
+from .benchmark import DEFAULT_RUNS, MAX_RUNS, BenchmarkError, BenchmarkStore, bench_command, parse_output, summarize
+from .chat import ChatError, ChatUnreachable, chat_once
+from .environments import build_environment, find_leftovers, hourly_usd, managed_resources, state_identifiers, state_instance
 from .messages import language, parse_accept_language, t
 from .runner import COMMANDS, WORKSPACE_PATTERN, BusyError, Runner, RunnerError, list_workspaces
 from .preflight import run_preflight
@@ -39,6 +42,8 @@ CATALOG_DIR = os.environ.get("LAUNCHPAD_CATALOG_DIR", os.path.join(REPO_ROOT, "c
 TERRAFORM_DIR = os.environ.get("LAUNCHPAD_TERRAFORM_DIR", os.path.join(REPO_ROOT, "terraform"))
 TERRAFORM_BIN = os.environ.get("LAUNCHPAD_TERRAFORM_BIN", "terraform")
 WEB_DIST = os.environ.get("LAUNCHPAD_WEB_DIST", os.path.join(REPO_ROOT, "webui", "web", "dist"))
+# ベンチマークの結果を足していくファイル(JSON Lines)
+BENCHMARK_FILE = os.environ.get("LAUNCHPAD_BENCHMARK_FILE", os.path.join(REPO_ROOT, "benchmarks", "results.jsonl"))
 
 # 何も流れない間も接続が切れないよう、この秒数ごとに SSE のコメントを送る
 HEARTBEAT_SEC = 15
@@ -67,14 +72,34 @@ class RunRequest(BaseModel):
     variables: dict[str, object] | None = None
 
 
+class BenchmarkRequest(BaseModel):
+    # プロンプトを何周流すか
+    runs: int = DEFAULT_RUNS
+
+
+class ChatMessage(BaseModel):
+    role: Literal["system", "user", "assistant"]
+    content: str
+
+
+class ChatRequest(BaseModel):
+    messages: list[ChatMessage]
+
+
 def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, catalog_dir: str = CATALOG_DIR,
-               aws_info: AwsInfo | None = None) -> FastAPI:
+               aws_info: AwsInfo | None = None, benchmark_file: str = BENCHMARK_FILE) -> FastAPI:
     app = FastAPI(title="llm-launchpad WebUI")
     app.state.runner = runner or Runner(TERRAFORM_DIR, TERRAFORM_BIN)
     # AWS への問い合わせは、使うときに初めて用意する(認証情報がなくても、ほかの画面は動くように)
     app.state.aws_info = aws_info
     # terraform output の結果。apply が終わるまで変わらないので、ワークスペースと起動の実行ごとに1回だけ読む
     app.state.outputs = {}
+    # ベンチマークの履歴と、実行中の計測(サーバーのメモリにだけ持つ)
+    app.state.benchmarks = BenchmarkStore(benchmark_file)
+    app.state.benchmark_jobs = {}
+    app.state.tasks = set()
+    # チャットの送り先(terraform output)。環境ごとに1回だけ読む
+    app.state.chat_outputs = {}
 
     @app.middleware("http")
     async def select_language(request: Request, call_next):
@@ -389,6 +414,117 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
         except RunnerError as e:
             raise HTTPException(status_code=422, detail=str(e))
         return run.summary()
+
+    def benchmark_job_summary(job):
+        # エラーは、読んだ人の言語で出す
+        return {**{k: v for k, v in job.items() if k != "error"}, "error": None if job["error"] is None else str(job["error"])}
+
+    def run_benchmark(job, region, instance, tfvars):
+        """スレッドで動かす。インスタンスで測り、料金と VRAM の見積もりを足して保存する"""
+        try:
+            res = aws().run_command(region, instance["id"], bench_command(job["model"], job["runs"]))
+            if res["status"] != "Success":
+                raise BenchmarkError("bench.failed", status=res["status"], code=res["exit_code"], stderr=res["stderr"].strip()[-2000:])
+            raw = parse_output(res["stdout"])
+            prices = None
+            try:
+                if instance["purchase_option"] == "spot":
+                    prices = {"spot_by_az": aws().spot_hourly_by_az(region, instance["instance_type"])}
+                else:
+                    prices = {"on_demand": aws().on_demand_hourly(region, instance["instance_type"])}
+            except AwsInfoError as e:
+                job["warnings"].append(e)
+            # tfvars に書いていない値は、terraform の既定と同じものを使ったことになる。見積もりにも結果にも、その値を入れる
+            tfvars = {
+                **tfvars,
+                "context_length": tfvars.get("context_length") or (raw.get("loaded") or {}).get("context_length") or DEFAULT_CONTEXT_LENGTH,
+                "kv_cache_type": tfvars.get("kv_cache_type") or DEFAULT_KV_CACHE_TYPE,
+            }
+            try:
+                est = estimate(catalog(), job["model"], tfvars["context_length"], tfvars["kv_cache_type"])
+                vram_estimate = est["vram_estimate"]["required_gib"]
+            except SizingError as e:
+                job["warnings"].append(e)
+                vram_estimate = None
+            record = summarize(raw, job["workspace"], tfvars, {**instance, "region": region}, hourly_usd(prices, instance), vram_estimate)
+            app.state.benchmarks.append(record)
+            job.update(status="succeeded", result=record)
+        except (AwsInfoError, BenchmarkError) as e:
+            job.update(status="failed", error=e)
+        except Exception as e:
+            # 結果のファイルに書けないときなど。running のまま残すと、画面が待ち続ける
+            job.update(status="failed", error=BenchmarkError("bench.unexpected", error=f"{type(e).__name__}: {e}"))
+        finally:
+            job["finished_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+
+    @app.post("/api/environments/{workspace}/benchmark", status_code=201)
+    async def start_benchmark(workspace: str, req: BenchmarkRequest):
+        """インスタンスで決まったプロンプトを流して測る。数分かかるので、すぐに計測の ID を返し、画面は読み直して待つ"""
+        if not 1 <= req.runs <= MAX_RUNS:
+            raise HTTPException(status_code=422, detail=t("bench.runs_range", max=MAX_RUNS))
+        if any(j["workspace"] == workspace and j["status"] == "running" for j in app.state.benchmark_jobs.values()):
+            raise HTTPException(status_code=409, detail=t("bench.busy", workspace=workspace))
+        region, instance = await environment_instance(workspace)
+        if instance["state"] != "running":
+            raise HTTPException(status_code=409, detail=t("bench.not_running", workspace=workspace, state=instance["state"]))
+        tfvars = app.state.runner.read_var_file(workspace) or {}
+        model = tfvars.get("model")
+        if not model:
+            raise HTTPException(status_code=422, detail=t("env.no_record", workspace=workspace))
+        job = {
+            "id": uuid.uuid4().hex[:12], "workspace": workspace, "model": model, "runs": req.runs, "status": "running",
+            "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+            "finished_at": None, "result": None, "error": None, "warnings": [],
+        }
+        app.state.benchmark_jobs[job["id"]] = job
+        task = asyncio.create_task(asyncio.to_thread(run_benchmark, job, region, instance, tfvars))
+        app.state.tasks.add(task)
+        task.add_done_callback(app.state.tasks.discard)
+        return {**benchmark_job_summary(job), "warnings": []}
+
+    @app.get("/api/benchmarks/jobs/{job_id}")
+    def benchmark_job(job_id: str):
+        job = app.state.benchmark_jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail=t("bench.job_not_found"))
+        return {**benchmark_job_summary(job), "warnings": [str(w) for w in job["warnings"]]}
+
+    @app.get("/api/benchmarks")
+    def benchmarks():
+        """測った結果の履歴(新しい順)。プロンプトごとの結果も入れる"""
+        return {"benchmarks": app.state.benchmarks.list()}
+
+    @app.get("/api/benchmarks.csv")
+    def benchmarks_csv():
+        return Response(app.state.benchmarks.csv(), media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": 'attachment; filename="benchmarks.csv"'})
+
+    @app.post("/api/environments/{workspace}/chat")
+    async def chat(workspace: str, req: ChatRequest):
+        """モデルと話す。terraform output の ollama_endpoint に送る(SSM のときは、手元でポートフォワードを動かしておく)"""
+        if not WORKSPACE_PATTERN.match(workspace) or workspace == "default":
+            raise HTTPException(status_code=422, detail=t("env.invalid"))
+        tfvars = app.state.runner.read_var_file(workspace)
+        if not tfvars or not tfvars.get("model"):
+            raise HTTPException(status_code=404, detail=t("env.no_record", workspace=workspace))
+        outputs = app.state.chat_outputs.get(workspace)
+        if outputs is None:
+            try:
+                outputs = await app.state.runner.outputs(workspace)
+            except RunnerError as e:
+                raise HTTPException(status_code=502, detail=t("chat.no_endpoint", workspace=workspace, error=e))
+            app.state.chat_outputs[workspace] = outputs
+        endpoint = outputs.get("ollama_endpoint")
+        if not endpoint:
+            raise HTTPException(status_code=502, detail=t("chat.no_endpoint", workspace=workspace, error="ollama_endpoint"))
+        messages = [m.model_dump() for m in req.messages]
+        try:
+            return await asyncio.to_thread(chat_once, endpoint, tfvars["model"], messages)
+        except ChatUnreachable as e:
+            raise HTTPException(status_code=502, detail=t("chat.unreachable", endpoint=endpoint,
+                                                          command=outputs.get("ssm_port_forward_command") or "-", error=e))
+        except ChatError as e:
+            raise HTTPException(status_code=502, detail=t("chat.failed", error=e))
 
     @app.get("/api/environments/{workspace}/progress")
     async def progress(workspace: str):

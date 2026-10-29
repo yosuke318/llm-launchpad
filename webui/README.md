@@ -135,6 +135,25 @@ terraform のワークスペースのうち、state にリソースがあるも�
 * 消し忘れたリソースは、管理用タグ `Project=llm-launchpad` が付いているのに、どの環境の state にもないもの(Resource Groups Tagging API で探す)。model-store と budget のリソース(`Persistent=true`)は除く。state を読めなかった環境と、apply や destroy の途中の環境のリソースは、消し忘れと決めない。探すのは、環境のあるリージョンと既定のリージョン(ap-northeast-1)。IAM のロールなどリージョンのないものは探さない
 * 一覧は、タブを開いている間だけ30秒ごと(状態が変わっている途中は5秒ごと)に読み直す。読むたびにワークスペースごとに `terraform state pull` を実行する
 
+### ベンチマーク
+
+起動した環境(インスタンスが動いているもの)で、決まったプロンプトを流して測る。
+
+* 「計測する」を押すと、サーバーが SSM の send-command でインスタンスの `launchpad.py bench <モデル> --runs N` を動かす。インスタンスの中から Ollama に送るので、ネットワークの遅れは入らない。数分かかるので、画面は3秒ごとに計測の状態を読み直す
+* プロンプトは3つ(短い説明、長い説明、コード)。温度 0、seed 0、出力は 256 トークンまで。最初の1回はモデルを GPU に載せるためで、数えない
+* TTFT は、ストリームで最初のトークンが届くまでの時間。tok/s は、Ollama が返す `eval_count` と `eval_duration` から出す。どちらもプロンプトと周の平均
+* VRAM は、計測のあとの nvidia-smi の使用量の合計。見積もり(`sizing.py`)との差も出す
+* $/100万トークンは、1時間あたりの料金(スポットはその AZ のスポット価格)を出力の tok/s で割ったもの。リクエストを1つずつ順に送ったときの値
+* 結果は `benchmarks/results.jsonl`(`LAUNCHPAD_BENCHMARK_FILE`)に1行ずつ足す。画面から CSV と JSON で保存できる。CSV にはプロンプトごとの結果は入れない
+* インスタンスの `launchpad.py` は起動したときに置いたものなので、`bench` を足す前に起動した環境では測れない。作り直すと測れる
+* サーバーを動かしている端末の AWS の認証情報に、`ssm:SendCommand` と `ssm:GetCommandInvocation` の権限が要る
+
+#### チャットで試す
+
+* 送り先は terraform output の `ollama_endpoint`。サーバーから Ollama の `/api/chat` に送り、応答と tok/s を出す
+* SSM で接続する環境(`access_mode=ssm`)では `http://localhost:11434` なので、サーバーを動かしている端末で `ssm_port_forward_command` を動かしたままにする。つながらないときは、そのコマンドをエラーに出す
+* 会話はサーバーに残さない。環境を変えると消える
+
 ### VRAM の見積もりは Python でも計算する
 
 * 画面でモデルを選んだときにすぐ推奨の型を出すため、`terraform/modules/sizing` と同じ計算を `server/llm_launchpad_webui/sizing.py` にも書いた
@@ -167,6 +186,11 @@ terraform のワークスペースのうち、state にリソースがあるも�
 | POST | `/api/environments/{環境ID}/stop` | その環境のインスタンスを止める |
 | POST | `/api/environments/{環境ID}/start` | 止めたインスタンスを動かし直す |
 | POST | `/api/environments/{環境ID}/destroy` | 起動したときの tfvars を渡して init と destroy を実行する。成功したら tfvars を消す |
+| POST | `/api/environments/{環境ID}/benchmark` | インスタンスで計測を始める。`{"runs": 3}`。計測の ID を返す |
+| GET | `/api/benchmarks/jobs/{id}` | 計測の状態と結果 |
+| GET | `/api/benchmarks` | 測った結果の履歴(新しい順、プロンプトごとの結果を含む) |
+| GET | `/api/benchmarks.csv` | 測った結果の履歴の CSV |
+| POST | `/api/environments/{環境ID}/chat` | モデルと話す。`{"messages": [{"role": "user", "content": "..."}]}` |
 | POST | `/api/launch` | tfvars を書いて init と apply を実行する。`{"workspace": "qwen3-8b", "variables": {"model": "qwen3:8b", ...}}` |
 | GET | `/api/workspaces` | `terraform workspace list` の結果 |
 | POST | `/api/runs` | コマンドを実行する。`{"command": "plan", "workspace": "qwen-test", "variables": {...}}` |
@@ -189,3 +213,4 @@ cd webui/web && npm test && npm run typecheck
 | `LAUNCHPAD_TERRAFORM_DIR` | `terraform/` | terraform を実行するディレクトリ |
 | `LAUNCHPAD_TERRAFORM_BIN` | `terraform` | terraform のコマンド |
 | `LAUNCHPAD_WEB_DIST` | `webui/web/dist` | 配る画面のディレクトリ |
+| `LAUNCHPAD_BENCHMARK_FILE` | `benchmarks/results.jsonl` | ベンチマークの結果を足していくファイル |

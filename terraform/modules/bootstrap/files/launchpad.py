@@ -11,6 +11,7 @@ user data(user_data.sh.tftpl)から呼ぶ。標準ライブラリと AWS CLI だ
     launchpad.py save-s3 <model> <bucket> <models_dir>
     launchpad.py mount-ebs <volume_id> <mount_point>
     launchpad.py idle-check --minutes N [--dry-run]
+    launchpad.py bench <model> [--runs N] [--num-predict N]
 
 設定は環境変数で渡す。
     LAUNCHPAD_REGION             パラメータのあるリージョン
@@ -217,14 +218,7 @@ def verify(model):
     if "response" not in result:
         raise RuntimeError(f"応答の形式が想定と違います: {result}")
 
-    loaded = {}
-    try:
-        with request("/api/ps") as res:
-            for m in json.load(res).get("models", []):
-                if m.get("name") == model or m.get("model") == model:
-                    loaded = {"size_bytes": m.get("size"), "size_vram_bytes": m.get("size_vram")}
-    except (urllib.error.URLError, json.JSONDecodeError):
-        pass
+    loaded = loaded_model(model)
 
     first_response_sec = round(time.monotonic() - started, 1)
     log(f"{model} が {first_response_sec} 秒で応答しました: {result['response']!r}")
@@ -233,6 +227,95 @@ def verify(model):
         "loaded": loaded,
         "gpus": gpu_memory(),
     })
+
+
+# ベンチマークで流すプロンプト。毎回同じ結果になるよう、温度 0 と seed を決めて送る
+BENCH_PROMPTS = [
+    {"id": "short", "prompt": "Explain what a GPU is in three sentences."},
+    {"id": "long", "prompt": "Write a detailed explanation of how HTTP caching works, covering Cache-Control, ETag, and Last-Modified."},
+    {"id": "code", "prompt": "Write a Python function that returns the n-th Fibonacci number using memoization, with a short docstring."},
+]
+BENCH_NUM_PREDICT = 256
+
+
+def generate_timed(model, prompt, num_predict):
+    """/api/generate をストリームで送り、最初のトークンまでの時間(TTFT)と、Ollama が数えたトークン数と時間を返す"""
+    body = {
+        "model": model,
+        "prompt": prompt,
+        "stream": True,
+        "options": {"num_predict": num_predict, "temperature": 0, "seed": 0},
+    }
+    started = time.monotonic()
+    ttft = None
+    final = None
+    with request("/api/generate", body, timeout=1800) as res:
+        for line in res:
+            line = line.strip()
+            if not line:
+                continue
+            event = json.loads(line)
+            if "error" in event:
+                raise RuntimeError(f"生成に失敗しました: {event['error']}")
+            if ttft is None and event.get("response"):
+                ttft = time.monotonic() - started
+            if event.get("done"):
+                final = event
+    if final is None:
+        raise RuntimeError("生成が完了の通知なしで終わりました")
+    eval_sec = final.get("eval_duration", 0) / 1e9
+    prompt_eval_sec = final.get("prompt_eval_duration", 0) / 1e9
+    return {
+        "ttft_sec": None if ttft is None else round(ttft, 3),
+        "total_sec": round(time.monotonic() - started, 3),
+        "prompt_tokens": final.get("prompt_eval_count", 0),
+        "prompt_tokens_per_sec": round(final.get("prompt_eval_count", 0) / prompt_eval_sec, 2) if prompt_eval_sec else None,
+        "output_tokens": final.get("eval_count", 0),
+        "output_tokens_per_sec": round(final.get("eval_count", 0) / eval_sec, 2) if eval_sec else None,
+        "load_sec": round(final.get("load_duration", 0) / 1e9, 3),
+    }
+
+
+def loaded_model(model):
+    """/api/ps にある、そのモデルの大きさと、そのうち GPU に載った大きさ"""
+    try:
+        with request("/api/ps") as res:
+            for m in json.load(res).get("models", []):
+                if m.get("name") == model or m.get("model") == model:
+                    return {"size_bytes": m.get("size"), "size_vram_bytes": m.get("size_vram"), "context_length": m.get("context_length")}
+    except (urllib.error.URLError, json.JSONDecodeError):
+        pass
+    return {}
+
+
+def bench(model, runs=1, num_predict=BENCH_NUM_PREDICT):
+    """決まったプロンプトを流して、TTFT と tok/s を測る。最初に1回送ってモデルを GPU に載せ、その分は数えない。
+    結果は JSON で標準出力の最後の行に出す(WebUI は SSM の send-command で呼び、その行を読む)"""
+    warmup = generate_timed(model, "Reply with OK.", 8)
+    results = []
+    for run in range(runs):
+        for p in BENCH_PROMPTS:
+            results.append({"prompt_id": p["id"], "run": run + 1, **generate_timed(model, p["prompt"], num_predict)})
+
+    def mean(key):
+        values = [r[key] for r in results if r[key] is not None]
+        return round(sum(values) / len(values), 3) if values else None
+
+    out = {
+        "model": model,
+        "measured_at": now(),
+        "num_predict": num_predict,
+        "runs": runs,
+        "warmup_load_sec": warmup["load_sec"],
+        "ttft_sec": mean("ttft_sec"),
+        "output_tokens_per_sec": mean("output_tokens_per_sec"),
+        "prompt_tokens_per_sec": mean("prompt_tokens_per_sec"),
+        "results": results,
+        "loaded": loaded_model(model),
+        "gpus": gpu_memory(),
+    }
+    print(json.dumps(out, ensure_ascii=False), flush=True)
+    return out
 
 
 S3_PREFIX = "ollama/models"
@@ -452,6 +535,11 @@ def main(argv=None):
     p.add_argument("--minutes", type=int, required=True)
     p.add_argument("--dry-run", action="store_true")
 
+    p = sub.add_parser("bench", help="決まったプロンプトを流して TTFT と tok/s を測る")
+    p.add_argument("model")
+    p.add_argument("--runs", type=int, default=1)
+    p.add_argument("--num-predict", type=int, default=BENCH_NUM_PREDICT)
+
     args = parser.parse_args(argv)
 
     if args.command == "status":
@@ -460,6 +548,10 @@ def main(argv=None):
     if args.command == "idle-check":
         # 起動処理とは別に動くので、失敗しても状態を failed にしない
         idle_check(args.minutes, args.dry_run)
+        return 0
+    if args.command == "bench":
+        # 起動処理とは別に動くので、失敗しても状態を failed にしない
+        bench(args.model, args.runs, args.num_predict)
         return 0
 
     try:

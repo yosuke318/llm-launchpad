@@ -37,3 +37,6 @@ terraform/tfvars/
 
 # Claude Code の手元の設定(ブラウザのプレビュー用の launch.json など)
 .claude/
+
+# WebUI で測ったベンチマークの結果。画面から CSV や JSON で出せる
+benchmarks/
