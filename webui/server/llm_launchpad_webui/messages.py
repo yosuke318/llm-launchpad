@@ -154,6 +154,18 @@ MESSAGES = {
         "ja": "model は必須です",
         "en": "model is required",
     },
+    "az.invalid": {
+        "ja": "AZの名前が正しくありません",
+        "en": "The Availability Zone name is invalid",
+    },
+    "relaunch.no_tfvars": {
+        "ja": "環境{workspace}のtfvarsがないため、起動し直せません",
+        "en": "Cannot launch environment {workspace} again because its tfvars file is missing",
+    },
+    "relaunch.ebs_fixed_zone": {
+        "ja": "EBS永続ではボリュームのあるAZにしか起動できないため、AZは選べません",
+        "en": "With EBS persistence the instance starts in the volume's Availability Zone, so the zone cannot be chosen",
+    },
     "destroy.no_tfvars": {
         "ja": "tfvars/{workspace}.tfvars.json がないため、画面からは削除できません。"
               "起動したときの変数を渡して、TF_WORKSPACE={workspace} terraform destroy を実行してください",
@@ -163,6 +175,19 @@ MESSAGES = {
     "apply.failed": {
         "ja": "terraform apply が失敗しました(終了コード {code})",
         "en": "terraform apply failed (exit code {code})",
+    },
+    "apply.insufficient_capacity": {
+        "ja": "{zone}に{instance_type}の在庫がなく、インスタンスを作れませんでした。別のAZを選んで起動し直してください。"
+              "在庫はAZごとに違い、時間がたつと戻ることもあります",
+        "en": "Could not create the instance because {zone} has no capacity for {instance_type}. "
+              "Choose another Availability Zone and launch again. Capacity differs by zone and may come back later",
+    },
+    "apply.insufficient_capacity_ebs": {
+        "ja": "{zone}に{instance_type}の在庫がなく、インスタンスを作れませんでした。EBS永続ではボリュームのある{zone}にしか起動できないため、"
+              "購入方法を変えるか、時間をおいて起動し直してください。別のAZで使うときは、S3キャッシュかダウンロードを選んでください",
+        "en": "Could not create the instance because {zone} has no capacity for {instance_type}. "
+              "With EBS persistence the instance can only start in {zone}, where the volume is, so change the purchase option "
+              "or launch again later. To use another Availability Zone, choose S3 cache or download",
     },
     # 環境と実行(app.py)
     "env.invalid": {

@@ -160,7 +160,8 @@ export interface RegionPlan {
   region: string;
   model: string;
   instance_type: string;
-  availability: { available: boolean | null; availability_zones: string[] | null };
+  // launchable_zones は起動の画面で選べるAZ(サブネットがあって、インスタンス型を提供しているところ)
+  availability: { available: boolean | null; availability_zones: string[] | null; launchable_zones: string[] | null };
   prices: {
     on_demand_hourly_usd: number | null;
     spot_hourly_usd_by_az: Record<string, number>;
@@ -239,10 +240,20 @@ export interface LaunchVariables {
   purchase_option: "spot" | "on-demand";
   idle_stop_minutes: number;
   max_lifetime_hours: number;
+  // 省くと、インスタンス型を提供しているAZから terraform が選ぶ
+  availability_zone?: string;
 }
 
 export function launch(workspace: string, variables: LaunchVariables) {
   return request<RunSummary>("/api/launch", { method: "POST", body: JSON.stringify({ workspace, variables }) });
+}
+
+// 在庫がなくて作れなかった環境を、AZを変えて起動し直す。null なら terraform が選ぶ
+export function relaunch(workspace: string, availabilityZone: string | null) {
+  return request<RunSummary>(`/api/environments/${encodeURIComponent(workspace)}/relaunch`, {
+    method: "POST",
+    body: JSON.stringify({ availability_zone: availabilityZone }),
+  });
 }
 
 // 起動の進み具合(apply から使える状態になるまで)
@@ -274,6 +285,20 @@ export interface Connection {
   auto_stop: { idle_stop_minutes: number; stop_at: string | null; schedule_name: string | null } | null;
 }
 
+export interface ProgressError {
+  stage: ProgressStageId;
+  message: string | null;
+  log_path?: string | null;
+  terraform_log?: string[];
+  // insufficient_capacity は、AZに在庫がなくてインスタンスを作れなかったとき
+  code?: "insufficient_capacity";
+  instance_type?: string | null;
+  availability_zone?: string | null;
+  suggested_zones?: string[];
+  // 起動し直すときに選べるAZ。EBS永続では出さない
+  zones?: string[];
+}
+
 export interface Progress {
   workspace: string;
   region: string | null;
@@ -288,7 +313,7 @@ export interface Progress {
   pull: { percent: number; completed_bytes: number; total_bytes: number; message: string } | null;
   cache: { hit?: boolean; restore_sec?: number; formatted?: boolean } | null;
   verify: { first_response_sec: number } | null;
-  error: { stage: ProgressStageId; message: string | null; log_path?: string | null; terraform_log?: string[] } | null;
+  error: ProgressError | null;
   started_at: string | null;
   ready_at: string | null;
   // サーバーの時刻。経過時間を手元の時計のずれに左右されずに出すため

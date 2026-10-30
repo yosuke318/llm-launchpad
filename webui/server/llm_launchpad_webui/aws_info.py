@@ -34,6 +34,9 @@ EC2_DESCRIBE = {
     "ec2:route-table": ("describe_route_tables", "route-table-id", "RouteTables", "RouteTableId"),
 }
 
+# terraform/variables.tf の az_count の既定値。画面からの起動では変えない
+AZ_COUNT = 3
+
 # 消している途中か消したあと(ボリュームと VPC エンドポイントは、消したあともしばらく describe に出る)
 GONE_STATES = ("deleting", "deleted")
 
@@ -116,6 +119,17 @@ class AwsInfo:
             return sorted(o["Location"] for o in res["InstanceTypeOfferings"])
 
         return self._cached(("offering_azs", region, instance_type), fetch)
+
+    def subnet_azs(self, region):
+        """terraform/modules/network がサブネットを作る AZ。オプトインの要らない AZ を名前順に並べた先頭 AZ_COUNT 個"""
+        def fetch():
+            res = self._client("ec2", region).describe_availability_zones(Filters=[
+                {"Name": "state", "Values": ["available"]},
+                {"Name": "opt-in-status", "Values": ["opt-in-not-required"]},
+            ])
+            return sorted(z["ZoneName"] for z in res["AvailabilityZones"])[:AZ_COUNT]
+
+        return self._cached(("subnet_azs", region), fetch)
 
     def on_demand_hourly(self, region, instance_type):
         def fetch():

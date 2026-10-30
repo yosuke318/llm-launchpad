@@ -37,6 +37,8 @@ LAUNCH_VARIABLES = {
     "idle_stop_minutes": int,
     "max_lifetime_hours": int,
     "instance_type": str,
+    # 在庫のないAZを避けたいとき。省くと、インスタンス型を提供しているAZから選ぶ
+    "availability_zone": str,
 }
 
 # 環境ID と同じ規則(terraform/main.tf の time_static.created の precondition)。default はそのまま使える
@@ -206,6 +208,18 @@ class Runner:
         # ワークスペースは TF_WORKSPACE で選ぶ。まだない名前でも、apply がその名前の state を作る
         steps = [list(COMMANDS["init"]), apply_args]
         return self._spawn(Run(id=uuid.uuid4().hex[:12], command="launch", workspace=workspace, args=apply_args, steps=steps))
+
+    async def relaunch(self, workspace, availability_zone):
+        """在庫がなくて作れなかったときに、AZ だけを変えて起動し直す。ほかの値は前に書いた tfvars のまま"""
+        if not WORKSPACE_PATTERN.match(workspace) or workspace == "default":
+            raise RunnerError("env_id.invalid")
+        variables = self.read_var_file(workspace)
+        if variables is None:
+            raise RunnerError("relaunch.no_tfvars", workspace=workspace)
+        if variables.get("model_storage") == "ebs":
+            raise RunnerError("relaunch.ebs_fixed_zone")
+        variables = {k: v for k, v in variables.items() if k != "availability_zone"}
+        return await self.launch(workspace, {**variables, "availability_zone": availability_zone})
 
     async def destroy(self, workspace):
         """環境の削除。起動したときの tfvars を使って init と destroy を順に実行し、終わったら tfvars を消す"""

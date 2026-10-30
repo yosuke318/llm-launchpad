@@ -185,7 +185,13 @@
     "failed": "Could not launch: {{error}}",
     "no": "No (go back)",
     "yes": "Yes (launch)",
-    "starting": "Launching…"
+    "starting": "Launching…",
+    "zone": "Availability Zone",
+    "zoneAuto": "Automatic ({{zone}})",
+    "zoneAutoUnknown": "Automatic (a zone that offers the instance type)",
+    "zoneSpot": "{{zone}} (spot {{price}}/h, Spot placement score {{score}}/10)",
+    "zoneHelp": "GPU capacity differs by zone. If the chosen zone has no capacity, the launch fails; then choose another zone and launch again.",
+    "zoneFixedByVolume": "With EBS persistence, the instance starts in {{zone}}, where the volume is."
   },
   "progress": {
     "heading": "Launch progress",
@@ -269,7 +275,13 @@
     "openaiPythonHelp": "Set base_url up to /v1. api_key can be any string.",
     "samplePrompt": "Hello",
     "copy": "Copy",
-    "copied": "Copied"
+    "copied": "Copied",
+    "capacity": {
+      "zone": "Zone to launch in",
+      "relaunch": "Launch again in this zone",
+      "help": "Runs terraform apply with the same settings as before except the zone. You start paying for the instance.",
+      "noZones": "No other zone is available. Launch again later or choose another region."
+    }
   },
   "environments": {
     "heading": "Environments",

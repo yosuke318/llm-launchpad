@@ -26,7 +26,7 @@ MAX_RUNS = 10
 CSV_COLUMNS = [
     "id", "measured_at", "workspace", "model", "region", "availability_zone", "instance_type", "gpu", "purchase_option",
     "model_storage", "context_length", "kv_cache_type", "runs", "num_predict",
-    "ttft_sec", "output_tokens_per_sec", "prompt_tokens_per_sec", "warmup_load_sec",
+    "ttft_sec", "first_response_sec", "thinking", "output_tokens_per_sec", "prompt_tokens_per_sec", "warmup_load_sec",
     "vram_estimate_gib", "vram_measured_gib", "vram_diff_gib", "vram_total_gib",
     "hourly_usd", "usd_per_million_tokens",
 ]
@@ -82,6 +82,9 @@ def summarize(raw, workspace, tfvars, instance, hourly_usd, vram_estimate_gib):
         "runs": raw.get("runs"),
         "num_predict": raw.get("num_predict"),
         "ttft_sec": raw.get("ttft_sec"),
+        # 考えてから答えるモデルで、答えの最初のトークンが届くまで(考えている時間を含む)
+        "first_response_sec": raw.get("first_response_sec"),
+        "thinking": raw.get("thinking"),
         "output_tokens_per_sec": raw.get("output_tokens_per_sec"),
         "prompt_tokens_per_sec": raw.get("prompt_tokens_per_sec"),
         "warmup_load_sec": raw.get("warmup_load_sec"),

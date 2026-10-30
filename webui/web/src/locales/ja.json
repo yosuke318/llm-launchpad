@@ -185,7 +185,13 @@
     "failed": "起動できませんでした: {{error}}",
     "no": "いいえ(選び直す)",
     "yes": "はい(起動する)",
-    "starting": "起動しています…"
+    "starting": "起動しています…",
+    "zone": "AZ(アベイラビリティゾーン)",
+    "zoneAuto": "自動({{zone}})",
+    "zoneAutoUnknown": "自動(インスタンス型を提供しているAZから選ぶ)",
+    "zoneSpot": "{{zone}}(スポット{{price}}/時、Spot placement score {{score}}/10)",
+    "zoneHelp": "GPUの在庫はAZごとに違います。在庫がないAZでは作成が失敗するので、そのときは別のAZを選んで起動し直してください。",
+    "zoneFixedByVolume": "EBS永続では、ボリュームのある{{zone}}に起動します。"
   },
   "progress": {
     "heading": "起動の進み具合",
@@ -269,7 +275,13 @@
     "openaiPythonHelp": "base_url は /v1 まで、api_key は任意の文字列でかまいません。",
     "samplePrompt": "こんにちは",
     "copy": "コピー",
-    "copied": "コピーしました"
+    "copied": "コピーしました",
+    "capacity": {
+      "zone": "起動し直すAZ",
+      "relaunch": "このAZで起動し直す",
+      "help": "AZのほかは、前に起動したときと同じ内容でterraform applyを実行します。料金がかかり始めます。",
+      "noZones": "ほかに選べるAZがありません。時間をおいて起動し直すか、別のリージョンを選んでください。"
+    }
   },
   "environments": {
     "heading": "環境の一覧",

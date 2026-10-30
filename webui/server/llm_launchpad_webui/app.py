@@ -24,7 +24,7 @@ from .environments import build_environment, drop_deleted, find_leftovers, hourl
 from .messages import language, parse_accept_language, t
 from .runner import COMMANDS, WORKSPACE_PATTERN, BusyError, Runner, RunnerError, list_workspaces
 from .preflight import run_preflight
-from .progress import build_progress, connection_info
+from .progress import AZ_PATTERN, build_progress, connection_info
 from .storage import MEASURED, storage_options
 from .sizing import (
     DEFAULT_CONTEXT_LENGTH,
@@ -63,6 +63,11 @@ class LaunchRequest(BaseModel):
     workspace: str
     # tfvars に書く値。runner.LAUNCH_VARIABLES のものだけ
     variables: dict[str, object]
+
+
+class RelaunchRequest(BaseModel):
+    # 起動し直す AZ。None なら、インスタンス型を提供している AZ から terraform が選ぶ
+    availability_zone: str | None = None
 
 
 class RunRequest(BaseModel):
@@ -152,6 +157,7 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
                 return None
 
         azs = get(info.offering_azs, region, itype)
+        subnet_azs = get(info.subnet_azs, region)
         on_demand = get(info.on_demand_hourly, region, itype)
         spot = get(info.spot_hourly_by_az, region, itype) or {}
         # スポットは、インスタンス型を提供している AZ の中で一番安いところ
@@ -166,7 +172,12 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
             "region": region,
             "model": model,
             "instance_type": itype,
-            "availability": {"available": bool(azs) if azs is not None else None, "availability_zones": azs},
+            "availability": {
+                "available": bool(azs) if azs is not None else None,
+                "availability_zones": azs,
+                # 起動の画面で選べる AZ。サブネットがあって、インスタンス型を提供しているところ
+                "launchable_zones": launchable_zones(azs, subnet_azs),
+            },
             "prices": {
                 "on_demand_hourly_usd": on_demand,
                 "spot_hourly_usd_by_az": spot_in_offered,
@@ -181,6 +192,11 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
             "measured": MEASURED,
             "warnings": warnings,
         }
+
+    def launchable_zones(offered, subnet_azs):
+        if offered is None or subnet_azs is None:
+            return None
+        return [az for az in subnet_azs if az in offered]
 
     def catalog():
         # catalog/*.yaml をそのまま読む(モデル定義を足したら、サーバーを起動し直すと反映される)
@@ -260,6 +276,19 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
             raise HTTPException(status_code=422, detail=t("model.unknown", model=model))
         try:
             run = await app.state.runner.launch(req.workspace, req.variables)
+        except BusyError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except RunnerError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        return run.summary()
+
+    @app.post("/api/environments/{workspace}/relaunch", status_code=201)
+    async def relaunch(workspace: str, req: RelaunchRequest):
+        """在庫がなくて作れなかった環境を、AZ を変えて起動し直す。起動の確認と同じく、料金がかかる"""
+        if req.availability_zone is not None and not AZ_PATTERN.fullmatch(req.availability_zone):
+            raise HTTPException(status_code=422, detail=t("az.invalid"))
+        try:
+            run = await app.state.runner.relaunch(workspace, req.availability_zone)
         except BusyError as e:
             raise HTTPException(status_code=409, detail=str(e))
         except RunnerError as e:
@@ -553,6 +582,22 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
 
         model = catalog().models.get((tfvars or {}).get("model"))
         result = build_progress(workspace, tfvars, run, status, model["file_size_gb"] if model else None)
+
+        error = result["error"]
+        if error and error.get("code") == "insufficient_capacity" and result["model_storage"] != "ebs":
+            # 起動し直すときに選べる AZ。AWS がすすめる AZ を先に並べ、在庫がなかった AZ は除く
+            itype = error.get("instance_type") or (tfvars or {}).get("instance_type")
+            zones = None
+            try:
+                zones = launchable_zones(aws().offering_azs(region, itype), aws().subnet_azs(region)) if itype else None
+            except AwsInfoError as e:
+                warnings.append(str(e))
+            suggested = error["suggested_zones"]
+            if zones is None:
+                zones = suggested
+            else:
+                zones = [az for az in suggested if az in zones] + [az for az in zones if az not in suggested]
+            error["zones"] = [az for az in zones if az != error.get("availability_zone")]
 
         outputs = None
         if result["state"] in ("ready", "failed") and result["stage"] != "creating":
