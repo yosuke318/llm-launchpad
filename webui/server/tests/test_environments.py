@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from llm_launchpad_webui.app import create_app
 from llm_launchpad_webui.aws_info import AwsInfoError
-from llm_launchpad_webui.environments import arn_resource_type, find_leftovers, state_identifiers
+from llm_launchpad_webui.environments import arn_resource_type, drop_deleted, find_leftovers, state_identifiers
 from llm_launchpad_webui.runner import Runner
 
 from test_app import events, log_lines
@@ -54,6 +54,10 @@ class FakeAwsInfo:
         self.instances = []
         self.tagged = []
         self.fail = False
+        # destroy で消したのに、タグ付けの API がまだ返す ARN
+        self.gone = set()
+        # 今もあるか確かめられない種類
+        self.check_fail = set()
         self.stopped = []
         self.started = []
 
@@ -66,6 +70,13 @@ class FakeAwsInfo:
         if self.fail:
             raise AwsInfoError("aws.fetch_failed", what="tagged_resources", error="AccessDenied")
         return self.tagged if region == REGION else []
+
+    def existing_arns(self, region, kind, arns):
+        if kind in self.check_fail:
+            raise AwsInfoError("aws.existence_check_failed", region=region, kind=kind, error="UnauthorizedOperation")
+        if kind == "ec2:instance":
+            return None
+        return {a for a in arns if a not in self.gone}
 
     def spot_hourly_by_az(self, region, instance_type):
         return {f"{REGION}a": 0.36}
@@ -170,6 +181,54 @@ def test_overview_shows_leftovers(client, terraform_dir, aws):
     res = client.get("/api/environments/overview").json()
     assert res["environments"] == []
     assert [(x["resource_id"], x["instance_state"]) for x in res["leftovers"]] == [("i-0left", "running")]
+
+
+def test_drop_deleted_checks_per_kind():
+    arn = lambda kind, rid: f"arn:aws:ec2:{REGION}:{ACCOUNT}:{kind}/{rid}"
+    resources = [{"region": REGION, "arn": a} for a in [
+        arn("vpc", "vpc-0gone"), arn("subnet", "subnet-0left"), arn("vpc", "vpc-0left"),
+        arn("security-group", "sg-0unknown"), f"arn:aws:scheduler:{REGION}:{ACCOUNT}:schedule/default/x",
+    ]]
+    calls = []
+
+    def existing(region, kind, arns):
+        calls.append((region, kind, arns))
+        if kind == "ec2:security-group":
+            raise AwsInfoError("aws.existence_check_failed", region=region, kind=kind, error="Throttling")
+        if kind == "scheduler:schedule":
+            return None
+        return {a for a in arns if "gone" not in a}
+
+    kept, errors = drop_deleted(resources, existing)
+    assert [r["arn"] for r in kept] == [r["arn"] for r in resources[1:]], "消えたものだけ除き、並びは変えない"
+    assert [e.params["kind"] for e in errors] == ["ec2:security-group"], "確かめられなかった種類はそのまま残す"
+    assert sorted(c[1] for c in calls) == ["ec2:security-group", "ec2:subnet", "ec2:vpc", "scheduler:schedule"], "種類ごとに1回"
+    assert ("ec2:vpc", [arn("vpc", "vpc-0gone"), arn("vpc", "vpc-0left")]) in [(c[1], c[2]) for c in calls]
+
+
+def test_overview_hides_destroyed_resources(client, terraform_dir, aws):
+    """destroy したあとタグ付けの API がまだ返すものは、消し忘れに出さない"""
+    vpc = f"arn:aws:ec2:{REGION}:{ACCOUNT}:vpc/vpc-0old"
+    volume = f"arn:aws:ec2:{REGION}:{ACCOUNT}:volume/vol-0left"
+    param = f"arn:aws:ssm:{REGION}:{ACCOUNT}:parameter/llm-launchpad/old/status"
+    aws.tagged = [tagged(vpc, EnvId="old"), tagged(volume, EnvId="old"), tagged(param, EnvId="old")]
+    aws.gone = {vpc, param}
+    res = client.get("/api/environments/overview").json()
+    assert [x["arn"] for x in res["leftovers"]] == [volume]
+    assert res["warnings"] == []
+
+
+def test_overview_unverified_leftovers_stay_with_warning(client, terraform_dir, aws):
+    vpc = f"arn:aws:ec2:{REGION}:{ACCOUNT}:vpc/vpc-0old"
+    aws.tagged = [tagged(vpc, EnvId="old")]
+    aws.gone = {vpc}
+    aws.check_fail = {"ec2:vpc"}
+    res = client.get("/api/environments/overview", headers={"Accept-Language": "en"}).json()
+    assert [x["arn"] for x in res["leftovers"]] == [vpc], "確かめられないときは、今までどおり出す"
+    assert res["warnings"] == [
+        f"Could not check whether the ec2:vpc resources in {REGION} still exist, "
+        "so already deleted ones may be listed as leftovers: UnauthorizedOperation"
+    ]
 
 
 def test_overview_state_error_does_not_mark_leftovers(client, terraform_dir, aws, monkeypatch):

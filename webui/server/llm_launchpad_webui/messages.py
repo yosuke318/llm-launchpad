@@ -18,6 +18,11 @@ MESSAGES = {
         "ja": "{what} を取れませんでした: {error}",
         "en": "Could not get {what}: {error}",
     },
+    "aws.existence_check_failed": {
+        "ja": "{region} の {kind} が今もあるか確かめられませんでした。消したものも消し忘れに出ているかもしれません: {error}",
+        "en": "Could not check whether the {kind} resources in {region} still exist, "
+              "so already deleted ones may be listed as leftovers: {error}",
+    },
     "aws.stop_failed": {
         "ja": "{instance_id} を止められませんでした: {error}",
         "en": "Could not stop {instance_id}: {error}",

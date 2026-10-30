@@ -21,8 +21,31 @@ PROJECT = "llm-launchpad"
 # Price List API はこのリージョンにある
 PRICING_REGION = "us-east-1"
 
+# 消し忘れの候補が今もあるかを確かめる、EC2 の describe 系の API。
+# 種類(ARN のサービスと種類): (API、ID で絞るフィルタ、返り値の一覧のキー、ID のキー)
+EC2_DESCRIBE = {
+    "ec2:volume": ("describe_volumes", "volume-id", "Volumes", "VolumeId"),
+    "ec2:vpc": ("describe_vpcs", "vpc-id", "Vpcs", "VpcId"),
+    "ec2:subnet": ("describe_subnets", "subnet-id", "Subnets", "SubnetId"),
+    "ec2:security-group": ("describe_security_groups", "group-id", "SecurityGroups", "GroupId"),
+    "ec2:security-group-rule": ("describe_security_group_rules", "security-group-rule-id", "SecurityGroupRules", "SecurityGroupRuleId"),
+    "ec2:vpc-endpoint": ("describe_vpc_endpoints", "vpc-endpoint-id", "VpcEndpoints", "VpcEndpointId"),
+    "ec2:internet-gateway": ("describe_internet_gateways", "internet-gateway-id", "InternetGateways", "InternetGatewayId"),
+    "ec2:route-table": ("describe_route_tables", "route-table-id", "RouteTables", "RouteTableId"),
+}
+
 # terraform/variables.tf の az_count の既定値。画面からの起動では変えない
 AZ_COUNT = 3
+
+# 消している途中か消したあと(ボリュームと VPC エンドポイントは、消したあともしばらく describe に出る)
+GONE_STATES = ("deleting", "deleted")
+
+
+def _ssm_parameter_name(arn):
+    """arn:aws:ssm:...:parameter/llm-launchpad/x/status の /llm-launchpad/x/status。
+    階層のある名前は ARN では先頭の / が落ちるので付け直す"""
+    name = arn.split(":parameter/", 1)[-1]
+    return f"/{name}" if "/" in name else name
 
 
 class AwsInfoError(MessageError):
@@ -337,6 +360,47 @@ class AwsInfo:
             ]
 
         return self._cached(("tagged_resources", region), fetch, ttl_sec=30)
+
+    def existing_arns(self, region, kind, arns):
+        """tagged_resources で見つかった kind の種類(ec2:volume など)のリソースのうち、今もあるものの ARN。
+        タグ付けの API は、消したリソースをしばらく返すので、種類ごとの API で確かめ直す。
+        確かめ方を用意していない種類は None(インスタンスは project_instances で確かめる)"""
+        if kind in EC2_DESCRIBE:
+            def fetch():
+                return self._existing_ec2(region, kind, arns)
+        elif kind == "ssm:parameter":
+            def fetch():
+                return self._existing_ssm_parameters(region, arns)
+        else:
+            return None
+        try:
+            return self._cached(("existing_arns", region, kind, tuple(sorted(arns))), fetch, ttl_sec=30)
+        except AwsInfoError as e:
+            raise AwsInfoError("aws.existence_check_failed", region=region, kind=kind, error=e.__cause__) from e
+
+    def _existing_ec2(self, region, kind, arns):
+        method, filter_name, list_key, id_key = EC2_DESCRIBE[kind]
+        by_id = {arn.rsplit("/", 1)[-1]: arn for arn in arns}
+        ids = sorted(by_id)
+        # ID で絞れば、ないものはエラーにならず返ってこないだけ(VolumeIds などで指定すると NotFound になる)
+        paginator = self._client("ec2", region).get_paginator(method)
+        found = set()
+        for i in range(0, len(ids), 100):
+            for page in paginator.paginate(Filters=[{"Name": filter_name, "Values": ids[i:i + 100]}]):
+                for item in page[list_key]:
+                    if str(item.get("State", "")).lower() not in GONE_STATES:
+                        found.add(item[id_key])
+        return {by_id[i] for i in found if i in by_id}
+
+    def _existing_ssm_parameters(self, region, arns):
+        by_name = {_ssm_parameter_name(arn): arn for arn in arns}
+        names = sorted(by_name)
+        ssm = self._client("ssm", region)
+        found = set()
+        # get_parameters は一度に10個まで。ないものは InvalidParameters に入る
+        for i in range(0, len(names), 10):
+            found.update(p["Name"] for p in ssm.get_parameters(Names=names[i:i + 10])["Parameters"])
+        return {by_name[n] for n in found if n in by_name}
 
     def _change_instance(self, region, instance_id, action):
         try:
