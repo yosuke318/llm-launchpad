@@ -76,6 +76,24 @@ resource "aws_iam_role_policy" "model_bucket" {
   })
 }
 
+# 閉じたネットワーク。ollama.com から入れられないため、バケットに置いた Ollama のリリースファイルを読む
+resource "aws_iam_role_policy" "ollama_install" {
+  count = var.ollama_install_bucket_name == null ? 0 : 1
+
+  name = "ollama-install"
+  role = aws_iam_role.instance.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid      = "ReadOllamaRelease"
+      Effect   = "Allow"
+      Action   = ["s3:GetObject"]
+      Resource = "arn:${data.aws_partition.current.partition}:s3:::${var.ollama_install_bucket_name}/ollama/install/*"
+    }]
+  })
+}
+
 resource "aws_iam_instance_profile" "instance" {
   name_prefix = var.name_prefix
   role        = aws_iam_role.instance.name

@@ -49,8 +49,8 @@ output "availability_zone" {
 }
 
 output "public_ip" {
-  description = "GPUインスタンスのパブリックIP"
-  value       = module.instance.public_ip
+  description = "GPUインスタンスのパブリックIP(閉じたネットワークでは null)"
+  value       = local.private ? null : module.instance.public_ip
 }
 
 output "ami" {
@@ -135,7 +135,7 @@ output "vpc_id" {
 }
 
 output "subnet_ids" {
-  description = "AZ名ごとのパブリックサブネットID"
+  description = "AZ名ごとのサブネットID"
   value       = module.network.subnet_ids
 }
 
@@ -152,6 +152,15 @@ output "instance_profile_name" {
 output "instance_role_arn" {
   description = "GPUインスタンスのIAMロールARN"
   value       = module.iam.role_arn
+}
+
+output "network_mode" {
+  description = "ネットワークの種類(public / private)と、閉じたネットワークで使う VPC エンドポイントと Ollama のリリースファイル"
+  value = {
+    type              = var.network_mode
+    vpc_endpoint_ids  = module.network.vpc_endpoint_ids
+    ollama_install_s3 = local.private ? "s3://${local.ollama_install_bucket_name}/${module.bootstrap.ollama_install_key}" : null
+  }
 }
 
 output "access_mode" {

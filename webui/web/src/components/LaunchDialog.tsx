@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { ApiError, launch, type ModelEstimate, type Preflight, type RegionPlan, type StorageOption } from "../api";
+import { ApiError, launch, type ModelEstimate, type NetworkMode, type Preflight, type RegionPlan, type StorageOption } from "../api";
 import { minutes } from "../cost";
 import {
   defaultEnvId,
@@ -19,12 +19,13 @@ interface Props {
   estimate: ModelEstimate;
   plan: RegionPlan;
   option: StorageOption;
+  networkMode: NetworkMode;
   preflight: Preflight;
   onClose: () => void;
 }
 
 // 起動の確認。表示した内容を tfvars に書き、Yes で terraform apply に進み、起動の進み具合のタブに切り替える。No なら閉じて選び直す
-export default function LaunchDialog({ estimate, plan, option, preflight, onClose }: Props) {
+export default function LaunchDialog({ estimate, plan, option, networkMode, preflight, onClose }: Props) {
   const { t, i18n } = useTranslation();
   const { start, showProgress } = useRun();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -56,8 +57,8 @@ export default function LaunchDialog({ estimate, plan, option, preflight, onClos
   // 価格と中断のリスクを出すAZ。自動なら terraform が選ぶAZ(選べるAZの最初)
   const zone = option.id === "ebs" ? fixedZone : (availabilityZone ?? zones[0] ?? null);
   const settings = { purchaseOption, idleStopMinutes, maxLifetimeHours, availabilityZone };
-  const variables = launchVariables(estimate, plan, option, settings);
-  const hourly = launchHourly(plan, option, purchaseOption, zone);
+  const variables = launchVariables(estimate, plan, option, settings, networkMode);
+  const hourly = launchHourly(plan, option, purchaseOption, zone, networkMode);
   const placement = zonePlacement(plan.spot_placement_scores, zone);
   const e = estimate.vram_estimate;
   const instance = estimate.instance;
@@ -126,6 +127,13 @@ export default function LaunchDialog({ estimate, plan, option, preflight, onClos
         <div>
           <dt>{t("launch.region")}</dt>
           <dd>{plan.region}</dd>
+        </div>
+        <div>
+          <dt>{t("launch.network")}</dt>
+          <dd>
+            {t(`region.networkNames.${networkMode}`)}
+            {networkMode === "private" && ` · ${t("region.privateNetworkHourly", { price: money(plan.prices.private_network_hourly_usd) })}`}
+          </dd>
         </div>
         <div>
           <dt>{t("launch.storage")}</dt>

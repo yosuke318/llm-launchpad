@@ -54,6 +54,9 @@ CONTEXT_LENGTHS = [4096, 8192, 16384, 32768, 65536, 131072, 262144]
 # 推論エンジン。初期版は Ollama だけ(vLLM は後続で足す)
 ENGINES = [{"id": "ollama", "available": True}, {"id": "vllm", "available": False}]
 
+# 閉じたネットワークで作る SSM 接続用のエンドポイントの数(ssm / ec2messages / ssmmessages)
+PRIVATE_NETWORK_ENDPOINTS = 3
+
 # 既定のリージョン(terraform/variables.tf と同じ)
 DEFAULT_REGION = "ap-northeast-1"
 
@@ -182,6 +185,8 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
                 "on_demand_hourly_usd": on_demand,
                 "spot_hourly_usd_by_az": spot_in_offered,
                 "spot_min": {"availability_zone": spot_min[0], "hourly_usd": spot_min[1]} if spot_min else None,
+                # 閉じたネットワーク(network_mode = private)で足す、SSM 接続用のエンドポイントの分
+                "private_network_hourly_usd": private_network_hourly(get(info.interface_endpoint_hourly, region)),
             },
             # スポットで起動できる見込み(1〜10)。AWS の見立てで、実際の起動のしやすさとは違うことがある
             "spot_placement_scores": placement_in_offered if placement is not None else None,
@@ -192,6 +197,10 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
             "measured": MEASURED,
             "warnings": warnings,
         }
+
+    def private_network_hourly(endpoint_hourly):
+        # エンドポイントは、GPUインスタンスのAZにだけ置く(terraform/modules/network の interface_endpoint_services)
+        return None if endpoint_hourly is None else endpoint_hourly * PRIVATE_NETWORK_ENDPOINTS
 
     def launchable_zones(offered, subnet_azs):
         if offered is None or subnet_azs is None:

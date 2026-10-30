@@ -35,7 +35,8 @@ resource "aws_vpc_security_group_ingress_rule" "ollama_api" {
 }
 
 # アウトバウンドは HTTPS(SSM、S3、Ollama library、Hugging Face)と
-# HTTP(OSのパッケージミラー)だけ許可する。DNS と時刻同期はVPC内のリンクローカルなので不要
+# HTTP(OSのパッケージミラー)だけ許可する。DNS と時刻同期はVPC内のリンクローカルなので不要。
+# 閉じたネットワークでは HTTP は開けない。HTTPS も、経路があるのは VPC エンドポイントと S3 だけになる
 resource "aws_vpc_security_group_egress_rule" "https" {
   security_group_id = aws_security_group.instance.id
   description       = "HTTPS"
@@ -48,6 +49,8 @@ resource "aws_vpc_security_group_egress_rule" "https" {
 }
 
 resource "aws_vpc_security_group_egress_rule" "http" {
+  count = var.private ? 0 : 1
+
   security_group_id = aws_security_group.instance.id
   description       = "HTTP (package mirrors)"
   ip_protocol       = "tcp"
@@ -56,4 +59,9 @@ resource "aws_vpc_security_group_egress_rule" "http" {
   cidr_ipv4         = "0.0.0.0/0"
 
   tags = merge(var.tags, { Name = "${var.name}-http" })
+}
+
+moved {
+  from = aws_vpc_security_group_egress_rule.http
+  to   = aws_vpc_security_group_egress_rule.http[0]
 }

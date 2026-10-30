@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { getRegionPlan, listRegions, type ModelEstimate, type Preflight, type Region, type RegionPlan, type StorageId } from "../api";
+import { getRegionPlan, listRegions, type ModelEstimate, type NetworkMode, type Preflight, type Region, type RegionPlan, type StorageId } from "../api";
 import { hourlyTotals, minutes } from "../cost";
+import { storageAllowed } from "../launch";
 import LaunchDialog from "./LaunchDialog";
 import PreflightChecks from "./PreflightChecks";
 
@@ -19,6 +20,7 @@ export default function RegionStoragePicker({ estimate, contextLength, kvCacheTy
   const [defaultRegion, setDefaultRegion] = useState("ap-northeast-1");
   const [region, setRegion] = useState("ap-northeast-1");
   const [storage, setStorage] = useState<StorageId>("s3_cache");
+  const [networkMode, setNetworkMode] = useState<NetworkMode>("public");
   const [plan, setPlan] = useState<RegionPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -65,8 +67,14 @@ export default function RegionStoragePicker({ estimate, contextLength, kvCacheTy
     };
   }, [tag, region, contextLength, kvCacheType]);
 
-  const selected = plan?.storage_options.find((o) => o.id === storage) ?? null;
-  const totals = plan && selected ? hourlyTotals(plan, selected) : null;
+  // 閉じたネットワークで選べない方式(毎回ダウンロード)を選んでいたら、選んでいないことにする
+  const selected = plan?.storage_options.find((o) => o.id === storage && storageAllowed(o.id, networkMode)) ?? null;
+  const totals = plan && selected ? hourlyTotals(plan, selected, networkMode) : null;
+
+  function chooseNetwork(mode: NetworkMode) {
+    setNetworkMode(mode);
+    if (!storageAllowed(storage, mode)) setStorage("s3_cache");
+  }
   const regionName = (code: string) => regions.find((r) => r.code === code)?.name ?? code;
 
   return (
@@ -121,10 +129,41 @@ export default function RegionStoragePicker({ estimate, contextLength, kvCacheTy
           </div>
 
           <fieldset className="storage-options">
+            <legend>{t("region.network")}</legend>
+            {(["public", "private"] as const).map((mode) => (
+              <label key={mode} className={`storage-option ${networkMode === mode ? "selected" : ""}`}>
+                <input type="radio" name="network" value={mode} checked={networkMode === mode} onChange={() => chooseNetwork(mode)} />
+                <div>
+                  <strong>{t(`region.networkNames.${mode}`)}</strong>
+                  <p className="muted small">{t(`region.networkHelp.${mode}`)}</p>
+                  {mode === "private" && (
+                    <p className="small">{t("region.privateNetworkHourly", { price: money(plan.prices.private_network_hourly_usd) })}</p>
+                  )}
+                  {mode === "private" && networkMode === "private" && <p className="muted small">{t("region.privateNetworkPrerequisite")}</p>}
+                  {/* Ollama のリリースファイルはモデル用のバケットに置くため、EBS永続でもバケットが要る */}
+                  {mode === "private" && networkMode === "private" && plan.model_store && !plan.model_store.bucket_exists && (
+                    <p className="warning small">{t("region.prerequisite.bucket", { region })}</p>
+                  )}
+                </div>
+              </label>
+            ))}
+          </fieldset>
+
+          <fieldset className="storage-options">
             <legend>{t("region.storage")}</legend>
             {plan.storage_options.map((o) => (
-              <label key={o.id} className={`storage-option ${storage === o.id ? "selected" : ""}`}>
-                <input type="radio" name="storage" value={o.id} checked={storage === o.id} onChange={() => setStorage(o.id)} />
+              <label
+                key={o.id}
+                className={`storage-option ${selected?.id === o.id ? "selected" : ""} ${storageAllowed(o.id, networkMode) ? "" : "disabled"}`}
+              >
+                <input
+                  type="radio"
+                  name="storage"
+                  value={o.id}
+                  checked={selected?.id === o.id}
+                  disabled={!storageAllowed(o.id, networkMode)}
+                  onChange={() => setStorage(o.id)}
+                />
                 <div>
                   <strong>{t(`region.storageNames.${o.id}`)}</strong>
                   <p className="muted small">{t(`region.storageHelp.${o.id}`)}</p>
@@ -150,6 +189,7 @@ export default function RegionStoragePicker({ estimate, contextLength, kvCacheTy
                       </dd>
                     </div>
                   </dl>
+                  {!storageAllowed(o.id, networkMode) && <p className="warning small">{t("region.notInPrivateNetwork")}</p>}
                   {!o.ready && <p className="warning small">{t(`region.prerequisite.${o.prerequisite}`, { region })}</p>}
                 </div>
               </label>
@@ -161,7 +201,10 @@ export default function RegionStoragePicker({ estimate, contextLength, kvCacheTy
               <span className="muted small">{t("region.hourlyTotal")}</span>
               <strong>{t("region.perHour", { price: money(totals.spot) })}</strong>
               <span className="muted small">
-                {t("region.hourlyTotalDetail", { onDemand: money(totals.onDemand), disk: selected.root_volume_gib })}
+                {t(networkMode === "private" ? "region.hourlyTotalDetailPrivate" : "region.hourlyTotalDetail", {
+                  onDemand: money(totals.onDemand),
+                  disk: selected.root_volume_gib,
+                })}
               </span>
             </div>
           )}
@@ -183,7 +226,14 @@ export default function RegionStoragePicker({ estimate, contextLength, kvCacheTy
             )}
           </div>
           {confirming && selected && preflight && (
-            <LaunchDialog estimate={estimate} plan={plan} option={selected} preflight={preflight} onClose={() => setConfirming(false)} />
+            <LaunchDialog
+              estimate={estimate}
+              plan={plan}
+              option={selected}
+              networkMode={networkMode}
+              preflight={preflight}
+              onClose={() => setConfirming(false)}
+            />
           )}
 
           {plan.warnings.length > 0 && (

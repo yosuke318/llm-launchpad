@@ -17,3 +17,8 @@ output "model_bucket_access_enabled" {
   description = "モデルバケットの読み書きの権限を付けているか"
   value       = length(aws_iam_role_policy.model_bucket) > 0
 }
+
+output "ollama_install_access_enabled" {
+  description = "Ollama のリリースファイルを読む権限を付けたか(閉じたネットワーク)"
+  value       = length(aws_iam_role_policy.ollama_install) > 0
+}

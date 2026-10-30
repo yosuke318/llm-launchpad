@@ -55,7 +55,14 @@ locals {
   root_volume_size_gib = coalesce(var.root_volume_size_gib, local.default_root_volume_size_gib)
 }
 
+# 閉じたネットワークでは、起動処理が SSM に状態を書くため、エンドポイントができてから起動する
+resource "terraform_data" "network_ready" {
+  input = var.vpc_endpoint_ids
+}
+
 resource "aws_instance" "this" {
+  depends_on = [terraform_data.network_ready]
+
   ami                    = data.aws_ami.dlami.id
   instance_type          = var.instance_type
   subnet_id              = try(var.subnet_ids[local.availability_zone], null)

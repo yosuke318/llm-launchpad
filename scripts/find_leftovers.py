@@ -242,6 +242,20 @@ def find_vpcs(aws, region):
     ]
 
 
+def find_vpc_endpoints(aws, region):
+    """閉じたネットワーク(network_mode = private)の SSM 用エンドポイント。インターフェイスエンドポイントは時間課金がある"""
+    res = aws("ec2", "describe-vpc-endpoints", "--filters", f"Name=tag:Project,Values={PROJECT}", region=region)
+    found = []
+    for e in res.get("VpcEndpoints", []):
+        interface = e.get("VpcEndpointType") == "Interface"
+        found.append(resource(
+            region, "vpc-endpoint", e["VpcEndpointId"], tags_of(e),
+            state=f"{e.get('State', '')} ({e.get('VpcEndpointType', '')}, {e.get('ServiceName', '')})",
+            note=f"{len(e.get('SubnetIds', []))}つのAZに置いた分の時間課金がある" if interface else "ゲートウェイエンドポイントは無料",
+        ))
+    return found
+
+
 def find_spot_requests(aws, region, instance_ids):
     """残ったスポットリクエスト。persistent のリクエストは、インスタンスを消してもリクエストが残ると再び起動される"""
     res = aws(
@@ -362,6 +376,7 @@ def find_in_region(aws, prices, region, now):
     # インスタンスを探せなかった場合も、インスタンスプロファイルの名前でリクエストを見つける
     collect(lambda: find_spot_requests(aws, region, instance_ids))
     collect(lambda: find_vpcs(aws, region))
+    collect(lambda: find_vpc_endpoints(aws, region))
     collect(lambda: find_parameters(aws, region))
     collect(lambda: find_schedules(aws, region))
     return found, errors

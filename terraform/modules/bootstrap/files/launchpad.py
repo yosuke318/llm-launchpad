@@ -6,8 +6,9 @@ user data(user_data.sh.tftpl)から呼ぶ。標準ライブラリと AWS CLI だ
     launchpad.py status <stage> [--state running|ready|failed] [--error MSG] [--log PATH]
     launchpad.py wait-server
     launchpad.py pull <model>
+    launchpad.py check-local <model>
     launchpad.py verify <model>
-    launchpad.py restore-s3 <model> <bucket> <models_dir>
+    launchpad.py restore-s3 <model> <bucket> <models_dir> [--offline]
     launchpad.py save-s3 <model> <bucket> <models_dir>
     launchpad.py mount-ebs <volume_id> <mount_point>
     launchpad.py idle-check --minutes N [--dry-run]
@@ -191,6 +192,22 @@ def pull(model):
     raise RuntimeError("モデルの取得が完了の通知なしで終わりました")
 
 
+def check_local(model):
+    """閉じたネットワーク用。Ollama library に問い合わせず、モデルが手元にあるかだけを確かめる"""
+    try:
+        with request("/api/show", {"model": model}) as res:
+            json.load(res)
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            raise RuntimeError(
+                f"{model} が手元にありません。閉じたネットワークでは Ollama library から取得できないため、"
+                "インターネットのある環境で S3 か EBS ボリュームに入れておいてください"
+            ) from e
+        raise
+    set_status("pulling_model", pull={"percent": 100.0, "message": "already present"})
+    log(f"{model} は手元にあります")
+
+
 def gpu_memory():
     """nvidia-smi で GPU ごとのメモリを取る。見積もりと実測の比較に使う"""
     try:
@@ -367,10 +384,16 @@ def record_cache(**fields):
     set_status(s.get("stage", "unknown"), s.get("state", "running"), cache=cache)
 
 
-def restore_s3(model, bucket, models_dir):
-    """S3 に manifest があれば、manifest と blob を models ディレクトリにコピーする。なければ何もしない"""
+def restore_s3(model, bucket, models_dir, offline=False):
+    """S3 に manifest があれば、manifest と blob を models ディレクトリにコピーする。
+    なければ何もしない。offline(閉じたネットワーク)では、あとで取得できないため失敗にする"""
     key = f"{S3_PREFIX}/{manifest_path(model)}"
     if aws("s3api", "head-object", "--bucket", bucket, "--key", key, check=False).returncode != 0:
+        if offline:
+            raise RuntimeError(
+                f"s3://{bucket}/{key} がありません。閉じたネットワークでは Ollama library から取得できないため、"
+                "インターネットのある環境でモデルを S3 に保存しておいてください"
+            )
         log(f"S3 に {model} はありません。Ollama library から取得し、あとで S3 に保存します")
         record_cache(hit=False, bucket=bucket)
         return
@@ -530,6 +553,9 @@ def main(argv=None):
     p = sub.add_parser("pull", help="モデルを取得する")
     p.add_argument("model")
 
+    p = sub.add_parser("check-local", help="モデルが手元にあるか確かめる(閉じたネットワーク)")
+    p.add_argument("model")
+
     p = sub.add_parser("verify", help="モデルが応答するか確かめる")
     p.add_argument("model")
 
@@ -538,6 +564,8 @@ def main(argv=None):
         p.add_argument("model")
         p.add_argument("bucket")
         p.add_argument("models_dir")
+        if command == "restore-s3":
+            p.add_argument("--offline", action="store_true")
 
     p = sub.add_parser("mount-ebs", help="EBSボリュームを付ける")
     p.add_argument("volume_id")
@@ -571,10 +599,12 @@ def main(argv=None):
             wait_server()
         elif args.command == "pull":
             pull(args.model)
+        elif args.command == "check-local":
+            check_local(args.model)
         elif args.command == "verify":
             verify(args.model)
         elif args.command == "restore-s3":
-            restore_s3(args.model, args.bucket, args.models_dir)
+            restore_s3(args.model, args.bucket, args.models_dir, args.offline)
         elif args.command == "save-s3":
             save_s3(args.model, args.bucket, args.models_dir)
         elif args.command == "mount-ebs":

@@ -79,6 +79,17 @@
     "perHour": "{{price}}/hour",
     "perMonth": "{{price}}/month",
     "unknown": "unknown",
+    "network": "Network",
+    "networkNames": {
+      "public": "Public",
+      "private": "Closed network"
+    },
+    "networkHelp": {
+      "public": "Launches in a public subnet with internet access. Ollama and the model come from ollama.com and the Ollama library",
+      "private": "Launches in a private subnet with no route to the internet. SSM and S3 are reached through VPC endpoints. Use it to keep sensitive data inside"
+    },
+    "privateNetworkHourly": "3 VPC endpoints for SSM: {{price}}/hour",
+    "privateNetworkPrerequisite": "First, from a machine with internet access, run scripts/upload_ollama.py to put Ollama in the bucket, and put the model in S3 or an EBS volume.",
     "storage": "Model storage",
     "storageNames": {
       "s3_cache": "S3 cache",
@@ -99,8 +110,10 @@
       "bucket": "There is no bucket in {{region}} yet. Apply terraform/model-store first.",
       "volume": "There is no EBS volume in {{region}} yet. Create one with model_volumes in terraform/model-store first."
     },
+    "notInPrivateNetwork": "Not available in the closed network, which cannot reach the Ollama library.",
     "hourlyTotal": "Hourly estimate (spot)",
     "hourlyTotalDetail": "{{onDemand}}/hour on-demand. Instance, root volume ({{disk}} GiB) and storage added together",
+    "hourlyTotalDetailPrivate": "{{onDemand}}/hour on-demand. Instance, root volume ({{disk}} GiB), storage and VPC endpoints added together",
     "note": "Prices are estimates from the AWS Price List API and spot price history, and differ from the actual bill. Startup time is from terraform apply until ready, worked out from a measurement ({{source}}).",
     "confirm": "Review and launch",
     "confirmBlocked": "Some launch checks did not pass, so you cannot continue."
@@ -152,6 +165,7 @@
     "license": "License",
     "instanceType": "Instance type",
     "region": "Region",
+    "network": "Network",
     "storage": "Model storage",
     "startup": "ready in about {{count}} min",
     "disk": "Disk",

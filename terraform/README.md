@@ -17,7 +17,7 @@ terraform/
 ├── backend-s3.tf.example     # state を S3 に置く場合のサンプル
 ├── modules/
 │   ├── sizing/               # VRAM見積もりとインスタンス型の選択(リソースは作らない)
-│   ├── network/              # VPC、パブリックサブネット、IGW、S3 ゲートウェイエンドポイント
+│   ├── network/              # VPC、サブネット、IGW、S3 ゲートウェイエンドポイント、閉じたネットワークの SSM 用エンドポイント
 │   ├── security/             # インスタンス用セキュリティグループ
 │   ├── iam/                  # インスタンスロール(SSM、進み具合の書き込み、モデルバケットの読み書き)
 │   ├── instance/             # GPUインスタンス(スポット / オンデマンド)と、モデル用EBSボリュームの付け外し
@@ -175,6 +175,45 @@ Ollama は見積もりと同じ条件で動かす(systemd の設定で渡す)。
 * S3 のゲートウェイエンドポイント(無料)を付けて、モデル取得の通信をVPC内で完結させる
 * VPCはリージョンあたり既定で5個までなので、同時に立てる環境は5つまで(GPUのvCPUクォータのほうが先に効くことが多い)
 
+### 閉じたネットワーク: `network_mode = "private"`
+
+機密データを外に出さずに使うため、インターネットへの経路がないVPCに一時的にLLMを立ち上げる。
+
+| | `public`(既定) | `private` |
+|---|---|---|
+| サブネット | パブリックIPを付ける | パブリックIPを付けない |
+| インターネットゲートウェイ | 作る | 作らない(NATゲートウェイも作らない) |
+| SSM | インターネット経由 | インターフェイスエンドポイント(`ssm` / `ec2messages` / `ssmmessages`)。プライベートDNSを使う |
+| S3 | ゲートウェイエンドポイント | ゲートウェイエンドポイント(S3 への経路はこれだけ) |
+| Ollama の導入 | ollama.com の install.sh | モデル用のバケットに置いたリリースファイル |
+| モデル | `model_storage` の3つの方式 | S3キャッシュか EBS永続。先に入っているものだけを使う |
+| アウトバウンド | HTTPS と HTTP | HTTPS だけ |
+
+* インターフェイスエンドポイントは1つ・1AZあたりの時間課金がある(東京で約 $0.014/時)。GPUインスタンスを起動するAZのサブネットにだけ置くので、3つで約 $0.042/時。環境を destroy すると一緒に消える(消えるまでに8分ほどかかる)
+* GPUインスタンスは、エンドポイントができてから起動する(起動処理がすぐに SSM に進み具合を書くため)
+* 接続は `access_mode = "ssm"` だけ。パブリックIPがないため `direct` は使えない
+* `model_storage = "download"` は使えない(Ollama library に出られないため)
+* Ollama library に問い合わせないため、モデルの取得(`/api/pull`)はせず、手元にあるか(`/api/show`)だけを確かめる。S3 になければ、取得には進まずに失敗にする
+* 最初の準備(Ollama とモデルを S3 や EBS に入れる)は、インターネットのある環境で行う前提
+
+準備は、インターネットのあるマシンで次の順に行う。
+
+```bash
+# Ollama のリリースファイルをモデル用のバケットに置く(ollama/install/<バージョン>/ と latest/ の下)
+python3 scripts/upload_ollama.py
+# バージョンを決めるときは --version 0.40.13 にして、環境の ollama_version も同じにする
+
+# モデルを S3 に保存する。public のまま S3キャッシュで一度起動すると、使える状態になったあとで S3 に保存される
+terraform apply -var model=qwen3:8b
+terraform destroy -var model=qwen3:8b
+```
+
+そのあと、閉じたネットワークで起動する。
+
+```bash
+terraform apply -var model=qwen3:8b -var network_mode=private
+```
+
 ### 接続方法: 既定は SSM
 
 | access_mode | インバウンド | 接続のしかた |
@@ -184,7 +223,7 @@ Ollama は見積もりと同じ条件で動かす(systemd の設定で渡す)。
 
 * `direct` で `allowed_cidrs` を空にすると、実行したマシンのグローバルIP(/32)を自動で使う
 * `0.0.0.0/0` などの全開放は指定できない
-* アウトバウンドは HTTPS(443)と HTTP(80)だけ許可する(SSM、S3、Ollama library、Hugging Face、OSのパッケージミラー)
+* アウトバウンドは HTTPS(443)と HTTP(80)だけ許可する(SSM、S3、Ollama library、Hugging Face、OSのパッケージミラー)。閉じたネットワークでは HTTPS だけ
 
 ### state: 既定はローカル、1 workspace = 1 環境
 
@@ -210,6 +249,7 @@ Ollama は見積もりと同じ条件で動かす(systemd の設定で渡す)。
 * `AmazonSSMManagedInstanceCore`: SSM でのシェル接続とポートフォワードに使う
 * 起動処理の進み具合を書くため、その環境の SSM パラメータにだけ `ssm:PutParameter`、`ssm:GetParameter` を付ける
 * S3キャッシュのときだけ、モデルバケットの `ollama/` の下に `s3:GetObject`、`s3:PutObject`、`s3:AbortMultipartUpload` と、`ollama/` で絞った `s3:ListBucket` を付ける(ListBucket がないと、無いオブジェクトを確かめたときに 404 ではなく 403 になる)
+* 閉じたネットワークのときだけ、モデルバケットの `ollama/install/` の下に `s3:GetObject` を付ける(Ollama のリリースファイルを読むため)
 
 ## 使い方
 
@@ -318,12 +358,13 @@ terraform test
 | `root_volume_size_gib` | `null`(自動) | ルートボリュームの大きさ(GiB) |
 | `root_volume_throughput` | `1000` | ルートボリュームのスループット(MiB/s) |
 | `root_volume_iops` | `4000` | ルートボリュームの IOPS(スループットの4倍以上) |
-| `ollama_version` | `null`(最新) | 入れる Ollama のバージョン |
+| `ollama_version` | `null`(最新) | 入れる Ollama のバージョン。閉じたネットワークでは `null` なら `latest` の下に置いたもの |
 | `idle_stop_minutes` | `30` | Ollama へのリクエストがこの分数なければ止める(`0` で止めない) |
 | `max_lifetime_hours` | `8` | 起動してからこの時間がたったら止める(`0` で止めない) |
 | `region` | `ap-northeast-1` | リージョン |
 | `aws_profile` | `null` | AWS CLI のプロファイル名 |
 | `env_id` | `null`(workspace 名) | 環境ID。英小文字・数字・ハイフンの20文字以内 |
+| `network_mode` | `public` | `public` / `private`(閉じたネットワーク) |
 | `access_mode` | `ssm` | `ssm` / `direct` |
 | `allowed_cidrs` | `[]` | `direct` のときに許可するIPv4 CIDR。空なら自分のIP |
 | `vpc_cidr` | `10.42.0.0/16` | VPCのCIDR(/16〜/24) |

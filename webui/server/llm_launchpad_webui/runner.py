@@ -33,6 +33,8 @@ LAUNCH_VARIABLES = {
     "context_length": int,
     "kv_cache_type": str,
     "model_storage": str,
+    # public か private(閉じたネットワーク)
+    "network_mode": str,
     "purchase_option": str,
     "idle_stop_minutes": int,
     "max_lifetime_hours": int,

@@ -1,5 +1,5 @@
-import type { LaunchVariables, ModelEstimate, RegionPlan, StorageOption } from "./api";
-import { hourlyTotal } from "./cost";
+import type { LaunchVariables, ModelEstimate, NetworkMode, RegionPlan, StorageOption } from "./api";
+import { hourlyTotal, networkHourly } from "./cost";
 
 // モデルのタグから環境ID(ワークスペース名)の候補を作る。英小文字・数字・ハイフンの20文字以内(terraform の規則)
 export function defaultEnvId(tag: string) {
@@ -63,6 +63,7 @@ export function launchVariables(
   plan: RegionPlan,
   option: StorageOption,
   settings: LaunchSettings,
+  networkMode: NetworkMode = "public",
 ): LaunchVariables {
   return {
     model: estimate.model.tag,
@@ -70,6 +71,7 @@ export function launchVariables(
     context_length: estimate.vram_estimate.context_length,
     kv_cache_type: estimate.vram_estimate.kv_cache_type,
     model_storage: option.id,
+    network_mode: networkMode,
     purchase_option: settings.purchaseOption,
     idle_stop_minutes: settings.idleStopMinutes,
     max_lifetime_hours: settings.maxLifetimeHours,
@@ -78,11 +80,22 @@ export function launchVariables(
   };
 }
 
-// 選んだ購入方法での、1時間あたりの目安。スポットでAZを選んだときは、そのAZの価格
-export function launchHourly(plan: RegionPlan, option: StorageOption, purchaseOption: "spot" | "on-demand", availabilityZone: string | null = null) {
+// 選んだ購入方法での、1時間あたりの目安。スポットでAZを選んだときは、そのAZの価格。閉じたネットワークではエンドポイントの分を足す
+export function launchHourly(
+  plan: RegionPlan,
+  option: StorageOption,
+  purchaseOption: "spot" | "on-demand",
+  availabilityZone: string | null = null,
+  networkMode: NetworkMode = "public",
+) {
   const spot = availabilityZone ? plan.prices.spot_hourly_usd_by_az[availabilityZone] : plan.prices.spot_min?.hourly_usd;
   const instance = purchaseOption === "spot" ? spot : plan.prices.on_demand_hourly_usd;
-  return hourlyTotal(instance, option);
+  return hourlyTotal(instance, option, networkHourly(plan, networkMode));
+}
+
+// 閉じたネットワークではインターネットに出られないため、毎回ダウンロードは選べない(terraform の network_mode の検証と同じ)
+export function storageAllowed(storage: StorageOption["id"], networkMode: NetworkMode) {
+  return networkMode === "public" || storage !== "download";
 }
 
 // 自動停止の値が terraform の変数の決まりに合うか(idle_stop_minutes は 0 か 10〜1440、max_lifetime_hours は 0〜720)

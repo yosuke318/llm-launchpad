@@ -39,7 +39,10 @@ module "network" {
   region   = var.region
   vpc_cidr = var.vpc_cidr
   az_count = var.az_count
-  tags     = local.resource_tags
+  private  = local.private
+  # エンドポイントは、GPUインスタンスを起動するAZにだけ置く
+  endpoint_availability_zone = module.instance.availability_zone
+  tags                       = local.resource_tags
 }
 
 module "security" {
@@ -49,14 +52,15 @@ module "security" {
   vpc_id        = module.network.vpc_id
   ollama_port   = local.ollama_port
   allowed_cidrs = local.allowed_cidrs
+  private       = local.private
   tags          = local.resource_tags
 }
 
 data "aws_caller_identity" "current" {}
 
-# S3キャッシュ: terraform/model-store で作ったバケットがあることを plan で確かめる
+# S3キャッシュと閉じたネットワーク: terraform/model-store で作ったバケットがあることを plan で確かめる
 data "aws_s3_bucket" "models" {
-  count = var.model_storage == "s3_cache" ? 1 : 0
+  count = var.model_storage == "s3_cache" || var.network_mode == "private" ? 1 : 0
 
   bucket = coalesce(var.model_bucket_name, "llm-launchpad-models-${data.aws_caller_identity.current.account_id}-${var.region}")
 }
@@ -96,29 +100,32 @@ data "aws_ebs_volume" "models" {
 module "bootstrap" {
   source = "./modules/bootstrap"
 
-  name                  = local.name
-  region                = var.region
-  status_parameter_name = "/${local.project}/${local.env_id}/status"
-  model                 = var.model
-  context_length        = var.context_length
-  kv_cache_type         = var.kv_cache_type
-  ollama_version        = var.ollama_version
-  ollama_listen_all     = var.access_mode == "direct"
-  ollama_port           = local.ollama_port
-  model_storage         = var.model_storage
-  model_bucket_name     = local.model_bucket_name
-  model_volume_id       = local.model_volume_id
-  idle_stop_minutes     = var.idle_stop_minutes
-  tags                  = local.resource_tags
+  name                       = local.name
+  region                     = var.region
+  status_parameter_name      = "/${local.project}/${local.env_id}/status"
+  model                      = var.model
+  context_length             = var.context_length
+  kv_cache_type              = var.kv_cache_type
+  ollama_version             = var.ollama_version
+  ollama_listen_all          = var.access_mode == "direct"
+  ollama_port                = local.ollama_port
+  model_storage              = var.model_storage
+  model_bucket_name          = local.model_bucket_name
+  model_volume_id            = local.model_volume_id
+  idle_stop_minutes          = var.idle_stop_minutes
+  offline                    = local.private
+  ollama_install_bucket_name = local.ollama_install_bucket_name
+  tags                       = local.resource_tags
 }
 
 module "iam" {
   source = "./modules/iam"
 
-  name_prefix          = local.iam_name_prefix
-  model_bucket_name    = local.model_bucket_name
-  status_parameter_arn = module.bootstrap.status_parameter_arn
-  tags                 = local.resource_tags
+  name_prefix                = local.iam_name_prefix
+  model_bucket_name          = local.model_bucket_name
+  ollama_install_bucket_name = local.ollama_install_bucket_name
+  status_parameter_arn       = module.bootstrap.status_parameter_arn
+  tags                       = local.resource_tags
 }
 
 module "instance" {
@@ -142,6 +149,7 @@ module "instance" {
   root_volume_throughput = var.root_volume_throughput
   root_volume_iops       = var.root_volume_iops
   user_data_base64       = module.bootstrap.user_data_base64
+  vpc_endpoint_ids       = module.network.vpc_endpoint_ids
   tags                   = local.resource_tags
 }
 

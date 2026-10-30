@@ -14,6 +14,7 @@ import {
   isValidEnvId,
   launchHourly,
   launchVariables,
+  storageAllowed,
   placementRisk,
   validIdleStop,
   validMaxLifetime,
@@ -190,6 +191,7 @@ describe("launch helpers", () => {
       on_demand_hourly_usd: 0.526,
       spot_hourly_usd_by_az: { "us-east-1a": 0.25, "us-east-1b": 0.21 },
       spot_min: { availability_zone: "us-east-1b", hourly_usd: 0.21 },
+      private_network_hourly_usd: 0.042,
     },
     model_store: { volumes: [{ name: "other", id: "vol-1", availability_zone: "us-east-1c" }, { name: "default", id: "vol-2", availability_zone: "us-east-1a" }] },
   } as unknown as RegionPlan;
@@ -202,6 +204,7 @@ describe("launch helpers", () => {
       context_length: 40960,
       kv_cache_type: "q8_0",
       model_storage: "ebs",
+      network_mode: "public",
       purchase_option: "on-demand",
       idle_stop_minutes: 0,
       max_lifetime_hours: 24,
@@ -231,6 +234,23 @@ describe("launch helpers", () => {
     expect(launchHourly(plan, option, "spot", "us-east-1c")).toBeNull();
     const noSpot = { ...plan, prices: { ...plan.prices, spot_min: null } };
     expect(launchHourly(noSpot, option, "spot")).toBeNull();
+  });
+
+  it("adds the VPC endpoints for the private network", () => {
+    const disk = 0.0784 + 10.5 / 730;
+    expect(launchHourly(plan, option, "spot", null, "private")).toBeCloseTo(0.21 + disk + 0.042);
+    const unknown = { ...plan, prices: { ...plan.prices, private_network_hourly_usd: null } };
+    expect(launchHourly(unknown, option, "spot", null, "private")).toBeNull();
+    expect(launchHourly(unknown, option, "spot")).toBeCloseTo(0.21 + disk);
+    const settings = { purchaseOption: "spot" as const, idleStopMinutes: 30, maxLifetimeHours: 8, availabilityZone: null };
+    expect(launchVariables(estimate, plan, option, settings, "private").network_mode).toBe("private");
+  });
+
+  it("does not allow download in the private network", () => {
+    expect(storageAllowed("download", "private")).toBe(false);
+    expect(storageAllowed("s3_cache", "private")).toBe(true);
+    expect(storageAllowed("ebs", "private")).toBe(true);
+    expect(storageAllowed("download", "public")).toBe(true);
   });
 });
 

@@ -32,6 +32,27 @@ variable "access_mode" {
   }
 }
 
+variable "network_mode" {
+  description = "ネットワークの種類。public: パブリックサブネットからインターネットに出る / private: インターネットへの経路がないプライベートサブネットに起動し、SSM と S3 には VPC エンドポイントで接続する(Ollama とモデルは先に S3 か EBS に入れておく)"
+  type        = string
+  default     = "public"
+
+  validation {
+    condition     = contains(["public", "private"], var.network_mode)
+    error_message = "network_mode は public か private を指定してください。"
+  }
+
+  validation {
+    condition     = var.network_mode != "private" || var.access_mode == "ssm"
+    error_message = "network_mode = private では access_mode = ssm だけを使えます(パブリックIPを付けないため)。"
+  }
+
+  validation {
+    condition     = var.network_mode != "private" || var.model_storage != "download"
+    error_message = "network_mode = private では model_storage = download は使えません(Ollama library に出られないため)。s3_cache か ebs を指定してください。"
+  }
+}
+
 variable "allowed_cidrs" {
   description = "access_mode = direct のとき、Ollama API(11434)への接続を許可するIPv4 CIDR。空なら実行したマシンのグローバルIP(/32)を自動で使う"
   type        = list(string)

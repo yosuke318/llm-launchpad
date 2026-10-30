@@ -56,6 +56,10 @@ class FakeAwsInfo:
         self._maybe_fail("s3_standard_per_gb_month")
         return 0.025
 
+    def interface_endpoint_hourly(self, region):
+        self._maybe_fail("interface_endpoint_hourly")
+        return 0.014
+
     def model_store(self, region):
         self._maybe_fail("model_store")
         return {"bucket": f"llm-launchpad-models-123456789012-{region}", "bucket_exists": self.bucket_exists, "volumes": self.volumes}
@@ -97,6 +101,7 @@ def test_plan_prices_and_availability(tmp_path):
         "launchable_zones": ["ap-northeast-1a", "ap-northeast-1c"],
     }
     assert p["prices"]["on_demand_hourly_usd"] == 0.71
+    assert p["prices"]["private_network_hourly_usd"] == pytest.approx(0.042), "閉じたネットワークのエンドポイント3つ分"
     assert p["prices"]["spot_min"] == {"availability_zone": "ap-northeast-1a", "hourly_usd": 0.3409}, "提供していない AZ のスポット価格は使わない"
     assert p["warnings"] == []
     assert p["spot_placement_scores"] == {"ap-northeast-1a": 3, "ap-northeast-1c": 7}, "提供していない AZ のスコアは出さない"
@@ -177,3 +182,9 @@ def test_startup_matches_measurements():
     # 大きいモデルほど長い
     assert startup_sec(87, "download", cached=False) > startup_sec(5.2, "download", cached=False) + 500
     assert root_volume_size_gib(87, True) == 259
+
+
+def test_private_network_price_failure_is_warning(tmp_path):
+    with make_client(tmp_path, FakeAwsInfo(fail={"interface_endpoint_hourly"})) as c:
+        p = plan(c)
+    assert p["prices"]["private_network_hourly_usd"] is None and len(p["warnings"]) == 1

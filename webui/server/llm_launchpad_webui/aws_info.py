@@ -205,6 +205,27 @@ class AwsInfo:
 
         return self._cached(("s3_standard_per_gb_month", region), fetch)
 
+    def interface_endpoint_hourly(self, region):
+        """インターフェイスエンドポイント(PrivateLink)の、1つ・1AZあたりの1時間の料金。閉じたネットワークで使う"""
+        def fetch():
+            res = self._client("pricing", PRICING_REGION).get_products(ServiceCode="AmazonVPC", Filters=[
+                {"Type": "TERM_MATCH", "Field": "regionCode", "Value": region},
+                {"Type": "TERM_MATCH", "Field": "productFamily", "Value": "VpcEndpoint"},
+                {"Type": "TERM_MATCH", "Field": "endpointType", "Value": "PrivateLink"},
+            ])
+            for item in res["PriceList"]:
+                product = json.loads(item) if isinstance(item, str) else item
+                # 同じ endpointType に、時間の料金と通信量(GB)の料金がある
+                if not product["product"]["attributes"].get("usagetype", "").endswith("VpcEndpoint-Hours"):
+                    continue
+                for term in product["terms"]["OnDemand"].values():
+                    for dim in term["priceDimensions"].values():
+                        if dim.get("unit") == "Hrs":
+                            return float(dim["pricePerUnit"]["USD"])
+            return None
+
+        return self._cached(("interface_endpoint_hourly", region), fetch)
+
     def model_store(self, region):
         """そのリージョンに model-store のバケットとボリュームがあるか(terraform/model-store が作る名前とタグで探す)"""
         def fetch():
