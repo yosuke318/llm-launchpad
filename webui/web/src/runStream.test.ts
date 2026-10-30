@@ -10,12 +10,14 @@ import { hourlyTotal, minutes } from "./cost";
 import {
   bestPlacement,
   defaultEnvId,
+  ebsVolumeZone,
   isValidEnvId,
   launchHourly,
   launchVariables,
   placementRisk,
   validIdleStop,
   validMaxLifetime,
+  zonePlacement,
 } from "./launch";
 
 const run: RunSummary = {
@@ -184,11 +186,16 @@ describe("launch helpers", () => {
   const plan = {
     region: "us-east-1",
     instance_type: "g4dn.xlarge",
-    prices: { on_demand_hourly_usd: 0.526, spot_hourly_usd_by_az: {}, spot_min: { availability_zone: "us-east-1b", hourly_usd: 0.21 } },
+    prices: {
+      on_demand_hourly_usd: 0.526,
+      spot_hourly_usd_by_az: { "us-east-1a": 0.25, "us-east-1b": 0.21 },
+      spot_min: { availability_zone: "us-east-1b", hourly_usd: 0.21 },
+    },
+    model_store: { volumes: [{ name: "other", id: "vol-1", availability_zone: "us-east-1c" }, { name: "default", id: "vol-2", availability_zone: "us-east-1a" }] },
   } as unknown as RegionPlan;
 
   it("writes the shown values to tfvars", () => {
-    const settings = { purchaseOption: "on-demand" as const, idleStopMinutes: 0, maxLifetimeHours: 24 };
+    const settings = { purchaseOption: "on-demand" as const, idleStopMinutes: 0, maxLifetimeHours: 24, availabilityZone: null };
     expect(launchVariables(estimate, plan, option, settings)).toEqual({
       model: "qwen3:8b",
       region: "us-east-1",
@@ -201,10 +208,27 @@ describe("launch helpers", () => {
     });
   });
 
+  it("writes the chosen zone except for EBS persistence", () => {
+    const settings = { purchaseOption: "spot" as const, idleStopMinutes: 30, maxLifetimeHours: 8, availabilityZone: "us-east-1a" };
+    expect(launchVariables(estimate, plan, { ...option, id: "s3_cache" }, settings).availability_zone).toBe("us-east-1a");
+    expect(launchVariables(estimate, plan, option, settings)).not.toHaveProperty("availability_zone");
+    expect(ebsVolumeZone(plan)).toBe("us-east-1a");
+    expect(ebsVolumeZone({ ...plan, model_store: null })).toBeNull();
+  });
+
+  it("shows the placement score of the chosen zone", () => {
+    const scores = { "us-east-1a": 3, "us-east-1b": 8 };
+    expect(zonePlacement(scores, "us-east-1a")).toEqual({ availabilityZone: "us-east-1a", score: 3, risk: "high" });
+    expect(zonePlacement(scores, null)).toEqual({ availabilityZone: "us-east-1b", score: 8, risk: "low" });
+    expect(zonePlacement(scores, "us-east-1c")?.availabilityZone).toBe("us-east-1b");
+  });
+
   it("totals the hourly price for the chosen purchase option", () => {
     const disk = 0.0784 + 10.5 / 730;
     expect(launchHourly(plan, option, "spot")).toBeCloseTo(0.21 + disk);
     expect(launchHourly(plan, option, "on-demand")).toBeCloseTo(0.526 + disk);
+    expect(launchHourly(plan, option, "spot", "us-east-1a")).toBeCloseTo(0.25 + disk);
+    expect(launchHourly(plan, option, "spot", "us-east-1c")).toBeNull();
     const noSpot = { ...plan, prices: { ...plan.prices, spot_min: null } };
     expect(launchHourly(noSpot, option, "spot")).toBeNull();
   });

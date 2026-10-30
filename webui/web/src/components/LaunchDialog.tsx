@@ -4,13 +4,14 @@ import { useTranslation } from "react-i18next";
 import { ApiError, launch, type ModelEstimate, type Preflight, type RegionPlan, type StorageOption } from "../api";
 import { minutes } from "../cost";
 import {
-  bestPlacement,
   defaultEnvId,
+  ebsVolumeZone,
   isValidEnvId,
   launchHourly,
   launchVariables,
   validIdleStop,
   validMaxLifetime,
+  zonePlacement,
 } from "../launch";
 import { useRun } from "../runContext";
 
@@ -32,6 +33,8 @@ export default function LaunchDialog({ estimate, plan, option, preflight, onClos
   const [purchaseOption, setPurchaseOption] = useState<"spot" | "on-demand">(preflight.can_proceed.spot ? "spot" : "on-demand");
   const [idleStopMinutes, setIdleStopMinutes] = useState(30);
   const [maxLifetimeHours, setMaxLifetimeHours] = useState(8);
+  // 在庫のないAZを避けたいときに選ぶ。空なら terraform が選ぶ
+  const [availabilityZone, setAvailabilityZone] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,15 +50,28 @@ export default function LaunchDialog({ estimate, plan, option, preflight, onClos
   const num = useMemo(() => new Intl.NumberFormat(i18n.language, { maximumFractionDigits: 2 }), [i18n.language]);
   const money = (v: number | null | undefined) => (v == null ? t("region.unknown") : usd.format(v));
 
-  const settings = { purchaseOption, idleStopMinutes, maxLifetimeHours };
+  const zones = plan.availability.launchable_zones ?? [];
+  // EBS永続はボリュームのあるAZに決まる
+  const fixedZone = option.id === "ebs" ? ebsVolumeZone(plan) : null;
+  // 価格と中断のリスクを出すAZ。自動なら terraform が選ぶAZ(選べるAZの最初)
+  const zone = option.id === "ebs" ? fixedZone : (availabilityZone ?? zones[0] ?? null);
+  const settings = { purchaseOption, idleStopMinutes, maxLifetimeHours, availabilityZone };
   const variables = launchVariables(estimate, plan, option, settings);
-  const hourly = launchHourly(plan, option, purchaseOption);
-  const placement = bestPlacement(plan.spot_placement_scores);
+  const hourly = launchHourly(plan, option, purchaseOption, zone);
+  const placement = zonePlacement(plan.spot_placement_scores, zone);
   const e = estimate.vram_estimate;
   const instance = estimate.instance;
   const canSpot = preflight.can_proceed.spot;
   const canOnDemand = preflight.can_proceed.on_demand;
   const allowed = purchaseOption === "spot" ? canSpot : canOnDemand;
+
+  // スポットのときは、AZごとの価格と起動できる見込みも出す
+  const zoneLabel = (z: string) => {
+    const price = plan.prices.spot_hourly_usd_by_az[z];
+    const score = plan.spot_placement_scores?.[z];
+    if (purchaseOption !== "spot" || (price == null && score == null)) return z;
+    return t("launch.zoneSpot", { zone: z, price: money(price), score: score ?? "?" });
+  };
 
   const envIdOk = isValidEnvId(envId);
   const idleOk = validIdleStop(idleStopMinutes);
@@ -148,7 +164,7 @@ export default function LaunchDialog({ estimate, plan, option, preflight, onClos
         <legend>{t("launch.purchase")}</legend>
         <label className={!canSpot ? "disabled" : ""}>
           <input type="radio" name="purchase" checked={purchaseOption === "spot"} disabled={!canSpot} onChange={() => setPurchaseOption("spot")} />
-          {t("launch.spot", { price: money(plan.prices.spot_min?.hourly_usd) })}
+          {t("launch.spot", { price: money(zone ? plan.prices.spot_hourly_usd_by_az[zone] : plan.prices.spot_min?.hourly_usd) })}
           {!canSpot && <span className="error small"> {t("launch.blockedByPreflight")}</span>}
         </label>
         {purchaseOption === "spot" && (
@@ -168,6 +184,25 @@ export default function LaunchDialog({ estimate, plan, option, preflight, onClos
           {t("launch.onDemand", { price: money(plan.prices.on_demand_hourly_usd) })}
           {!canOnDemand && <span className="error small"> {t("launch.blockedByPreflight")}</span>}
         </label>
+      </fieldset>
+
+      <fieldset className="launch-options">
+        <legend>{t("launch.zone")}</legend>
+        {option.id === "ebs" ? (
+          <p className="small">{t("launch.zoneFixedByVolume", { zone: fixedZone ?? "?" })}</p>
+        ) : (
+          <label className="field">
+            <select value={availabilityZone ?? ""} onChange={(ev) => setAvailabilityZone(ev.target.value || null)}>
+              <option value="">{zones.length ? t("launch.zoneAuto", { zone: zones[0] }) : t("launch.zoneAutoUnknown")}</option>
+              {zones.map((z) => (
+                <option key={z} value={z}>
+                  {zoneLabel(z)}
+                </option>
+              ))}
+            </select>
+            <span className="muted small">{t("launch.zoneHelp")}</span>
+          </label>
+        )}
       </fieldset>
 
       <fieldset className="launch-options">

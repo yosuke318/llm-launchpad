@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { ApiError, getProgress, listEnvironments, type Progress, type ProgressStage } from "../api";
+import { ApiError, getProgress, listEnvironments, relaunch, type Progress, type ProgressStage } from "../api";
 import { isFinished, openaiPythonExample, POLL_MS, splitDuration, stageSec, tailLogCommand, tick } from "../progress";
 import { useRun } from "../runContext";
 
@@ -210,6 +210,7 @@ function FailureCard({ progress, onShowTerraform }: { progress: Progress; onShow
     <section className="card failure" aria-live="polite">
       <h2>{t("progress.failedHeading", { stage: t(`progress.stages.${e.stage}`) })}</h2>
       {e.message && <p className="error">{e.message}</p>}
+      {e.code === "insufficient_capacity" && e.zones && <RelaunchForm workspace={progress.workspace} zones={e.zones} />}
       {e.terraform_log ? (
         <>
           <p className="muted small">{t("progress.terraformLog")}</p>
@@ -227,6 +228,49 @@ function FailureCard({ progress, onShowTerraform }: { progress: Progress; onShow
         </>
       )}
     </section>
+  );
+}
+
+// 在庫がなくて作れなかったときに、別のAZを選んで起動し直す。ほかの値は前に起動したときのまま
+function RelaunchForm({ workspace, zones }: { workspace: string; zones: string[] }) {
+  const { t } = useTranslation();
+  const { start } = useRun();
+  const [zone, setZone] = useState(zones[0] ?? "");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!zones.length) return <p className="small">{t("progress.capacity.noZones")}</p>;
+
+  async function submit() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      start(await relaunch(workspace, zone));
+    } catch (err) {
+      setError(err instanceof ApiError && err.status === 409 ? t("terraform.busy") : (err as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="relaunch">
+      <label className="field inline">
+        <span>{t("progress.capacity.zone")}</span>
+        <select value={zone} onChange={(ev) => setZone(ev.target.value)}>
+          {zones.map((z) => (
+            <option key={z} value={z}>
+              {z}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button className="primary" onClick={submit} disabled={submitting || !zone}>
+        {submitting ? t("launch.starting") : t("progress.capacity.relaunch")}
+      </button>
+      <p className="muted small">{t("progress.capacity.help")}</p>
+      {error && <p className="error">{t("launch.failed", { error })}</p>}
+    </div>
   );
 }
 

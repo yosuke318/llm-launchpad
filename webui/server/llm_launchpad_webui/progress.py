@@ -7,6 +7,7 @@
 """
 
 import datetime
+import re
 
 from .messages import t
 from .storage import startup_stage_sec
@@ -44,6 +45,34 @@ CONNECTION_OUTPUTS = [
 
 # 失敗したときに出す terraform の出力の行数
 TERRAFORM_LOG_LINES = 40
+
+# AZ に在庫がなくてインスタンスを作れなかったときに、RunInstances が返すエラーコード
+CAPACITY_ERROR = "InsufficientInstanceCapacity"
+
+AZ_PATTERN = re.compile(r"\b[a-z]{2}(?:-[a-z]+)+-\d[a-z]\b")
+
+
+def capacity_shortage(lines):
+    """terraform の出力から在庫不足のエラーを探す。見つかれば、インスタンス型と在庫がなかった AZ、AWS がすすめる AZ を返す。
+
+    AWS のメッセージは次の形。terraform が折り返すことがあるので、行をつないでから読む
+        We currently do not have sufficient g6.xlarge capacity in the Availability Zone you requested (ap-northeast-1a).
+        ... You can currently get g6.xlarge capacity by not specifying an Availability Zone in your launch request
+        or choosing ap-northeast-1c, ap-northeast-1d.
+    """
+    text = " ".join(lines)
+    start = text.find(CAPACITY_ERROR)
+    if start < 0:
+        return None
+    detail = text[start:]
+    instance_type = re.search(r"sufficient (\S+) capacity", detail)
+    zone = re.search(r"Availability Zone you requested \((\S+?)\)", detail)
+    choosing = re.search(r"choosing (.+?)\.(?:\s|$)", detail)
+    return {
+        "instance_type": instance_type.group(1) if instance_type else None,
+        "availability_zone": zone.group(1) if zone else None,
+        "suggested_zones": AZ_PATTERN.findall(choosing.group(1)) if choosing else [],
+    }
 
 
 def parse_time(ts):
@@ -93,11 +122,24 @@ def build_progress(workspace, tfvars, run, status, file_size_gb, now=None, run_l
         current, state = "creating", "running"
     elif run and run.status == "failed":
         current, state = "creating", "failed"
+        lines = run_lines or run.lines
         error = {
             "stage": "creating",
             "message": t("apply.failed", code=run.exit_code),
-            "terraform_log": (run_lines or run.lines)[-TERRAFORM_LOG_LINES:],
+            "terraform_log": lines[-TERRAFORM_LOG_LINES:],
         }
+        shortage = capacity_shortage(lines)
+        if shortage:
+            zone = shortage["availability_zone"] or tfvars.get("availability_zone") or "?"
+            # EBS永続はボリュームのある AZ にしか起動できないので、AZ は選び直せない
+            key = "apply.insufficient_capacity_ebs" if storage == "ebs" else "apply.insufficient_capacity"
+            error.update(
+                code="insufficient_capacity",
+                message=t(key, instance_type=shortage["instance_type"] or tfvars.get("instance_type") or "?", zone=zone),
+                instance_type=shortage["instance_type"],
+                availability_zone=shortage["availability_zone"] or tfvars.get("availability_zone"),
+                suggested_zones=shortage["suggested_zones"],
+            )
     elif status:
         current = INSTANCE_STAGES.get(status.get("stage"), "booting")
         state = status.get("state", "running")

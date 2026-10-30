@@ -4,7 +4,8 @@
     validate は失敗(終了コード 1)、workspace list は default と qwen-test を返す
     output -json は、TF_WORKSPACE を入れた接続のしかたを返す
     state pull は、fake-state/<ワークスペース>.json を返す
-    FAKE_TERRAFORM_FAIL にコマンド名(init など)を入れると、そのコマンドも失敗する
+    FAKE_TERRAFORM_FAIL にコマンド名(init など)を入れると、そのコマンドも失敗する。
+    そのとき FAKE_TERRAFORM_ERROR があれば、失敗する前にそれを出力する
 """
 
 import json
@@ -58,4 +59,6 @@ for arg in args:
 for i in range(3):
     time.sleep(0.05)
     print(f"line {i} 日本語", flush=True)
+if command == os.environ.get("FAKE_TERRAFORM_FAIL") and os.environ.get("FAKE_TERRAFORM_ERROR"):
+    print(os.environ["FAKE_TERRAFORM_ERROR"], flush=True)
 sys.exit(1 if command in ("validate", os.environ.get("FAKE_TERRAFORM_FAIL")) else 0)

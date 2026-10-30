@@ -8,6 +8,9 @@ mock_provider "aws" {
     }
   }
 }
+mock_provider "aws" {
+  alias = "instance"
+}
 mock_provider "http" {}
 mock_provider "time" {}
 

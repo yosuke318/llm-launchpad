@@ -761,6 +761,19 @@ button.secondary:disabled {
   max-width: 220px;
 }
 
+.relaunch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 8px 0 12px;
+}
+
+.relaunch p {
+  flex-basis: 100%;
+  margin: 0;
+}
+
 .risk.low {
   color: var(--ok);
 }

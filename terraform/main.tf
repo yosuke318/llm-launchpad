@@ -124,6 +124,10 @@ module "iam" {
 module "instance" {
   source = "./modules/instance"
 
+  providers = {
+    aws = aws.instance
+  }
+
   name                   = local.name
   instance_type          = module.sizing.instance_type
   purchase_option        = var.purchase_option
