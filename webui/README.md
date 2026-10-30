@@ -101,6 +101,7 @@ cd webui/web && npm run dev    # http://127.0.0.1:5173 。/api はサーバー(8
 * 1時間あたりの目安(選んだ購入方法での合計)と、止めている間の保管の料金を一番上に出す
 * モデル、ライセンス、インスタンス型、リージョン、モデルの置き場所と起動時間の目安、ディスク容量、コンテキスト長と量子化、必要VRAMの内訳を並べる
 * 購入方法(スポット / オンデマンド)を選ぶ。チェックが通らなかった方は選べない。スポットでは、AWS の Spot placement score(1〜10)から中断されやすさを出す(7以上は低い、4以上は中くらい、それより下は高い)。AWS の見立てで、実際とは違うことがある(東京で 1/10 でも起動できた)ので、止めはしない
+* AZ を選べる。既定は自動(サブネットのあるAZのうちインスタンス型を提供しているAZから、名前の昇順で最初のもの)。選べるのは、サブネットのあるAZ(オプトイン不要のAZを名前順に並べた先頭3つ。terraform の `az_count` の既定)のうちインスタンス型を提供しているところ。スポットでは、AZごとの価格と Spot placement score も出す。EBS永続ではボリュームのあるAZに決まるので選べない
 * 自動停止(アイドルで止めるまでの分、最大の稼働時間)と環境ID(既定はモデル名から作る)を変えられる。書き込む tfvars の中身もそのまま見られる
 * 「はい」で、表示した内容を `terraform/tfvars/<環境ID>.tfvars.json` に書き、`terraform init` と `terraform apply -auto-approve` を続けて実行する。起動の進み具合のタブに切り替わる。出力は Terraform のタブで見られる。init が失敗したら apply はしない
 * 「いいえ」なら閉じるだけで、何も書かない
@@ -120,6 +121,7 @@ cd webui/web && npm run dev    # http://127.0.0.1:5173 。/api はサーバー(8
 * 残り時間の目安は、段階ごとの目安(`server/llm_launchpad_webui/storage.py` の `startup_stage_sec`。起動時間の目安と同じ実機の測定から出す)から、今の段階で過ぎた時間を引いて足し合わせる。モデルの取得中は、取得の速さから出す。S3 や EBS にモデルがあるか分かるまでは、取得し直す前提で長めに見積もる
 * apply の途中は、SSM パラメータを読まない(前に起動したときの状態が残っていることがあるため)
 * 失敗したときは、止まった段階を出す。apply で止まったら terraform の出力の最後の40行、インスタンスで止まったら原因(`error`)と、ログ(`/var/log/llm-launchpad-bootstrap.log`)を見るコマンドを出す
+* AZに在庫がなくて作れなかったとき(terraform の出力に InsufficientInstanceCapacity があるとき)は、別のAZを選ぶよう案内する。AWS がすすめるAZを先に並べ、在庫がなかったAZを除いた選択肢から選んで「このAZで起動し直す」を押すと、tfvars の `availability_zone` だけを変えて init と apply を実行する。EBS永続ではAZを変えられないので、購入方法を変えるか時間をおくよう案内する
 * 使える状態になったら、`terraform output` から接続のしかた(エンドポイント、SSM のポートフォワードのコマンド、curl の例、OpenAI 互換 API の例)と自動停止の設定を出す。OpenAI の Python SDK の例は画面で作る。output は起動ごとに1回だけ読む
 * サーバーを起動し直すと apply の記録は消えるが、tfvars と SSM パラメータから段階を出せる
 
@@ -185,6 +187,7 @@ terraform のワークスペースのうち、state にリソースがあるも�
 | GET | `/api/environments/overview` | 環境の一覧(インスタンスの状態、経過時間、料金の目安)と、どの state にもない消し忘れのリソース |
 | POST | `/api/environments/{環境ID}/stop` | その環境のインスタンスを止める |
 | POST | `/api/environments/{環境ID}/start` | 止めたインスタンスを動かし直す |
+| POST | `/api/environments/{環境ID}/relaunch` | 在庫がなくて作れなかった環境を、tfvars の AZ だけを変えて起動し直す。`{"availability_zone": "ap-northeast-1c"}`(`null` なら自動) |
 | POST | `/api/environments/{環境ID}/destroy` | 起動したときの tfvars を渡して init と destroy を実行する。成功したら tfvars を消す |
 | POST | `/api/environments/{環境ID}/benchmark` | インスタンスで計測を始める。`{"runs": 3}`。計測の ID を返す |
 | GET | `/api/benchmarks/jobs/{id}` | 計測の状態と結果 |

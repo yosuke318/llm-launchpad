@@ -30,6 +30,10 @@ class FakeAwsInfo:
         self._maybe_fail("offering_azs")
         return self.offering
 
+    def subnet_azs(self, region):
+        self._maybe_fail("subnet_azs")
+        return ["ap-northeast-1a", "ap-northeast-1c", "ap-northeast-1d"]
+
     def on_demand_hourly(self, region, instance_type):
         self._maybe_fail("on_demand_hourly")
         return 0.71
@@ -87,11 +91,24 @@ def test_plan_prices_and_availability(tmp_path):
     with make_client(tmp_path, FakeAwsInfo()) as c:
         p = plan(c)
     assert p["instance_type"] == "g4dn.xlarge", "推奨のインスタンス型を使う"
-    assert p["availability"] == {"available": True, "availability_zones": ["ap-northeast-1a", "ap-northeast-1c"]}
+    assert p["availability"] == {
+        "available": True,
+        "availability_zones": ["ap-northeast-1a", "ap-northeast-1c"],
+        "launchable_zones": ["ap-northeast-1a", "ap-northeast-1c"],
+    }
     assert p["prices"]["on_demand_hourly_usd"] == 0.71
     assert p["prices"]["spot_min"] == {"availability_zone": "ap-northeast-1a", "hourly_usd": 0.3409}, "提供していない AZ のスポット価格は使わない"
     assert p["warnings"] == []
     assert p["spot_placement_scores"] == {"ap-northeast-1a": 3, "ap-northeast-1c": 7}, "提供していない AZ のスコアは出さない"
+
+
+def test_launchable_zones_need_subnet_and_offering(tmp_path):
+    """サブネットのない AZ(1b)と、インスタンス型を提供していない AZ(1d)は選べない"""
+    with make_client(tmp_path, FakeAwsInfo(offering=("ap-northeast-1b", "ap-northeast-1c", "ap-northeast-1a"))) as c:
+        assert plan(c)["availability"]["launchable_zones"] == ["ap-northeast-1a", "ap-northeast-1c"]
+    with make_client(tmp_path, FakeAwsInfo(fail={"subnet_azs"})) as c:
+        p = plan(c)
+    assert p["availability"]["launchable_zones"] is None and len(p["warnings"]) == 1, "分からなければ選ばせない"
 
 
 def test_spot_placement_failure_is_warning(tmp_path):

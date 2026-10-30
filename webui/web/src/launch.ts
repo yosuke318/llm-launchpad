@@ -39,6 +39,22 @@ export interface LaunchSettings {
   purchaseOption: "spot" | "on-demand";
   idleStopMinutes: number;
   maxLifetimeHours: number;
+  // null なら、インスタンス型を提供しているAZから terraform が選ぶ
+  availabilityZone: string | null;
+}
+
+// EBS永続で付けるボリューム(terraform の model_volume_name の既定 default)のAZ。EBS はこのAZにしか付けられない
+export function ebsVolumeZone(plan: RegionPlan) {
+  return plan.model_store?.volumes.find((v) => v.name === "default")?.availability_zone ?? null;
+}
+
+// AZを選んだときの Spot placement score。選ばなければ一番よいAZ
+export function zonePlacement(scores: Record<string, number> | null, availabilityZone: string | null) {
+  if (availabilityZone && scores?.[availabilityZone] != null) {
+    const score = scores[availabilityZone];
+    return { availabilityZone, score, risk: placementRisk(score) };
+  }
+  return bestPlacement(scores);
 }
 
 // tfvars に書く値。画面に出した内容と同じものを書く
@@ -57,12 +73,15 @@ export function launchVariables(
     purchase_option: settings.purchaseOption,
     idle_stop_minutes: settings.idleStopMinutes,
     max_lifetime_hours: settings.maxLifetimeHours,
+    // EBS永続はボリュームのAZに起動するので書かない
+    ...(settings.availabilityZone && option.id !== "ebs" ? { availability_zone: settings.availabilityZone } : {}),
   };
 }
 
-// 選んだ購入方法での、1時間あたりの目安
-export function launchHourly(plan: RegionPlan, option: StorageOption, purchaseOption: "spot" | "on-demand") {
-  const instance = purchaseOption === "spot" ? plan.prices.spot_min?.hourly_usd : plan.prices.on_demand_hourly_usd;
+// 選んだ購入方法での、1時間あたりの目安。スポットでAZを選んだときは、そのAZの価格
+export function launchHourly(plan: RegionPlan, option: StorageOption, purchaseOption: "spot" | "on-demand", availabilityZone: string | null = null) {
+  const spot = availabilityZone ? plan.prices.spot_hourly_usd_by_az[availabilityZone] : plan.prices.spot_min?.hourly_usd;
+  const instance = purchaseOption === "spot" ? spot : plan.prices.on_demand_hourly_usd;
   return hourlyTotal(instance, option);
 }
 

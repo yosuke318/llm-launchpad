@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from llm_launchpad_webui.app import create_app
 from llm_launchpad_webui.aws_info import AwsInfoError
-from llm_launchpad_webui.progress import build_progress
+from llm_launchpad_webui.progress import build_progress, capacity_shortage
 from llm_launchpad_webui.runner import Run, Runner
 from llm_launchpad_webui.storage import startup_stage_sec
 
@@ -92,6 +92,40 @@ def test_apply_failure_shows_terraform_log():
     assert p["error"]["stage"] == "creating" and p["error"]["terraform_log"] == lines[-40:]
 
 
+# 在庫がないAZで RunInstances が失敗したときの terraform の出力(-no-color、80桁で折り返した形)
+CAPACITY_LOG = [
+    "module.instance.aws_instance.this: Creating...",
+    "Error: creating EC2 Instance: operation error EC2: RunInstances, exceeded maximum number of attempts, 5,",
+    "https response error StatusCode: 500, RequestID: 0000, api error InsufficientInstanceCapacity: We currently",
+    "do not have sufficient g6.xlarge capacity in the Availability Zone you requested (ap-northeast-1a). Our",
+    "system will be working on provisioning additional capacity. You can currently get g6.xlarge capacity by not",
+    "specifying an Availability Zone in your launch request or choosing ap-northeast-1c,",
+    "ap-northeast-1d.",
+    "",
+    "  with module.instance.aws_instance.this,",
+]
+
+
+def test_capacity_shortage_reads_wrapped_message():
+    assert capacity_shortage(CAPACITY_LOG) == {
+        "instance_type": "g6.xlarge",
+        "availability_zone": "ap-northeast-1a",
+        "suggested_zones": ["ap-northeast-1c", "ap-northeast-1d"],
+    }
+    assert capacity_shortage(["Error: creating EC2 Instance: UnauthorizedOperation"]) is None
+
+
+def test_apply_failure_by_capacity_asks_for_another_az():
+    p = build_progress("qwen3-8b", TFVARS, make_run("failed", exit_code=1, lines=CAPACITY_LOG), None, 5.2, now=NOW)
+    e = p["error"]
+    assert e["code"] == "insufficient_capacity" and e["availability_zone"] == "ap-northeast-1a"
+    assert "ap-northeast-1a" in e["message"] and "g6.xlarge" in e["message"] and "別のAZ" in e["message"]
+    assert e["terraform_log"] == CAPACITY_LOG, "terraform の出力も出す"
+
+    ebs = build_progress("qwen3-8b", {**TFVARS, "model_storage": "ebs"}, make_run("failed", exit_code=1, lines=CAPACITY_LOG), None, 5.2, now=NOW)
+    assert ebs["error"]["code"] == "insufficient_capacity" and "EBS永続" in ebs["error"]["message"], "EBS永続はAZを変えられない"
+
+
 def test_without_run_uses_instance_times():
     """サーバーを起動し直して apply の記録がなくても、インスタンスが書いた状態から出す"""
     status = {"stage": "verifying", "state": "running", "started_at": at(300), "stages": {"instance_started": at(300), "verifying": at(30)}}
@@ -105,6 +139,12 @@ class FakeAwsInfo:
         self.status = status
         self.fail = fail
         self.calls = 0
+
+    def offering_azs(self, region, instance_type):
+        return ["ap-northeast-1a", "ap-northeast-1c", "ap-northeast-1d"]
+
+    def subnet_azs(self, region):
+        return ["ap-northeast-1a", "ap-northeast-1c", "ap-northeast-1d"]
 
     def bootstrap_status(self, region, env_id):
         self.calls += 1
@@ -200,3 +240,45 @@ def test_api_environments_newest_first(client, terraform_dir):
         (d / f"{name}.tfvars.json").write_text("{}")
         os.utime(d / f"{name}.tfvars.json", (1000 + i, 1000 + i))
     assert client.get("/api/environments").json() == {"environments": ["new-env", "old-env"]}
+
+
+def fail_by_capacity(client, monkeypatch, variables=VARIABLES):
+    monkeypatch.setenv("FAKE_TERRAFORM_FAIL", "apply")
+    monkeypatch.setenv("FAKE_TERRAFORM_ERROR", "\n".join(CAPACITY_LOG))
+    run = client.post("/api/launch", json={"workspace": "qwen3-8b", "variables": variables}).json()
+    events(client, run["id"])
+    monkeypatch.delenv("FAKE_TERRAFORM_FAIL")
+
+
+def test_api_capacity_failure_lists_other_zones(client, monkeypatch):
+    fail_by_capacity(client, monkeypatch)
+    e = client.get("/api/environments/qwen3-8b/progress").json()["error"]
+    assert e["code"] == "insufficient_capacity"
+    assert e["zones"] == ["ap-northeast-1c", "ap-northeast-1d"], "在庫がなかったAZは除き、AWS がすすめるAZを先にする"
+
+
+def test_api_relaunch_changes_only_the_az(client, terraform_dir, monkeypatch):
+    fail_by_capacity(client, monkeypatch)
+    res = client.post("/api/environments/qwen3-8b/relaunch", json={"availability_zone": "ap-northeast-1c"})
+    assert res.status_code == 201, res.text
+    assert [s[0] for s in res.json()["steps"]] == ["init", "apply"]
+    events(client, res.json()["id"])
+    written = json.loads((terraform_dir / "tfvars" / "qwen3-8b.tfvars.json").read_text())
+    assert written == {**VARIABLES, "availability_zone": "ap-northeast-1c"}
+    assert client.get("/api/environments/qwen3-8b/progress").json()["state"] != "failed"
+
+    # 自動に戻すと、tfvars から AZ を消す
+    res = client.post("/api/environments/qwen3-8b/relaunch", json={"availability_zone": None})
+    events(client, res.json()["id"])
+    assert "availability_zone" not in json.loads((terraform_dir / "tfvars" / "qwen3-8b.tfvars.json").read_text())
+
+
+def test_api_relaunch_rejects_bad_input(client, monkeypatch):
+    assert client.post("/api/environments/nothing/relaunch", json={"availability_zone": "ap-northeast-1c"}).status_code == 422
+    fail_by_capacity(client, monkeypatch, {**VARIABLES, "model_storage": "ebs"})
+    res = client.post("/api/environments/qwen3-8b/relaunch", json={"availability_zone": "ap-northeast-1c"})
+    assert res.status_code == 422 and "EBS" in res.json()["detail"]
+    res = client.post("/api/environments/qwen3-8b/relaunch", json={"availability_zone": "1c; rm -rf /"})
+    assert res.status_code == 422
+    e = client.get("/api/environments/qwen3-8b/progress").json()["error"]
+    assert "zones" not in e, "EBS永続ではAZを選ばせない"
