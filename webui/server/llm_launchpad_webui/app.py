@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from .aws_info import AwsInfo, AwsInfoError
 from .benchmark import DEFAULT_RUNS, MAX_RUNS, BenchmarkError, BenchmarkStore, bench_command, parse_output, summarize
 from .chat import ChatError, ChatUnreachable, chat_once
-from .environments import build_environment, find_leftovers, hourly_usd, managed_resources, state_identifiers, state_instance
+from .environments import build_environment, drop_deleted, find_leftovers, hourly_usd, managed_resources, state_identifiers, state_instance
 from .messages import language, parse_accept_language, t
 from .runner import COMMANDS, WORKSPACE_PATTERN, BusyError, Runner, RunnerError, list_workspaces
 from .preflight import run_preflight
@@ -350,6 +350,9 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
         busy = {r.workspace for r in runner.running()}
         known = set().union(*(state_identifiers(s) for s in states.values())) if states else set()
         leftovers = find_leftovers(tagged, known, set(instances), skip_env_ids=set(state_errors) | busy)
+        # タグ付けの API は destroy したリソースもしばらく返すので、残ったものだけ今もあるか確かめる
+        leftovers, check_errors = drop_deleted(leftovers, info.existing_arns)
+        warnings += [str(e) for e in check_errors]
         for x in leftovers:
             if x["resource_type"] == "ec2:instance":
                 x["instance_state"] = instances[x["resource_id"]]["state"]
