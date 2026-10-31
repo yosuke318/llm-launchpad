@@ -678,3 +678,129 @@ run "rejects_too_long_lifetime" {
 
   expect_failures = [var.max_lifetime_hours]
 }
+
+run "public_network_by_default" {
+  command = plan
+
+  assert {
+    condition     = output.network_mode.type == "public" && length(module.network.vpc_endpoints) == 0 && module.network.public_ip_on_launch
+    error_message = "既定はパブリックIPを付けるサブネットで、SSM 用のエンドポイントは作らないこと"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "curl -fsSL https://ollama.com/install.sh") && strcontains(module.bootstrap.user_data, "lp pull \"qwen3:8b\"")
+    error_message = "既定では ollama.com から Ollama を入れ、Ollama library からモデルを取得すること"
+  }
+}
+
+run "private_network_has_no_route_to_internet" {
+  command = plan
+
+  variables {
+    network_mode = "private"
+  }
+
+  assert {
+    condition     = module.network.internet_gateway_id == null
+    error_message = "閉じたネットワークではインターネットゲートウェイを作らないこと"
+  }
+
+  assert {
+    condition     = !module.network.public_ip_on_launch && output.public_ip == null
+    error_message = "閉じたネットワークではパブリックIPを付けないこと"
+  }
+
+  assert {
+    condition     = !module.security.http_egress_enabled
+    error_message = "閉じたネットワークでは HTTP のアウトバウンドを開けないこと"
+  }
+
+  assert {
+    condition     = toset(keys(module.network.vpc_endpoints)) == toset(["ssm", "ec2messages", "ssmmessages"])
+    error_message = "SSM 接続用のエンドポイントを3つ作ること"
+  }
+
+  # g4dn.xlarge は 1a と 1c で提供されている想定なので、インスタンスは 1a に起動する
+  assert {
+    condition = alltrue([
+      for e in module.network.vpc_endpoints :
+      e.subnet_ids == toset([output.subnet_ids["ap-northeast-1a"]]) && e.private_dns_enabled
+    ]) && output.availability_zone == "ap-northeast-1a"
+    error_message = "エンドポイントは、インスタンスを起動するAZのサブネットにだけ置き、プライベートDNSを使うこと"
+  }
+}
+
+run "private_network_installs_ollama_from_s3" {
+  command = plan
+
+  variables {
+    network_mode   = "private"
+    ollama_version = "0.40.13"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "aws s3 cp \"s3://llm-launchpad-models-123456789012-ap-northeast-1/ollama/install/0.40.13/ollama-linux-amd64.tar.zst\"") && !strcontains(module.bootstrap.user_data, "https://ollama.com")
+    error_message = "閉じたネットワークでは、バケットに置いたリリースファイルから Ollama を入れ、ollama.com に出ないこと"
+  }
+
+  assert {
+    condition     = output.network_mode.ollama_install_s3 == "s3://llm-launchpad-models-123456789012-ap-northeast-1/ollama/install/0.40.13/ollama-linux-amd64.tar.zst"
+    error_message = "使うリリースファイルの場所を出力すること"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "--offline") && strcontains(module.bootstrap.user_data, "lp check-local \"qwen3:8b\"") && !strcontains(module.bootstrap.user_data, "lp pull") && !strcontains(module.bootstrap.user_data, "lp save-s3")
+    error_message = "閉じたネットワークでは Ollama library に問い合わせず、S3 になければ失敗にすること"
+  }
+
+  assert {
+    condition     = module.iam.ollama_install_access_enabled && module.iam.model_bucket_access_enabled
+    error_message = "リリースファイルとモデルを読む権限を付けること"
+  }
+}
+
+run "private_network_with_ebs_reads_only_ollama_release" {
+  command = plan
+
+  variables {
+    network_mode  = "private"
+    model_storage = "ebs"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "ollama/install/latest/ollama-linux-amd64.tar.zst") && strcontains(module.bootstrap.user_data, "lp mount-ebs")
+    error_message = "バージョンを指定しなければ latest の下のリリースファイルを使い、EBSボリュームを付けること"
+  }
+
+  assert {
+    condition     = module.iam.ollama_install_access_enabled && !module.iam.model_bucket_access_enabled && output.model_storage.bucket == null
+    error_message = "EBS永続では、バケットはリリースファイルを読むだけにすること"
+  }
+
+  assert {
+    condition     = toset(flatten([for e in module.network.vpc_endpoints : e.subnet_ids])) == toset([output.subnet_ids["ap-northeast-1c"]])
+    error_message = "エンドポイントは EBS ボリュームのあるAZに置くこと"
+  }
+}
+
+run "private_network_rejects_download" {
+  command = plan
+
+  variables {
+    network_mode  = "private"
+    model_storage = "download"
+  }
+
+  expect_failures = [var.network_mode]
+}
+
+run "private_network_rejects_direct" {
+  command = plan
+
+  variables {
+    network_mode = "private"
+    access_mode  = "direct"
+  }
+
+  expect_failures = [var.network_mode]
+}

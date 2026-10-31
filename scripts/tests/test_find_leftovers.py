@@ -160,6 +160,17 @@ class FindLeftoversTest(unittest.TestCase):
         self.assertNotIn("unrelated-bucket", found)
         self.assertNotIn("OtherRole", found)
 
+    def test_finds_interface_endpoints(self):
+        res = responses()
+        res[("ec2", "describe-vpc-endpoints", REGION)] = {"VpcEndpoints": [
+            {"VpcEndpointId": "vpce-ssm", "VpcEndpointType": "Interface", "ServiceName": "com.amazonaws.ap-northeast-1.ssm",
+             "State": "available", "SubnetIds": ["subnet-a"], "Tags": tag(Project="llm-launchpad", EnvId="old-env")},
+        ]}
+        code, found = self.resources(FakeAws(res))
+        self.assertEqual(code, 2)
+        self.assertFalse(found["vpce-ssm"]["in_state"])
+        self.assertEqual(found["vpce-ssm"]["note"], "1つのAZに置いた分の時間課金がある")
+
     def test_persistent_resources_are_not_leftovers(self):
         _, found = self.resources()
         self.assertTrue(found["vol-model"]["persistent"])

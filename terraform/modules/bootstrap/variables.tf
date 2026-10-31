@@ -67,6 +67,18 @@ variable "idle_stop_minutes" {
   default     = 0
 }
 
+variable "offline" {
+  description = "true なら閉じたネットワーク用にする。Ollama をバケットのリリースファイルから入れ、Ollama library には問い合わせない"
+  type        = bool
+  default     = false
+}
+
+variable "ollama_install_bucket_name" {
+  description = "offline で、Ollama のリリースファイル(ollama/install/<バージョン>/ollama-linux-amd64.tar.zst)を置いたS3バケット名"
+  type        = string
+  default     = null
+}
+
 variable "tags" {
   description = "追加で付けるタグ"
   type        = map(string)

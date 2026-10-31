@@ -74,6 +74,12 @@ variable "model_volume_id" {
   default     = null
 }
 
+variable "vpc_endpoint_ids" {
+  description = "起動する前にできている必要がある VPC エンドポイントのID(閉じたネットワーク)"
+  type        = list(string)
+  default     = []
+}
+
 variable "tags" {
   description = "追加で付けるタグ"
   type        = map(string)

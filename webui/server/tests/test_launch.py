@@ -21,6 +21,7 @@ VARIABLES = {
     "context_length": 8192,
     "kv_cache_type": "f16",
     "model_storage": "download",
+    "network_mode": "public",
     "purchase_option": "spot",
     "idle_stop_minutes": 30,
     "max_lifetime_hours": 8,

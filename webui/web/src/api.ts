@@ -139,6 +139,9 @@ export interface Region {
 
 export type StorageId = "s3_cache" | "ebs" | "download";
 
+// public: パブリックサブネット / private: インターネットへの経路がない閉じたネットワーク(terraform の network_mode)
+export type NetworkMode = "public" | "private";
+
 export interface StorageOption {
   id: StorageId;
   // 止めている間もかかる保管の月額(S3 や EBS ボリューム)
@@ -166,6 +169,8 @@ export interface RegionPlan {
     on_demand_hourly_usd: number | null;
     spot_hourly_usd_by_az: Record<string, number>;
     spot_min: { availability_zone: string; hourly_usd: number } | null;
+    // 閉じたネットワークで足す、SSM 接続用のエンドポイントの1時間あたりの料金
+    private_network_hourly_usd: number | null;
   };
   // スポットで起動できる見込み(1〜10)。AWS の見立て
   spot_placement_scores: Record<string, number> | null;
@@ -237,6 +242,7 @@ export interface LaunchVariables {
   context_length: number;
   kv_cache_type: string;
   model_storage: StorageId;
+  network_mode: NetworkMode;
   purchase_option: "spot" | "on-demand";
   idle_stop_minutes: number;
   max_lifetime_hours: number;

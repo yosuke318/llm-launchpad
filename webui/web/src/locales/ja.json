@@ -79,6 +79,17 @@
     "perHour": "{{price}}/時",
     "perMonth": "{{price}}/月",
     "unknown": "不明",
+    "network": "ネットワーク",
+    "networkNames": {
+      "public": "パブリック",
+      "private": "閉じたネットワーク"
+    },
+    "networkHelp": {
+      "public": "パブリックサブネットに起動し、インターネットに出られる。Ollama とモデルは ollama.com と Ollama library から取得する",
+      "private": "インターネットへの経路がないプライベートサブネットに起動する。SSM と S3 には VPC エンドポイントでつなぐ。機密データを外に出さずに使いたいとき"
+    },
+    "privateNetworkHourly": "SSM 用の VPC エンドポイント 3つで {{price}}/時",
+    "privateNetworkPrerequisite": "先に、インターネットのある環境で scripts/upload_ollama.py を実行して Ollama をバケットに置き、モデルも S3 か EBS ボリュームに入れておいてください。",
     "storage": "モデルの置き場所",
     "storageNames": {
       "s3_cache": "S3 キャッシュ",
@@ -99,8 +110,10 @@
       "bucket": "{{region}} にはまだバケットがありません。先に terraform/model-store を apply してください。",
       "volume": "{{region}} にはまだ EBS ボリュームがありません。先に terraform/model-store の model_volumes でボリュームを作ってください。"
     },
+    "notInPrivateNetwork": "閉じたネットワークでは Ollama library に出られないため選べません。",
     "hourlyTotal": "1時間あたりの目安(スポット)",
     "hourlyTotalDetail": "オンデマンドなら {{onDemand}}/時。インスタンス、ルートボリューム({{disk}} GiB)、保管の料金を足した値",
+    "hourlyTotalDetailPrivate": "オンデマンドなら {{onDemand}}/時。インスタンス、ルートボリューム({{disk}} GiB)、保管、VPC エンドポイントの料金を足した値",
     "note": "料金は AWS の Price List API とスポット価格の履歴から取った目安で、実際の請求額とは違います。起動時間は、terraform apply から使える状態になるまでの目安で、実機の測定({{source}})から割り出しています。",
     "confirm": "この内容で起動を確認する",
     "confirmBlocked": "起動前のチェックに通っていないため、進めません。"
@@ -152,6 +165,7 @@
     "license": "ライセンス",
     "instanceType": "インスタンス型",
     "region": "リージョン",
+    "network": "ネットワーク",
     "storage": "モデルの置き場所",
     "startup": "使えるまで約 {{count}} 分",
     "disk": "ディスク容量",

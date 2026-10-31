@@ -20,6 +20,12 @@ variable "allowed_cidrs" {
   default     = []
 }
 
+variable "private" {
+  description = "true なら閉じたネットワーク用にする(HTTP のアウトバウンドを開けない)"
+  type        = bool
+  default     = false
+}
+
 variable "tags" {
   description = "各リソースに追加で付けるタグ"
   type        = map(string)

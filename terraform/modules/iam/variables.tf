@@ -14,6 +14,12 @@ variable "model_bucket_name" {
   default     = null
 }
 
+variable "ollama_install_bucket_name" {
+  description = "Ollama のリリースファイル(ollama/install/ の下)を読むS3バケット名。null なら権限を付けない"
+  type        = string
+  default     = null
+}
+
 variable "status_parameter_arn" {
   description = "起動処理の進み具合を書く SSM パラメータの ARN。インスタンスに書き込み権限を付ける"
   type        = string
