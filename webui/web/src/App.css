@@ -1159,3 +1159,28 @@ button.danger:disabled {
 .launch-dialog table caption {
   text-align: left;
 }
+
+/* リージョンごとの比較 */
+.region-compare {
+  margin: 8px 0;
+}
+
+.region-compare summary {
+  cursor: pointer;
+}
+
+.region-recommend {
+  margin: 8px 0;
+  padding-left: 1.2em;
+}
+
+.region-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.region-compare td button {
+  white-space: nowrap;
+}

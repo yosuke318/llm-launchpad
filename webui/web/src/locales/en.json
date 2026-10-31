@@ -119,6 +119,25 @@
     "confirm": "Review and launch",
     "confirmBlocked": "Some launch checks did not pass, so you cannot continue."
   },
+  "regionCompare": {
+    "open": "Compare {{type}} across regions (cheaper region suggestions)",
+    "loading": "Checking prices and spot availability in all regions…",
+    "recommendSpot": "For spot: {{region}} ({{code}}) at {{price}}, Spot placement score {{score}}/10, likely to be interrupted rarely",
+    "noLowRiskSpot": "No region has a Spot placement score of {{score}} or higher (unlikely to be interrupted). Spot is likely to be interrupted anywhere",
+    "recommendOnDemand": "For on-demand: {{region}} ({{code}}) at {{price}}",
+    "score": "Spot interruption risk",
+    "risk": {
+      "low": "{{score}}/10 low",
+      "medium": "{{score}}/10 medium",
+      "high": "{{score}}/10 high"
+    },
+    "badgeSpot": "Suggested for spot",
+    "badgeOnDemand": "Suggested for on-demand",
+    "current": "Selected",
+    "choose": "Choose",
+    "none": "No region offers {{type}}.",
+    "note": "Spot is the current price in the cheapest AZ of the region. The interruption risk is AWS's Spot placement score for the whole region and may differ in practice. If you change the region, the model storage and the vCPU quota are those of that region (checked before launch)."
+  },
   "preflight": {
     "heading": "Checks before launch",
     "recheck": "Check again",

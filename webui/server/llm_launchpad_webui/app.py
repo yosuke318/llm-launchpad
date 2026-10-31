@@ -25,6 +25,7 @@ from .environments import build_environment, drop_deleted, find_leftovers, hourl
 from .messages import language, parse_accept_language, t
 from .runner import COMMANDS, WORKSPACE_PATTERN, BusyError, Runner, RunnerError, list_workspaces
 from .preflight import run_preflight
+from .region_compare import compare as compare_regions
 from .progress import AZ_PATTERN, build_progress, connection_info
 from .storage import MEASURED, storage_options
 from .sizing import (
@@ -212,6 +213,34 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
             "measured": MEASURED,
             "warnings": warnings,
         }
+
+    @app.get("/api/region-compare")
+    def region_compare(instance_type: str, region: str = DEFAULT_REGION):
+        """そのインスタンス型を、アカウントで使えるリージョンごとに比べる(オンデマンドとスポットの料金、スポットの起動しやすさ)。
+        安くて中断されにくいリージョンをおすすめにする。料金などが1つ取れなくても止めず、warnings に理由を残す"""
+        info = aws()
+        warnings = []
+        try:
+            regions = info.regions()
+        except AwsInfoError as e:
+            raise HTTPException(status_code=502, detail=str(e))
+        codes = [r["code"] for r in regions]
+        try:
+            on_demand = info.on_demand_hourly_by_region(instance_type)
+        except AwsInfoError as e:
+            warnings.append(str(e))
+            on_demand = {}
+        # スポット価格と起動しやすさは、オンデマンドの料金があるリージョン(提供しているところ)だけ問い合わせる。
+        # オンデマンドの料金を取れなかったときは全部のリージョンに問い合わせる
+        offered = [c for c in codes if c in on_demand] if on_demand else codes
+        spot, spot_errors = info.spot_min_by_region(offered, instance_type)
+        warnings += [str(e) for e in spot_errors]
+        try:
+            scores = info.region_placement_scores(offered, instance_type) if offered else {}
+        except AwsInfoError as e:
+            warnings.append(str(e))
+            scores = {}
+        return {"instance_type": instance_type, **compare_regions(regions, on_demand, spot, scores, current=region), "warnings": warnings}
 
     def private_network_hourly(endpoint_hourly):
         # エンドポイントは、GPUインスタンスのAZにだけ置く(terraform/modules/network の interface_endpoint_services)

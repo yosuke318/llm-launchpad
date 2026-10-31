@@ -119,6 +119,25 @@
     "confirm": "この内容で起動を確認する",
     "confirmBlocked": "起動前のチェックに通っていないため、進めません。"
   },
+  "regionCompare": {
+    "open": "{{type}} をリージョンごとに比べる(安いリージョンのおすすめ)",
+    "loading": "全部のリージョンの料金とスポットの起動しやすさを問い合わせています…",
+    "recommendSpot": "スポットなら {{region}}({{code}}): {{price}}、Spot placement score {{score}}/10 で中断されにくい見込み",
+    "noLowRiskSpot": "Spot placement score が {{score}} 以上(中断されにくい見込み)のリージョンはありませんでした。スポットはどこでも中断されやすい見込みです",
+    "recommendOnDemand": "オンデマンドなら {{region}}({{code}}): {{price}}",
+    "score": "スポットの中断されにくさ",
+    "risk": {
+      "low": "{{score}}/10 されにくい",
+      "medium": "{{score}}/10 ときどき",
+      "high": "{{score}}/10 されやすい"
+    },
+    "badgeSpot": "スポットのおすすめ",
+    "badgeOnDemand": "オンデマンドのおすすめ",
+    "current": "選んでいる",
+    "choose": "選ぶ",
+    "none": "{{type}} を使えるリージョンが見つかりませんでした。",
+    "note": "スポットはそのリージョンで一番安い AZ の今の価格です。中断されにくさは AWS の Spot placement score(リージョン全体での見立て)で、実際とは違うことがあります。リージョンを変えると、モデルの置き場所と vCPU のクォータもそのリージョンのものになります(起動前のチェックで確かめます)。"
+  },
   "preflight": {
     "heading": "起動前のチェック",
     "recheck": "もう一度確かめる",

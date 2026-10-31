@@ -6,6 +6,7 @@
 ベンチマークをインスタンスで動かすとき(run_command)と、Bedrock の環境の Lambda を呼ぶとき(invoke_lambda)だけ。
 """
 
+import concurrent.futures
 import datetime
 import json
 import threading
@@ -34,6 +35,9 @@ EC2_DESCRIBE = {
     "ec2:internet-gateway": ("describe_internet_gateways", "internet-gateway-id", "InternetGateways", "InternetGatewayId"),
     "ec2:route-table": ("describe_route_tables", "route-table-id", "RouteTables", "RouteTableId"),
 }
+
+# Spot placement score を1回で問い合わせられるリージョンの数
+PLACEMENT_SCORE_REGIONS_PER_CALL = 10
 
 # terraform/variables.tf の az_count の既定値。画面からの起動では変えない
 AZ_COUNT = 3
@@ -164,6 +168,74 @@ class AwsInfo:
 
         # スポット価格は変わるので、10分だけ覚えておく
         return self._cached(("spot_hourly_by_az", region, instance_type), fetch, ttl_sec=600)
+
+    def on_demand_hourly_by_region(self, instance_type):
+        """全リージョンの、そのインスタンス型のオンデマンドの時間単価。提供していないリージョンは入らない"""
+        def fetch():
+            pages = self._client("pricing", PRICING_REGION).get_paginator("get_products").paginate(
+                ServiceCode="AmazonEC2",
+                Filters=[{"Type": "TERM_MATCH", "Field": k, "Value": v} for k, v in {
+                    "instanceType": instance_type,
+                    "operatingSystem": "Linux",
+                    "tenancy": "Shared",
+                    "preInstalledSw": "NA",
+                    "capacitystatus": "Used",
+                    "locationType": "AWS Region",
+                }.items()],
+            )
+            prices = {}
+            for page in pages:
+                for item in page["PriceList"]:
+                    product = json.loads(item) if isinstance(item, str) else item
+                    price = _first_on_demand_price([product])
+                    if price:
+                        prices[product["product"]["attributes"]["regionCode"]] = price
+            return dict(sorted(prices.items()))
+
+        return self._cached(("on_demand_hourly_by_region", instance_type), fetch)
+
+    def spot_min_by_region(self, regions, instance_type, max_workers=8):
+        """リージョンごとの、一番安い AZ のスポット価格。{リージョン: {"availability_zone", "hourly_usd"}}。
+        スポット価格はリージョンごとの API なので、並べて問い合わせる。失敗したリージョンは errors に入れる"""
+        def one(region):
+            prices = self.spot_hourly_by_az(region, instance_type)
+            if not prices:
+                return None
+            az, price = min(prices.items(), key=lambda kv: kv[1])
+            return {"availability_zone": az, "hourly_usd": price}
+
+        result, errors = {}, []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {pool.submit(one, r): r for r in regions}
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    found = future.result()
+                except AwsInfoError as e:
+                    errors.append(e)
+                    continue
+                if found:
+                    result[futures[future]] = found
+        return dict(sorted(result.items())), errors
+
+    def region_placement_scores(self, regions, instance_type):
+        """スポットで1台を起動できる見込み(1〜10)をリージョンごとに。1回の問い合わせで全部のリージョンを見る。
+        インスタンス型を提供していないリージョンは返ってこない"""
+        def fetch():
+            # 1回に返るのは10リージョンまで(それより多く渡すと、残りは黙って抜ける)ので、10ずつに分けて問い合わせる
+            paginator = self._client("ec2", PRICING_REGION).get_paginator("get_spot_placement_scores")
+            names = sorted(regions)
+            scores = {}
+            for i in range(0, len(names), PLACEMENT_SCORE_REGIONS_PER_CALL):
+                pages = paginator.paginate(
+                    InstanceTypes=[instance_type],
+                    TargetCapacity=1,
+                    SingleAvailabilityZone=False,
+                    RegionNames=names[i:i + PLACEMENT_SCORE_REGIONS_PER_CALL],
+                )
+                scores.update((s["Region"], s["Score"]) for page in pages for s in page["SpotPlacementScores"])
+            return dict(sorted(scores.items()))
+
+        return self._cached(("region_placement_scores", tuple(sorted(regions)), instance_type), fetch, ttl_sec=600)
 
     def gp3_prices(self, region):
         """gp3 の料金。容量(GB-月)、スループット(MiB/s-月)、IOPS(IOPS-月)"""
