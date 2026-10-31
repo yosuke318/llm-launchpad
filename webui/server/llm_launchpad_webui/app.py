@@ -17,6 +17,7 @@ from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from . import bedrock
 from .aws_info import AwsInfo, AwsInfoError
 from .benchmark import DEFAULT_RUNS, MAX_RUNS, BenchmarkError, BenchmarkStore, bench_command, parse_output, summarize
 from .chat import ChatError, ChatUnreachable, chat_once
@@ -40,6 +41,8 @@ REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 
 CATALOG_DIR = os.environ.get("LAUNCHPAD_CATALOG_DIR", os.path.join(REPO_ROOT, "catalog"))
 TERRAFORM_DIR = os.environ.get("LAUNCHPAD_TERRAFORM_DIR", os.path.join(REPO_ROOT, "terraform"))
+# Bedrock の環境。GPUインスタンスの環境とは別の state で管理する
+BEDROCK_TERRAFORM_DIR = os.environ.get("LAUNCHPAD_BEDROCK_TERRAFORM_DIR", os.path.join(TERRAFORM_DIR, "bedrock"))
 TERRAFORM_BIN = os.environ.get("LAUNCHPAD_TERRAFORM_BIN", "terraform")
 WEB_DIST = os.environ.get("LAUNCHPAD_WEB_DIST", os.path.join(REPO_ROOT, "webui", "web", "dist"))
 # ベンチマークの結果を足していくファイル(JSON Lines)
@@ -51,8 +54,8 @@ HEARTBEAT_SEC = 15
 # 画面で選べるコンテキスト長。モデルの最大コンテキスト長を超えるものは、そのモデルでは最大に合わせる
 CONTEXT_LENGTHS = [4096, 8192, 16384, 32768, 65536, 131072, 262144]
 
-# 推論エンジン。初期版は Ollama だけ(vLLM は後続で足す)
-ENGINES = [{"id": "ollama", "available": True}, {"id": "vllm", "available": False}]
+# 推論エンジン。Bedrock は GPUインスタンスを起動せず、terraform/bedrock で環境を作る(vLLM は後続で足す)
+ENGINES = [{"id": "ollama", "available": True}, {"id": "bedrock", "available": True}, {"id": "vllm", "available": False}]
 
 # 閉じたネットワークで作る SSM 接続用のエンドポイントの数(ssm / ec2messages / ssmmessages)
 PRIVATE_NETWORK_ENDPOINTS = 3
@@ -94,10 +97,22 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage]
 
 
+class BedrockChatMessage(BaseModel):
+    # Bedrock の Converse API は system を messages に入れない
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class BedrockChatRequest(BaseModel):
+    messages: list[BedrockChatMessage]
+
+
 def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, catalog_dir: str = CATALOG_DIR,
-               aws_info: AwsInfo | None = None, benchmark_file: str = BENCHMARK_FILE) -> FastAPI:
+               aws_info: AwsInfo | None = None, benchmark_file: str = BENCHMARK_FILE,
+               bedrock_runner: Runner | None = None) -> FastAPI:
     app = FastAPI(title="llm-launchpad WebUI")
     app.state.runner = runner or Runner(TERRAFORM_DIR, TERRAFORM_BIN)
+    app.state.bedrock_runner = bedrock_runner or Runner(BEDROCK_TERRAFORM_DIR, TERRAFORM_BIN, launch_variables=bedrock.LAUNCH_VARIABLES)
     # AWS への問い合わせは、使うときに初めて用意する(認証情報がなくても、ほかの画面は動くように)
     app.state.aws_info = aws_info
     # terraform output の結果。apply が終わるまで変わらないので、ワークスペースと起動の実行ごとに1回だけ読む
@@ -309,9 +324,9 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
         """画面から起動した環境(tfvars を書いたもの)。新しく起動した順"""
         return {"environments": app.state.runner.launched_environments()}
 
-    async def read_states(workspaces):
+    async def read_states(workspaces, runner=None):
         """ワークスペースごとの state。読めなかったものは errors に理由を入れる"""
-        runner = app.state.runner
+        runner = runner or app.state.runner
         results = await asyncio.gather(*(runner.state(ws) for ws in workspaces), return_exceptions=True)
         states, errors = {}, {}
         for ws, result in zip(workspaces, results):
@@ -384,10 +399,21 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
             env = build_environment(ws, tfvars[ws], state, instance, runner.latest_run(ws), prices, now, DEFAULT_REGION)
             environments.append({**env, "state_error": state_errors.get(ws)})
 
+        # Bedrock の環境(terraform/bedrock)のリソースにも同じ管理用タグが付いているので、その state も照らし合わせる
+        bedrock_runner = app.state.bedrock_runner
+        try:
+            bedrock_workspaces = [w["name"] for w in await asyncio.to_thread(list_workspaces, bedrock_runner.terraform_dir, bedrock_runner.terraform_bin)]
+        except RunnerError:
+            bedrock_workspaces = []
+        bedrock_names = list(dict.fromkeys(bedrock_runner.launched_environments() + bedrock_workspaces))
+        bedrock_states, bedrock_errors = await read_states(bedrock_names, bedrock_runner)
+        warnings += [t("env.state_read_failed", workspace=ws, error=e) for ws, e in bedrock_errors.items()]
+
         # apply や destroy の途中の環境は、state に書く前のリソースがあるので、消し忘れとは決めない
-        busy = {r.workspace for r in runner.running()}
-        known = set().union(*(state_identifiers(s) for s in states.values())) if states else set()
-        leftovers = find_leftovers(tagged, known, set(instances), skip_env_ids=set(state_errors) | busy)
+        busy = {r.workspace for r in runner.running() + bedrock_runner.running()}
+        all_states = [*states.values(), *bedrock_states.values()]
+        known = set().union(*(state_identifiers(s) for s in all_states)) if all_states else set()
+        leftovers = find_leftovers(tagged, known, set(instances), skip_env_ids=set(state_errors) | set(bedrock_errors) | busy)
         # タグ付けの API は destroy したリソースもしばらく返すので、残ったものだけ今もあるか確かめる
         leftovers, check_errors = drop_deleted(leftovers, info.existing_arns)
         warnings += [str(e) for e in check_errors]
@@ -620,8 +646,170 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
                     warnings.append(t("output.read_failed", error=e))
         return {**result, "connection": connection_info(outputs), "warnings": warnings}
 
+    def bedrock_models():
+        return bedrock.load_models(catalog_dir)
+
+    @app.get("/api/bedrock/models")
+    def bedrock_model_list(region: str = DEFAULT_REGION):
+        """Bedrock で呼べるモデルと、100万トークンあたりの料金。環境があるあいだは、エンドポイントの時間課金もかかる"""
+        info = aws()
+        warnings = []
+
+        def get(fn, *args):
+            try:
+                return fn(*args)
+            except AwsInfoError as e:
+                warnings.append(str(e))
+                return None
+
+        models = []
+        for m in bedrock_models().values():
+            if m["region"] != region:
+                continue
+            prices = get(info.bedrock_token_prices, region, m["price_model"]) or {}
+            models.append({**m, "input_usd_per_million": prices.get("input"), "output_usd_per_million": prices.get("output")})
+        endpoint_hourly = get(info.interface_endpoint_hourly, region)
+        return {
+            "region": region,
+            "default": bedrock.DEFAULT_MODEL,
+            "models": models,
+            "endpoint_hourly_usd": None if endpoint_hourly is None else endpoint_hourly * bedrock.ENDPOINTS,
+            "warnings": warnings,
+        }
+
+    @app.post("/api/bedrock/launch", status_code=201)
+    async def bedrock_launch(req: LaunchRequest):
+        """Bedrock の環境を作る(terraform/bedrock の init と apply)。エンドポイントの時間課金がかかるので、画面の確認を通したときだけ呼ぶ"""
+        model = req.variables.get("model")
+        if not isinstance(model, str) or model not in bedrock_models():
+            raise HTTPException(status_code=422, detail=t("model.unknown", model=model))
+        try:
+            run = await app.state.bedrock_runner.launch(req.workspace, req.variables)
+        except BusyError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except RunnerError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        return run.summary()
+
+    async def bedrock_outputs(workspace, run):
+        """terraform output。apply が終わるまで変わらないので、起動の実行ごとに1回だけ読む"""
+        key = ("bedrock", workspace, run.id if run else None)
+        if key not in app.state.outputs:
+            app.state.outputs[key] = await app.state.bedrock_runner.outputs(workspace)
+        return app.state.outputs[key]
+
+    @app.get("/api/bedrock/environments")
+    async def bedrock_environments():
+        """画面から作った Bedrock の環境(tfvars を書いたもの)。新しく作った順"""
+        runner = app.state.bedrock_runner
+        models = bedrock_models()
+        environments, warnings = [], []
+        for ws in runner.launched_environments():
+            tfvars = runner.read_var_file(ws) or {}
+            run = runner.latest_run(ws)
+            outputs = None
+            if run is None or (run.command == "launch" and run.status == "succeeded"):
+                try:
+                    outputs = await bedrock_outputs(ws, run)
+                except RunnerError as e:
+                    warnings.append(t("output.read_failed", error=e))
+            model = models.get(tfvars.get("model"))
+            environments.append({
+                "workspace": ws,
+                "model": tfvars.get("model"),
+                "model_name": model["name"] if model else tfvars.get("model"),
+                "region": tfvars.get("region", DEFAULT_REGION),
+                "run": run.summary() if run else None,
+                # apply が終わっていれば、Lambda の関数名などが入る
+                "function_name": (outputs or {}).get("function_name"),
+                "availability_zone": (outputs or {}).get("availability_zone"),
+                "vpc_endpoint_ids": (outputs or {}).get("vpc_endpoint_ids"),
+            })
+        return {"environments": environments, "warnings": warnings}
+
+    async def bedrock_function(workspace):
+        """その環境の Lambda の関数名とリージョン。まだ作っていなければ 409"""
+        if not WORKSPACE_PATTERN.match(workspace) or workspace == "default":
+            raise HTTPException(status_code=422, detail=t("env.invalid"))
+        runner = app.state.bedrock_runner
+        tfvars = runner.read_var_file(workspace)
+        if tfvars is None:
+            raise HTTPException(status_code=404, detail=t("env.no_record", workspace=workspace))
+        run = runner.latest_run(workspace)
+        if run is not None and not (run.command == "launch" and run.status == "succeeded"):
+            raise HTTPException(status_code=409, detail=t("bedrock.not_ready", workspace=workspace))
+        try:
+            function_name = (await bedrock_outputs(workspace, run)).get("function_name")
+        except RunnerError as e:
+            raise HTTPException(status_code=502, detail=t("output.read_failed", error=e))
+        if not function_name:
+            raise HTTPException(status_code=409, detail=t("bedrock.not_ready", workspace=workspace))
+        return tfvars, function_name
+
+    @app.post("/api/bedrock/environments/{workspace}/chat")
+    async def bedrock_chat(workspace: str, req: BedrockChatRequest):
+        """Lambda に会話を送り、VPC の中から Bedrock を呼ぶ。トークン課金がかかる"""
+        tfvars, function_name = await bedrock_function(workspace)
+        payload = {"action": "chat", "messages": [m.model_dump() for m in req.messages]}
+        try:
+            return await asyncio.to_thread(aws().invoke_lambda, tfvars.get("region", DEFAULT_REGION), function_name, payload)
+        except AwsInfoError as e:
+            raise HTTPException(status_code=502, detail=t("chat.failed", error=e))
+
+    def run_bedrock_benchmark(job, function_name, tfvars):
+        """スレッドで動かす。Lambda で測り、トークンの料金を足して保存する"""
+        region = tfvars.get("region", DEFAULT_REGION)
+        try:
+            raw = aws().invoke_lambda(region, function_name, {"action": "bench", "runs": job["runs"]})
+            prices = None
+            model = bedrock_models().get(job["model"])
+            try:
+                prices = aws().bedrock_token_prices(region, model["price_model"]) if model else None
+            except AwsInfoError as e:
+                job["warnings"].append(e)
+            record = bedrock.summarize(raw, job["workspace"], tfvars, prices)
+            app.state.benchmarks.append(record)
+            job.update(status="succeeded", result=record)
+        except AwsInfoError as e:
+            job.update(status="failed", error=e)
+        except Exception as e:
+            job.update(status="failed", error=BenchmarkError("bench.unexpected", error=f"{type(e).__name__}: {e}"))
+        finally:
+            job["finished_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+
+    @app.post("/api/bedrock/environments/{workspace}/benchmark", status_code=201)
+    async def start_bedrock_benchmark(workspace: str, req: BenchmarkRequest):
+        """GPUインスタンスと同じプロンプトを Lambda から流して測る。結果は /api/benchmarks/jobs/{id} で読む"""
+        if not 1 <= req.runs <= MAX_RUNS:
+            raise HTTPException(status_code=422, detail=t("bench.runs_range", max=MAX_RUNS))
+        if any(j["workspace"] == workspace and j["status"] == "running" for j in app.state.benchmark_jobs.values()):
+            raise HTTPException(status_code=409, detail=t("bench.busy", workspace=workspace))
+        tfvars, function_name = await bedrock_function(workspace)
+        job = {
+            "id": uuid.uuid4().hex[:12], "workspace": workspace, "model": tfvars.get("model"), "runs": req.runs, "status": "running",
+            "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+            "finished_at": None, "result": None, "error": None, "warnings": [],
+        }
+        app.state.benchmark_jobs[job["id"]] = job
+        task = asyncio.create_task(asyncio.to_thread(run_bedrock_benchmark, job, function_name, tfvars))
+        app.state.tasks.add(task)
+        task.add_done_callback(app.state.tasks.discard)
+        return {**benchmark_job_summary(job), "warnings": []}
+
+    @app.post("/api/bedrock/environments/{workspace}/destroy", status_code=201)
+    async def destroy_bedrock_environment(workspace: str):
+        """Bedrock の環境を削除する(terraform/bedrock の destroy)。画面で確認を通したときだけ呼ぶ"""
+        try:
+            run = await app.state.bedrock_runner.destroy(workspace)
+        except BusyError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except RunnerError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        return run.summary()
+
     def get_run(run_id):
-        run = app.state.runner.runs.get(run_id)
+        # 起動や削除の出力は、GPUインスタンスの環境と Bedrock の環境のどちらの実行でも読めるようにする
+        run = app.state.runner.runs.get(run_id) or app.state.bedrock_runner.runs.get(run_id)
         if run is None:
             raise HTTPException(status_code=404, detail=t("run.not_found"))
         return run

@@ -24,11 +24,11 @@ MAX_RUNS = 10
 
 # CSV に出す列。プロンプトごとの結果(results)は JSON にだけ入れる
 CSV_COLUMNS = [
-    "id", "measured_at", "workspace", "model", "region", "availability_zone", "instance_type", "gpu", "purchase_option",
+    "id", "engine", "measured_at", "workspace", "model", "region", "availability_zone", "instance_type", "gpu", "purchase_option",
     "model_storage", "context_length", "kv_cache_type", "runs", "num_predict",
     "ttft_sec", "first_response_sec", "thinking", "output_tokens_per_sec", "prompt_tokens_per_sec", "warmup_load_sec",
     "vram_estimate_gib", "vram_measured_gib", "vram_diff_gib", "vram_total_gib",
-    "hourly_usd", "usd_per_million_tokens",
+    "hourly_usd", "input_usd_per_million", "output_usd_per_million", "usd_per_million_tokens",
 ]
 
 GIB_PER_MIB = 1 / 1024
@@ -68,6 +68,7 @@ def summarize(raw, workspace, tfvars, instance, hourly_usd, vram_estimate_gib):
     total = round(sum(g["memory_total_mib"] for g in gpus) * GIB_PER_MIB, 2) if gpus else None
     return {
         "id": uuid.uuid4().hex[:12],
+        "engine": "ollama",
         "measured_at": raw.get("measured_at"),
         "workspace": workspace,
         "model": raw.get("model"),

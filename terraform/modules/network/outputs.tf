@@ -14,12 +14,12 @@ output "route_table_id" {
 }
 
 output "vpc_endpoint_ids" {
-  description = "SSM 接続用のインターフェイスエンドポイントのID(閉じたネットワークだけ)"
+  description = "インターフェイスエンドポイントのID(閉じたネットワークだけ)"
   value       = [for e in aws_vpc_endpoint.interface : e.id]
 }
 
 output "vpc_endpoints" {
-  description = "SSM 接続用のインターフェイスエンドポイント。サービス名ごとの置いたサブネットとプライベートDNSの有無"
+  description = "インターフェイスエンドポイント。サービス名ごとの置いたサブネットとプライベートDNSの有無"
   value = {
     for service, e in aws_vpc_endpoint.interface : service => {
       subnet_ids          = e.subnet_ids

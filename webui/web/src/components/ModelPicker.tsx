@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { getCatalog, listModels, type Catalog, type ModelEstimate } from "../api";
 import { isTight, vramSegments } from "../vram";
+import BedrockPanel from "./BedrockPanel";
 import RegionStoragePicker from "./RegionStoragePicker";
 
 // 提供元(会社)を選び、モデルの一覧から選ぶ。コンテキスト長と KV キャッシュの型で、必要 VRAM と推奨のインスタンス型が変わる
@@ -54,22 +55,29 @@ export default function ModelPicker() {
     return <section className="card">{error ? <p className="error">{t("models.loadFailed", { error })}</p> : <p className="muted">{t("models.loading")}</p>}</section>;
   }
 
+  const engineSelect = (
+    <label className="field">
+      <span>{t("models.engine")}</span>
+      <select value={engine} onChange={(e) => setEngine(e.target.value)}>
+        {catalog.engines.map((en) => (
+          <option key={en.id} value={en.id} disabled={!en.available}>
+            {t(`models.engines.${en.id}`)}
+            {!en.available && ` (${t("models.comingLater")})`}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+
+  // Bedrock は GPUインスタンスを起動しないので、VRAM の見積もりやリージョン・ストレージの選択はない
+  if (engine === "bedrock") return <BedrockPanel engineSelect={engineSelect} />;
+
   return (
     <>
       <div className="models">
         <section className="card">
           <div className="filters">
-            <label className="field">
-              <span>{t("models.engine")}</span>
-              <select value={engine} onChange={(e) => setEngine(e.target.value)}>
-                {catalog.engines.map((en) => (
-                  <option key={en.id} value={en.id} disabled={!en.available}>
-                    {t(`models.engines.${en.id}`)}
-                    {!en.available && ` (${t("models.comingLater")})`}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {engineSelect}
             <label className="field">
               <span>{t("models.contextLength")}</span>
               <select value={contextLength} onChange={(e) => setContextLength(Number(e.target.value))}>

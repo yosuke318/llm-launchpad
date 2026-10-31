@@ -192,8 +192,14 @@ export default function BenchmarkPanel() {
                       <code>{b.model}</code>
                     </td>
                     <td>
-                      <code>{b.instance_type}</code>
-                      {b.purchase_option && ` · ${t(`progress.purchase.${b.purchase_option}`)}`}
+                      {b.engine === "bedrock" ? (
+                        t("models.engines.bedrock")
+                      ) : (
+                        <>
+                          <code>{b.instance_type}</code>
+                          {b.purchase_option && ` · ${t(`progress.purchase.${b.purchase_option}`)}`}
+                        </>
+                      )}
                     </td>
                     <td className="num">{n(b.ttft_sec)}</td>
                     <td className="num">{n(b.output_tokens_per_sec)}</td>

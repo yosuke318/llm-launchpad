@@ -17,7 +17,7 @@ def test_catalog_lists_vendors_and_options(client):
     c = client.get("/api/catalog").json()
     assert c["vendors"][:2] == ["Meta", "Google"], "提供元はモデル定義に出てくる順"
     assert {"Alibaba", "OpenAI", "NVIDIA", "Mistral"} <= set(c["vendors"])
-    assert [e["id"] for e in c["engines"] if e["available"]] == ["ollama"], "初期版のエンジンは Ollama だけ"
+    assert [e["id"] for e in c["engines"] if e["available"]] == ["ollama", "bedrock"], "vLLM はまだ選べない"
     assert c["defaults"] == {"context_length": 8192, "kv_cache_type": "f16"}
     assert c["instance_types"][0]["type"] == "g4dn.xlarge"
 

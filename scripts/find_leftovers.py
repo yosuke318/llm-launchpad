@@ -27,6 +27,9 @@ import sys
 PROJECT = "llm-launchpad"
 # IAM ロールとインスタンスプロファイルの name_prefix(terraform/locals.tf の iam_name_prefix)
 IAM_PREFIX = "llm-lp-"
+# Bedrock の環境の Lambda の関数名とロググループ(terraform/bedrock/main.tf)
+LAMBDA_PREFIX = "llm-launchpad-"
+LOG_GROUP_PREFIX = f"/aws/lambda/{LAMBDA_PREFIX}"
 # model-store が作るバケットの名前の頭(terraform/model-store/main.tf)
 BUCKET_PREFIX = "llm-launchpad-"
 HOURS_PER_MONTH = 730
@@ -243,7 +246,8 @@ def find_vpcs(aws, region):
 
 
 def find_vpc_endpoints(aws, region):
-    """閉じたネットワーク(network_mode = private)の SSM 用エンドポイント。インターフェイスエンドポイントは時間課金がある"""
+    """閉じたネットワーク(network_mode = private)の SSM 用と、Bedrock の環境の bedrock-runtime のエンドポイント。
+    インターフェイスエンドポイントは時間課金がある"""
     res = aws("ec2", "describe-vpc-endpoints", "--filters", f"Name=tag:Project,Values={PROJECT}", region=region)
     found = []
     for e in res.get("VpcEndpoints", []):
@@ -254,6 +258,32 @@ def find_vpc_endpoints(aws, region):
             note=f"{len(e.get('SubnetIds', []))}つのAZに置いた分の時間課金がある" if interface else "ゲートウェイエンドポイントは無料",
         ))
     return found
+
+
+def env_id_from_function(name):
+    """llm-launchpad-<環境ID>-bedrock の環境ID"""
+    return name.removeprefix(LAMBDA_PREFIX).removesuffix("-bedrock") if name.endswith("-bedrock") else ""
+
+
+def find_lambda_functions(aws, region):
+    """Bedrock の環境の Lambda。呼ばなければ料金はかからない"""
+    res = aws("lambda", "list-functions", region=region)
+    return [
+        resource(region, "lambda", f["FunctionName"], {"EnvId": env_id_from_function(f["FunctionName"])},
+                 state=f.get("Runtime", ""), ids=[f["FunctionName"], f.get("FunctionArn", "")], note="呼ばなければ無料")
+        for f in res.get("Functions", [])
+        if f["FunctionName"].startswith(LAMBDA_PREFIX)
+    ]
+
+
+def find_log_groups(aws, region):
+    """Bedrock の環境の Lambda のロググループ。ログの保管に少し料金がかかる"""
+    res = aws("logs", "describe-log-groups", "--log-group-name-prefix", LOG_GROUP_PREFIX, region=region)
+    return [
+        resource(region, "log-group", g["logGroupName"], {"EnvId": env_id_from_function(g["logGroupName"].removeprefix("/aws/lambda/"))},
+                 state=f"{g.get('storedBytes', 0)} bytes", ids=[g["logGroupName"], g.get("arn", "")], note="ログの保管に少し料金がかかる")
+        for g in res.get("logGroups", [])
+    ]
 
 
 def find_spot_requests(aws, region, instance_ids):
@@ -377,6 +407,8 @@ def find_in_region(aws, prices, region, now):
     collect(lambda: find_spot_requests(aws, region, instance_ids))
     collect(lambda: find_vpcs(aws, region))
     collect(lambda: find_vpc_endpoints(aws, region))
+    collect(lambda: find_lambda_functions(aws, region))
+    collect(lambda: find_log_groups(aws, region))
     collect(lambda: find_parameters(aws, region))
     collect(lambda: find_schedules(aws, region))
     return found, errors

@@ -157,6 +157,17 @@ terraform のワークスペースのうち、state にリソースがあるも�
 * SSM で接続する環境(`access_mode=ssm`)では `http://localhost:11434` なので、サーバーを動かしている端末で `ssm_port_forward_command` を動かしたままにする。つながらないときは、そのコマンドをエラーに出す
 * 会話はサーバーに残さない。環境を変えると消える
 
+### Bedrock
+
+推論エンジンに Bedrock を選ぶと、モデルの選択の画面が Bedrock 用に変わる。GPUインスタンスは起動せず、`terraform/bedrock` で閉じた VPC と bedrock-runtime のエンドポイントと Lambda を作る。
+
+* モデルは `catalog/bedrock_models.yaml` から選ぶ。入力と出力の100万トークンあたりの料金は Price List API(`AmazonBedrockFoundationModels` の On-demand Inference)から、`jp.` などの地域の推論プロファイルの料金を取る。エンドポイント1つの時間課金も出す
+* 起動の確認のポップアップでは、GPUインスタンスとの違い(トークン課金、起動待ちがない、GPU を選ばない、閉じたネットワークだけ、止め方)と料金を出す。Yes で `terraform/bedrock/tfvars/<環境ID>.tfvars.json` を書き、`init` と `apply` を実行する。出力は Terraform のタブで見られる
+* 作った環境は、同じ画面の下に出す。「話す」と「計測する」は、サーバーから Lambda を呼び、VPC の中からエンドポイント経由で Bedrock に送る。計測は GPUインスタンスと同じ3つのプロンプトで、結果はベンチマークの履歴に `engine: bedrock` として入る
+* Bedrock の $/100万トークンは、計測で送った入力の分も含めた、出力100万トークンあたりの料金。GPUインスタンスの「1時間あたりの料金 ÷ 1時間に出せるトークン数」と並べて比べられるようにする
+* 環境の一覧の消し忘れは、`terraform/bedrock` の state も照らし合わせる(同じ管理用タグが付いているため)
+* サーバーを動かしている端末の AWS の認証情報に、`lambda:InvokeFunction` と `pricing:GetProducts` の権限が要る
+
 ### VRAM の見積もりは Python でも計算する
 
 * 画面でモデルを選んだときにすぐ推奨の型を出すため、`terraform/modules/sizing` と同じ計算を `server/llm_launchpad_webui/sizing.py` にも書いた
@@ -166,7 +177,7 @@ terraform のワークスペースのうち、state にリソースがあるも�
 ### terraform の実行
 
 * Terraform のタブから実行できるのは `version` / `init` / `validate` / `plan` だけ。`apply` は起動の確認(`POST /api/launch`)から、`destroy` は環境の一覧(`POST /api/environments/{環境ID}/destroy`)からだけ実行できる
-* 起動では、`default` のワークスペースは使えない。渡せる変数は決めたもの(model、region、context_length、kv_cache_type、model_storage、purchase_option、idle_stop_minutes、max_lifetime_hours、instance_type)だけで、型も確かめる
+* 起動では、`default` のワークスペースは使えない。渡せる変数は決めたもの(model、region、context_length、kv_cache_type、model_storage、network_mode、purchase_option、idle_stop_minutes、max_lifetime_hours、instance_type、availability_zone)だけで、型も確かめる。Bedrock の環境では model、region、availability_zone だけ
 * 同時に動かすのは1つだけ(`init` は `.terraform` を書き換えるため)。実行中に別のコマンドを頼むと 409 を返す
 * ワークスペース名は、環境IDと同じ規則(`default` か、英小文字・数字・ハイフンの20文字以内)だけを受け付ける
 * 出力は1行ずつ SSE で送る(`event: log`、最後に `event: end` で終了コード)。各行に行番号を `id` として付けるので、接続が切れてもブラウザ(EventSource)が `Last-Event-ID` を送り、続きから受け取れる
@@ -195,6 +206,12 @@ terraform のワークスペースのうち、state にリソースがあるも�
 | GET | `/api/benchmarks` | 測った結果の履歴(新しい順、プロンプトごとの結果を含む) |
 | GET | `/api/benchmarks.csv` | 測った結果の履歴の CSV |
 | POST | `/api/environments/{環境ID}/chat` | モデルと話す。`{"messages": [{"role": "user", "content": "..."}]}` |
+| GET | `/api/bedrock/models` | Bedrock のモデルと、100万トークンあたりの料金、エンドポイントの時間課金。`?region=ap-northeast-1` |
+| POST | `/api/bedrock/launch` | `terraform/bedrock` の tfvars を書いて init と apply を実行する。`{"workspace": "br-haiku", "variables": {"model": "jp.anthropic.claude-haiku-4-5-20251001-v1:0", "region": "ap-northeast-1"}}` |
+| GET | `/api/bedrock/environments` | 画面から作った Bedrock の環境と、Lambda の関数名 |
+| POST | `/api/bedrock/environments/{環境ID}/chat` | Lambda から Bedrock に送る。`{"messages": [{"role": "user", "content": "..."}]}` |
+| POST | `/api/bedrock/environments/{環境ID}/benchmark` | Lambda で計測を始める。`{"runs": 3}`。計測の ID を返す |
+| POST | `/api/bedrock/environments/{環境ID}/destroy` | `terraform/bedrock` で init と destroy を実行する。成功したら tfvars を消す |
 | POST | `/api/launch` | tfvars を書いて init と apply を実行する。`{"workspace": "qwen3-8b", "variables": {"model": "qwen3:8b", ...}}` |
 | GET | `/api/workspaces` | `terraform workspace list` の結果 |
 | POST | `/api/runs` | コマンドを実行する。`{"command": "plan", "workspace": "qwen-test", "variables": {...}}` |
@@ -215,6 +232,7 @@ cd webui/web && npm test && npm run typecheck
 |---|---|---|
 | `LAUNCHPAD_CATALOG_DIR` | `catalog/` | モデル定義とインスタンス型の表のディレクトリ |
 | `LAUNCHPAD_TERRAFORM_DIR` | `terraform/` | terraform を実行するディレクトリ |
+| `LAUNCHPAD_BEDROCK_TERRAFORM_DIR` | `terraform/bedrock/` | Bedrock の環境の terraform を実行するディレクトリ |
 | `LAUNCHPAD_TERRAFORM_BIN` | `terraform` | terraform のコマンド |
 | `LAUNCHPAD_WEB_DIST` | `webui/web/dist` | 配る画面のディレクトリ |
 | `LAUNCHPAD_BENCHMARK_FILE` | `benchmarks/results.jsonl` | ベンチマークの結果を足していくファイル |

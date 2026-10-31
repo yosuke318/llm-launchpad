@@ -22,6 +22,7 @@
     "engine": "推論エンジン",
     "engines": {
       "ollama": "Ollama",
+      "bedrock": "Bedrock",
       "vllm": "vLLM"
     },
     "comingLater": "あとで対応",
@@ -362,7 +363,7 @@
     "downloadCsv": "CSV で保存",
     "downloadJson": "JSON で保存",
     "noHistory": "まだ計測していません。",
-    "note": "TTFT と tok/s は、インスタンスの中から Ollama に送って測った値です(ネットワークの遅れは入りません)。VRAM の実測は nvidia-smi の使用量の合計です。$/100万トークンは、1時間あたりの料金を出力の tok/s で割ったもので、リクエストを1つずつ順に送ったときの値です。",
+    "note": "TTFT と tok/s は、インスタンスの中から Ollama に送って測った値です(ネットワークの遅れは入りません)。Bedrock は、VPC の中の Lambda から送って測った値です。VRAM の実測は nvidia-smi の使用量の合計です。$/100万トークンは、GPU インスタンスでは1時間あたりの料金を出力の tok/s で割ったもので、リクエストを1つずつ順に送ったときの値です。Bedrock では、計測で送った入力の分も含めた、出力100万トークンあたりの料金です。",
     "columns": {
       "measuredAt": "測った日時",
       "model": "モデル",
@@ -421,5 +422,67 @@
     "lines": "{{count}} 行",
     "autoScroll": "最新の行を追う",
     "reconnecting": "接続が切れました。つなぎ直しています…"
+  },
+  "bedrock": {
+    "heading": "Bedrock のモデルを選ぶ",
+    "lead": "GPU インスタンスは起動しません。インターネットに出られない VPC に Lambda を置き、bedrock-runtime の VPC エンドポイント(PrivateLink)経由でモデルを呼びます。jp. の推論プロファイルを使うので、処理は日本国内のリージョンに留まります。",
+    "loadFailed": "Bedrock のモデルを読み込めませんでした: {{error}}",
+    "inputPrice": "入力",
+    "outputPrice": "出力",
+    "perMillion": "{{price}} / 100万トークン",
+    "endpointHourly": "環境があるあいだは、bedrock-runtime のエンドポイントの料金({{price}}/時)がかかります。トークンの料金は使った分だけです。",
+    "launchTitle": "Bedrock の環境を作る",
+    "launchLead": "terraform/bedrock で VPC、エンドポイント、Lambda、IAM ロールを作ります。作り終わるまで数分かかります。",
+    "hourlyWhileExists": "環境があるあいだの料金",
+    "tokenPrices": "これにトークンの料金(入力 {{input}}、出力 {{output}} / 100万トークン)が足されます",
+    "compareCaption": "GPU インスタンス(Ollama)との違い",
+    "compare": {
+      "ec2": "GPU インスタンス(Ollama)",
+      "bedrock": "Bedrock",
+      "rows": {
+        "billing": {
+          "label": "料金",
+          "ec2": "インスタンスの時間課金。使っていなくても動いている間はかかる",
+          "bedrock": "トークン課金。ほかにエンドポイントの時間課金だけ"
+        },
+        "startup": {
+          "label": "起動待ち",
+          "ec2": "インスタンスの起動とモデルの読み込みに数分〜十数分",
+          "bedrock": "なし(作ればすぐ呼べる)"
+        },
+        "hardware": {
+          "label": "GPU・VRAM",
+          "ec2": "モデルが収まるインスタンス型を選ぶ",
+          "bedrock": "選ばない(AWS が用意する)"
+        },
+        "network": {
+          "label": "通信",
+          "ec2": "公開か閉じたネットワークを選ぶ",
+          "bedrock": "閉じたネットワークだけ(VPC エンドポイント経由)"
+        },
+        "stop": {
+          "label": "止め方",
+          "ec2": "自動停止と、環境の一覧からの停止・削除",
+          "bedrock": "使い終わったら、下の一覧から削除する"
+        }
+      }
+    },
+    "modelAccess": "モデルを使えるかどうかはアカウントによって違います。使えないモデルは、作ったあとに呼んだときに「not available for this account」で失敗します。",
+    "environmentsHeading": "Bedrock の環境",
+    "noEnvironments": "まだ環境はありません。",
+    "states": {
+      "creating": "作成中",
+      "ready": "使える",
+      "failed": "作成に失敗",
+      "destroying": "削除中",
+      "destroyFailed": "削除に失敗",
+      "unknown": "状態不明"
+    },
+    "endpoint": "エンドポイント",
+    "chat": "話す",
+    "chatNote": "送るたびに、会話全体のトークン分の料金がかかります。",
+    "benchResult": "TTFT {{ttft}} 秒 / 出力 {{tps}} tok/s / {{cost}} / 100万トークン(入力の分も含む)",
+    "destroyConfirm": "Bedrock の環境 {{workspace}} を削除します。VPC、エンドポイント、Lambda、IAM ロールを消します。よろしいですか?",
+    "destroyNote": "エンドポイントの時間課金は、環境を削除するまでかかります。削除にはエンドポイントの分で数分かかります。"
   }
 }

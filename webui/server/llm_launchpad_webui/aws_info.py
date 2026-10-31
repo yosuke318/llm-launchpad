@@ -3,7 +3,7 @@
 単価は持たず、その都度 AWS の API から取る(Price List API、スポット価格の履歴)。同じ問い合わせは
 しばらく覚えておく。AWS の認証情報は、サーバーを起動した端末のものを使う。
 書き込むのは、環境の一覧から止めたり動かし直したりするとき(stop_instance、start_instance)と、
-ベンチマークをインスタンスで動かすとき(run_command)だけ。
+ベンチマークをインスタンスで動かすとき(run_command)と、Bedrock の環境の Lambda を呼ぶとき(invoke_lambda)だけ。
 """
 
 import datetime
@@ -12,6 +12,7 @@ import threading
 import time
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from .messages import MessageError
@@ -225,6 +226,44 @@ class AwsInfo:
             return None
 
         return self._cached(("interface_endpoint_hourly", region), fetch)
+
+    def bedrock_token_prices(self, region, price_model):
+        """Bedrock のモデルの、100万トークンあたりの入力と出力の料金(オンデマンド)。
+        price_model は Price List API の model 属性(catalog/bedrock_models.yaml)。jp. などの地域の推論プロファイルの料金で、
+        global. の料金(usagetype が _Global で終わる)は使わない"""
+        def fetch():
+            res = self._client("pricing", PRICING_REGION).get_products(ServiceCode="AmazonBedrockFoundationModels", Filters=[
+                {"Type": "TERM_MATCH", "Field": "regionCode", "Value": region},
+                {"Type": "TERM_MATCH", "Field": "model", "Value": price_model},
+                {"Type": "TERM_MATCH", "Field": "feature", "Value": "On-demand Inference"},
+            ])
+            prices = {"input": None, "output": None}
+            for item in res["PriceList"]:
+                product = json.loads(item) if isinstance(item, str) else item
+                usagetype = product["product"]["attributes"].get("usagetype", "")
+                key = "input" if usagetype.endswith("_InputTokenCount-Units") else "output" if usagetype.endswith("_OutputTokenCount-Units") else None
+                if key is None:
+                    continue
+                for term in product["terms"]["OnDemand"].values():
+                    for dim in term["priceDimensions"].values():
+                        prices[key] = float(dim["pricePerUnit"]["USD"])
+            return prices
+
+        return self._cached(("bedrock_token_prices", region, price_model), fetch)
+
+    def invoke_lambda(self, region, function_name, payload, timeout_sec=900):
+        """Lambda を呼んで、返した JSON を読む。Bedrock の環境で、VPC の中から Bedrock を呼ぶのに使う"""
+        try:
+            # ベンチマークは数分かかるので、関数のタイムアウトまで待つ。料金がかかる呼び出しなので、失敗しても繰り返さない
+            client = self.session.client("lambda", region_name=region, config=Config(read_timeout=timeout_sec + 10, retries={"max_attempts": 0}))
+            res = client.invoke(FunctionName=function_name, Payload=json.dumps(payload).encode())
+            body = json.loads(res["Payload"].read() or b"null")
+        except (BotoCoreError, ClientError, json.JSONDecodeError) as e:
+            raise AwsInfoError("aws.lambda_failed", function=function_name, error=e) from e
+        if res.get("FunctionError"):
+            message = body.get("errorMessage") if isinstance(body, dict) else body
+            raise AwsInfoError("aws.lambda_failed", function=function_name, error=message)
+        return body
 
     def model_store(self, region):
         """そのリージョンに model-store のバケットとボリュームがあるか(terraform/model-store が作る名前とタグで探す)"""

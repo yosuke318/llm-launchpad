@@ -423,6 +423,8 @@ export interface BenchmarkPromptResult {
 
 export interface Benchmark {
   id: string;
+  // 前からある結果には入っていない(ollama として扱う)
+  engine?: "ollama" | "bedrock";
   measured_at: string;
   workspace: string;
   model: string;
@@ -491,4 +493,72 @@ export interface ChatReply {
 
 export function sendChat(workspace: string, messages: ChatMessage[]) {
   return request<ChatReply>(`/api/environments/${encodeURIComponent(workspace)}/chat`, { method: "POST", body: JSON.stringify({ messages }) });
+}
+
+// Bedrock の環境(terraform/bedrock)。GPUインスタンスは起動せず、閉じた VPC の Lambda からエンドポイント経由で呼ぶ
+
+export interface BedrockModel {
+  id: string;
+  name: string;
+  vendor: string;
+  region: string;
+  input_usd_per_million: number | null;
+  output_usd_per_million: number | null;
+}
+
+export interface BedrockModels {
+  region: string;
+  default: string;
+  models: BedrockModel[];
+  // 環境があるあいだかかる、bedrock-runtime のエンドポイント1つの料金
+  endpoint_hourly_usd: number | null;
+  warnings: string[];
+}
+
+export interface BedrockEnvironment {
+  workspace: string;
+  model: string;
+  model_name: string;
+  region: string;
+  run: RunSummary | null;
+  // apply が終わるまでは null
+  function_name: string | null;
+  availability_zone: string | null;
+  vpc_endpoint_ids: string[] | null;
+}
+
+export interface BedrockChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface BedrockChatReply {
+  model: string;
+  content: string;
+  usage: { inputTokens?: number; outputTokens?: number };
+  total_sec: number;
+}
+
+export function listBedrockModels(region: string) {
+  return request<BedrockModels>(`/api/bedrock/models?${new URLSearchParams({ region })}`);
+}
+
+export function launchBedrock(workspace: string, variables: { model: string; region: string }) {
+  return request<RunSummary>("/api/bedrock/launch", { method: "POST", body: JSON.stringify({ workspace, variables }) });
+}
+
+export function listBedrockEnvironments() {
+  return request<{ environments: BedrockEnvironment[]; warnings: string[] }>("/api/bedrock/environments");
+}
+
+export function sendBedrockChat(workspace: string, messages: BedrockChatMessage[]) {
+  return request<BedrockChatReply>(`/api/bedrock/environments/${encodeURIComponent(workspace)}/chat`, { method: "POST", body: JSON.stringify({ messages }) });
+}
+
+export function startBedrockBenchmark(workspace: string, runs: number) {
+  return request<BenchmarkJob>(`/api/bedrock/environments/${encodeURIComponent(workspace)}/benchmark`, { method: "POST", body: JSON.stringify({ runs }) });
+}
+
+export function destroyBedrockEnvironment(workspace: string) {
+  return request<RunSummary>(`/api/bedrock/environments/${encodeURIComponent(workspace)}/destroy`, { method: "POST" });
 }

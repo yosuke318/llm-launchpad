@@ -110,7 +110,10 @@ def client(tmp_path, terraform_dir, aws):
     fake = tmp_path / "terraform-bin"
     fake.write_text(f"#!/bin/sh\nexec {sys.executable} {os.path.join(HERE, 'fake_terraform.py')} \"$@\"\n")
     fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
-    with TestClient(create_app(Runner(str(terraform_dir), str(fake)), web_dist=None, aws_info=aws)) as c:
+    bedrock_dir = terraform_dir / "bedrock"
+    (bedrock_dir / "fake-state").mkdir(parents=True)
+    app = create_app(Runner(str(terraform_dir), str(fake)), web_dist=None, aws_info=aws, bedrock_runner=Runner(str(bedrock_dir), str(fake)))
+    with TestClient(app) as c:
         yield c
 
 
@@ -181,6 +184,16 @@ def test_overview_shows_leftovers(client, terraform_dir, aws):
     res = client.get("/api/environments/overview").json()
     assert res["environments"] == []
     assert [(x["resource_id"], x["instance_state"]) for x in res["leftovers"]] == [("i-0left", "running")]
+
+
+def test_overview_bedrock_resources_are_not_leftovers(client, terraform_dir, aws):
+    # Bedrock の環境(terraform/bedrock)の state にある VPC。同じ管理用タグが付いている
+    write_state(terraform_dir / "bedrock", "qwen-test", {"resources": [
+        {"mode": "managed", "type": "aws_vpc", "instances": [{"attributes": {"id": "vpc-0bedrock", "arn": f"arn:aws:ec2:{REGION}:{ACCOUNT}:vpc/vpc-0bedrock"}}]},
+    ]})
+    aws.tagged = [tagged(f"arn:aws:ec2:{REGION}:{ACCOUNT}:vpc/vpc-0bedrock", EnvId="qwen-test", Engine="bedrock")]
+    res = client.get("/api/environments/overview").json()
+    assert res["leftovers"] == [], "Bedrock の環境の state にあるものは消し忘れにしない"
 
 
 def test_drop_deleted_checks_per_kind():
