@@ -1137,3 +1137,25 @@ button.danger:disabled {
   color: var(--text);
   resize: vertical;
 }
+
+/* Bedrock(推論エンジンに Bedrock を選んだとき) */
+.bedrock {
+  display: grid;
+  gap: 16px;
+}
+
+.bedrock-bench {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bedrock-bench p {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.launch-dialog table caption {
+  text-align: left;
+}

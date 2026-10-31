@@ -22,6 +22,7 @@
     "engine": "Inference engine",
     "engines": {
       "ollama": "Ollama",
+      "bedrock": "Bedrock",
       "vllm": "vLLM"
     },
     "comingLater": "coming later",
@@ -362,7 +363,7 @@
     "downloadCsv": "Save as CSV",
     "downloadJson": "Save as JSON",
     "noHistory": "Nothing has been measured yet.",
-    "note": "TTFT and tok/s are measured by sending to Ollama from inside the instance (network latency is not included). Measured VRAM is the total usage from nvidia-smi. $ per 1M tokens is the hourly price divided by the output tok/s, with one request at a time.",
+    "note": "TTFT and tok/s are measured by sending to Ollama from inside the instance (network latency is not included). For Bedrock, they are measured by sending from the Lambda function in the VPC. Measured VRAM is the total usage from nvidia-smi. For GPU instances, $ per 1M tokens is the hourly price divided by the output tok/s, with one request at a time. For Bedrock, it is the price per 1M output tokens, including the input sent during the benchmark.",
     "columns": {
       "measuredAt": "Measured at",
       "model": "Model",
@@ -421,5 +422,67 @@
     "lines": "{{count}} lines",
     "autoScroll": "Follow the latest line",
     "reconnecting": "Connection lost. Reconnecting…"
+  },
+  "bedrock": {
+    "heading": "Choose a Bedrock model",
+    "lead": "No GPU instance is launched. A Lambda function in a VPC with no route to the internet calls the model through the bedrock-runtime VPC endpoint (PrivateLink). The jp. inference profiles keep processing in regions in Japan.",
+    "loadFailed": "Could not load the Bedrock models: {{error}}",
+    "inputPrice": "Input",
+    "outputPrice": "Output",
+    "perMillion": "{{price}} / 1M tokens",
+    "endpointHourly": "While the environment exists, the bedrock-runtime endpoint costs {{price}}/hour. Tokens are charged only for what you use.",
+    "launchTitle": "Create a Bedrock environment",
+    "launchLead": "terraform/bedrock creates a VPC, an endpoint, a Lambda function and an IAM role. It takes a few minutes.",
+    "hourlyWhileExists": "Cost while the environment exists",
+    "tokenPrices": "Plus token charges (input {{input}}, output {{output}} per 1M tokens)",
+    "compareCaption": "Differences from a GPU instance (Ollama)",
+    "compare": {
+      "ec2": "GPU instance (Ollama)",
+      "bedrock": "Bedrock",
+      "rows": {
+        "billing": {
+          "label": "Billing",
+          "ec2": "Hourly for the instance, even when idle",
+          "bedrock": "Per token, plus only the hourly endpoint charge"
+        },
+        "startup": {
+          "label": "Startup wait",
+          "ec2": "Minutes to start the instance and load the model",
+          "bedrock": "None (ready as soon as it is created)"
+        },
+        "hardware": {
+          "label": "GPU / VRAM",
+          "ec2": "Pick an instance type the model fits in",
+          "bedrock": "Not needed (provided by AWS)"
+        },
+        "network": {
+          "label": "Network",
+          "ec2": "Public or closed network",
+          "bedrock": "Closed network only (through the VPC endpoint)"
+        },
+        "stop": {
+          "label": "Stopping",
+          "ec2": "Auto stop, and stop or delete from the environment list",
+          "bedrock": "Delete it from the list below when you are done"
+        }
+      }
+    },
+    "modelAccess": "Which models you can use depends on the account. A model you cannot use fails with \"not available for this account\" when you call it after creating the environment.",
+    "environmentsHeading": "Bedrock environments",
+    "noEnvironments": "No environments yet.",
+    "states": {
+      "creating": "Creating",
+      "ready": "Ready",
+      "failed": "Creation failed",
+      "destroying": "Deleting",
+      "destroyFailed": "Deletion failed",
+      "unknown": "Unknown"
+    },
+    "endpoint": "Endpoint",
+    "chat": "Chat",
+    "chatNote": "Each message is charged for the tokens of the whole conversation.",
+    "benchResult": "TTFT {{ttft}} s / output {{tps}} tok/s / {{cost}} per 1M tokens (including input)",
+    "destroyConfirm": "Delete the Bedrock environment {{workspace}}? This removes the VPC, endpoint, Lambda function and IAM role.",
+    "destroyNote": "The hourly endpoint charge continues until you delete the environment. Deleting takes a few minutes because of the endpoint."
   }
 }

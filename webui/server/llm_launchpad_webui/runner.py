@@ -90,9 +90,11 @@ class Run:
 
 
 class Runner:
-    def __init__(self, terraform_dir, terraform_bin="terraform"):
+    def __init__(self, terraform_dir, terraform_bin="terraform", launch_variables=None):
         self.terraform_dir = os.path.abspath(terraform_dir)
         self.terraform_bin = terraform_bin
+        # 起動で tfvars に書ける変数。Bedrock の環境(terraform/bedrock)では別のものを渡す
+        self.launch_variables = LAUNCH_VARIABLES if launch_variables is None else launch_variables
         self.runs: dict[str, Run] = {}
         self._tasks: set[asyncio.Task] = set()
 
@@ -191,10 +193,10 @@ class Runner:
         """起動の確認で Yes を押したとき。tfvars を書き、init と apply を順に実行する"""
         if not WORKSPACE_PATTERN.match(workspace) or workspace == "default":
             raise RunnerError("env_id.invalid")
-        unknown = sorted(set(variables) - set(LAUNCH_VARIABLES))
+        unknown = sorted(set(variables) - set(self.launch_variables))
         if unknown:
             raise RunnerError("launch.unknown_variables", names=", ".join(unknown))
-        for name, typ in LAUNCH_VARIABLES.items():
+        for name, typ in self.launch_variables.items():
             if name in variables and variables[name] is not None and not (
                 isinstance(variables[name], typ) and not isinstance(variables[name], bool)
             ):

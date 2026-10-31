@@ -17,7 +17,7 @@ terraform/
 ├── backend-s3.tf.example     # state を S3 に置く場合のサンプル
 ├── modules/
 │   ├── sizing/               # VRAM見積もりとインスタンス型の選択(リソースは作らない)
-│   ├── network/              # VPC、サブネット、IGW、S3 ゲートウェイエンドポイント、閉じたネットワークの SSM 用エンドポイント
+│   ├── network/              # VPC、サブネット、IGW、S3 ゲートウェイエンドポイント、閉じたネットワークのインターフェイスエンドポイント
 │   ├── security/             # インスタンス用セキュリティグループ
 │   ├── iam/                  # インスタンスロール(SSM、進み具合の書き込み、モデルバケットの読み書き)
 │   ├── instance/             # GPUインスタンス(スポット / オンデマンド)と、モデル用EBSボリュームの付け外し
@@ -25,11 +25,13 @@ terraform/
 │   └── lifetime/             # 最大稼働時間で止める EventBridge Scheduler のスケジュール
 ├── model-store/              # モデルの置き場所(S3バケット、EBSボリューム)。環境とは別の state で管理する
 ├── budget/                   # 月の予算のアラート(AWS Budgets)。環境とは別の state で管理する
+├── bedrock/                  # Bedrock の環境(閉じた VPC、bedrock-runtime のエンドポイント、Lambda)。GPUインスタンスの環境とは別の state
 └── tests/                    # terraform test(mock provider で AWS に接続せず確認)
 
 catalog/                      # リポジトリ直下。WebUI からも読む
 ├── models.yaml               # モデル定義(会社、パラメータ数、量子化、層数など)
-└── instance_types.yaml       # GPUインスタンス型の表
+├── instance_types.yaml       # GPUインスタンス型の表
+└── bedrock_models.yaml       # Bedrock で呼ぶモデル(推論プロファイルのID)
 ```
 
 ## 決めたこと
@@ -189,7 +191,7 @@ Ollama は見積もりと同じ条件で動かす(systemd の設定で渡す)。
 | モデル | `model_storage` の3つの方式 | S3キャッシュか EBS永続。先に入っているものだけを使う |
 | アウトバウンド | HTTPS と HTTP | HTTPS だけ |
 
-* インターフェイスエンドポイントは1つ・1AZあたりの時間課金がある(東京で約 $0.014/時)。GPUインスタンスを起動するAZのサブネットにだけ置くので、3つで約 $0.042/時。環境を destroy すると一緒に消える(消えるまでに8分ほどかかる)
+* インターフェイスエンドポイントは1つ・1AZあたりの時間課金がある(東京で約 $0.014/時)。GPUインスタンスを起動するAZのサブネットにだけ置くので、3つで約 $0.042/時。環境を destroy すると一緒に消える(消えるまでに8分から10分あまりかかる)
 * GPUインスタンスは、エンドポイントができてから起動する(起動処理がすぐに SSM に進み具合を書くため)
 * 接続は `access_mode = "ssm"` だけ。パブリックIPがないため `direct` は使えない
 * `model_storage = "download"` は使えない(Ollama library に出られないため)
@@ -212,6 +214,49 @@ terraform destroy -var model=qwen3:8b
 
 ```bash
 terraform apply -var model=qwen3:8b -var network_mode=private
+```
+
+### Bedrock: `terraform/bedrock`
+
+GPUインスタンスを起動せず、Bedrock のモデルを閉じたネットワークから呼ぶ。GPUインスタンスの環境とは別の Terraform の構成(別の state)にして、workspace ごとに環境を分ける。
+
+```
+インターネットへの経路がない VPC
+└── Lambda(エンドポイントと同じAZのサブネット)
+     └── bedrock-runtime のインターフェイスエンドポイント(プライベートDNS)── Bedrock
+```
+
+* ネットワークは `modules/network` を `private = true`、`interface_endpoint_services = ["bedrock-runtime"]` で使う。SSM 用のエンドポイントは作らない
+* VPC の中から呼ぶのは Lambda(Python 3.13、arm64)。インスタンスもSSM用のエンドポイントもいらないので、時間課金は bedrock-runtime のエンドポイント1つ(東京で約 $0.014/時)だけ。あとはトークン課金
+* Lambda の外向きは、VPC の中の HTTPS(443)だけ許可する
+* モデルは `catalog/bedrock_models.yaml` の推論プロファイルから選ぶ(`model`)。`jp.` の推論プロファイルなら、処理は東京と大阪に留まる
+* IAM は選んだ推論プロファイルだけを許可し、その推論プロファイルは `aws:SourceVpce` でこの VPC のエンドポイントを通ったときだけ呼べるようにする。振り分け先のモデル(東京と大阪)は、`bedrock:InferenceProfileArn` でその推論プロファイルを通したときだけ呼べる
+* エンドポイントは、置けるAZのうち名前順で最初のAZに置く(`availability_zone` で変えられる)。Lambda も同じAZのサブネットにだけ置き、AZをまたぐ転送料金をなくす
+* モデルを使えるかはアカウントによって違う。使えないモデルは、呼んだときに `not available for this account` で失敗する
+* destroy は、エンドポイントと Lambda の ENI が消えるのを待つので数分〜十数分かかる
+
+```bash
+cd terraform/bedrock
+terraform init
+terraform workspace new br-haiku
+terraform apply                                    # 既定は Claude Haiku 4.5(jp.)
+terraform apply -var model=jp.anthropic.claude-sonnet-4-6
+
+# Lambda にプロンプトを送る(terraform output invoke_command と同じ)
+aws lambda invoke --function-name llm-launchpad-br-haiku-bedrock --region ap-northeast-1 \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{"action":"chat","messages":[{"role":"user","content":"こんにちは"}]}' response.json
+
+# GPUインスタンスと同じプロンプトで測る(TTFT と出力の tok/s)
+aws lambda invoke --function-name llm-launchpad-br-haiku-bedrock --region ap-northeast-1 \
+  --cli-binary-format raw-in-base64-out --cli-read-timeout 900 \
+  --payload '{"action":"bench","runs":3}' bench.json
+
+# bedrock-runtime の名前が VPC の中のIP(エンドポイント)になっているか
+aws lambda invoke --function-name llm-launchpad-br-haiku-bedrock --region ap-northeast-1 \
+  --cli-binary-format raw-in-base64-out --payload '{"action":"endpoint"}' endpoint.json
+
+terraform destroy
 ```
 
 ### 接続方法: 既定は SSM
@@ -317,13 +362,14 @@ python3 scripts/find_leftovers.py --profile my-profile --json
 
 | 探すもの | 見分け方 |
 |---|---|
-| EC2インスタンス、EBSボリューム、VPC、SSM パラメータ | `Project=llm-launchpad` タグ |
+| EC2インスタンス、EBSボリューム、VPC、VPC エンドポイント、SSM パラメータ | `Project=llm-launchpad` タグ |
+| Lambda、CloudWatch Logs のロググループ(Bedrock の環境) | 名前が `llm-launchpad-`(ロググループは `/aws/lambda/llm-launchpad-`)で始まる |
 | スポットリクエスト | 見つけたインスタンスのリクエストか、インスタンスプロファイルの名前が `llm-lp-` で始まる(インスタンスがなく、リクエストだけ残ったものも見つける) |
 | EventBridge Scheduler のスケジュール、IAM ロール | 名前が `llm-lp-` で始まる |
 | S3 バケット | `Project=llm-launchpad` タグか、名前が `llm-launchpad-` で始まる |
 
 * 各サービスの API で直接探す。Resource Groups Tagging API は、消したあともしばらく一覧に残ることがあるため使わない
-* `terraform/` の下の state(環境の workspace、`model-store`、`budget`)にIDや名前があれば「state にある」とする。S3 backend の state は読まないので、`--state-dir` に `terraform state pull` で取り出した state を置いたディレクトリを渡す
+* `terraform/` の下の state(環境の workspace、`model-store`、`budget`、`bedrock` の workspace)にIDや名前があれば「state にある」とする。S3 backend の state は読まないので、`--state-dir` に `terraform state pull` で取り出した state を置いたディレクトリを渡す
 * `Persistent=true` のタグ(`model-store` と `budget` が付ける)が付いたものは、state になくても消し忘れとは数えない
 * 料金の目安は、インスタンスはスポット価格の履歴か Price List API の時間単価 x 今回の起動からの時間、EBS と S3 は月額で出す。単価はスクリプトに書かず、その都度問い合わせる
 * 終了コードは、消し忘れなしで `0`、消し忘れは見つからなかったが調べられなかった種類やリージョンがあれば `1`、state にないリソースがあれば `2`(調べられなかったものがあっても `2` にする)
@@ -339,6 +385,7 @@ AWS に接続せず、mock provider で plan の結果を確かめる(一部は 
 terraform test
 (cd model-store && terraform test)
 (cd budget && terraform test)
+(cd bedrock && terraform test)
 ```
 
 ## 主な変数

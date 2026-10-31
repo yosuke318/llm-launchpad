@@ -1,0 +1,15 @@
+# Bedrock で呼ぶモデル(terraform/bedrock の model に指定する)。
+#   id: 推論プロファイルのID。jp. で始まるものは、処理が日本国内のリージョン(東京・大阪)に留まる
+#   price_model: Price List API(AmazonBedrockFoundationModels)の model 属性。料金を引くのに使う
+# モデルを使えるかどうかはアカウントによって違う。使えないモデルは「not available for this account」で失敗する
+models:
+  - id: jp.anthropic.claude-haiku-4-5-20251001-v1:0
+    name: Claude Haiku 4.5
+    vendor: Anthropic
+    region: ap-northeast-1
+    price_model: Claude Haiku 4.5
+  - id: jp.anthropic.claude-sonnet-4-6
+    name: Claude Sonnet 4.6
+    vendor: Anthropic
+    region: ap-northeast-1
+    price_model: Claude Sonnet 4.6

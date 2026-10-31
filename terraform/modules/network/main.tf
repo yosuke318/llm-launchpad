@@ -123,7 +123,7 @@ resource "aws_vpc_endpoint" "s3" {
   tags = merge(var.tags, { Name = "${var.name}-s3" })
 }
 
-# SSM 接続用のインターフェイスエンドポイント(閉じたネットワークだけ)。1つあたりAZごとに時間課金があるため、
+# インターフェイスエンドポイント(閉じたネットワークだけ)。既定は SSM 接続用の3つ。1つあたりAZごとに時間課金があるため、
 # インスタンスを起動するAZのサブネットにだけ置く。プライベートDNSで、SSM エージェントは既定の名前のまま使える
 resource "aws_security_group" "endpoints" {
   count = var.private ? 1 : 0
@@ -153,7 +153,7 @@ resource "aws_vpc_security_group_ingress_rule" "endpoints_https" {
 }
 
 resource "aws_vpc_endpoint" "interface" {
-  for_each = var.private ? toset(local.interface_endpoint_services) : toset([])
+  for_each = var.private ? toset(var.interface_endpoint_services) : toset([])
 
   vpc_id              = aws_vpc.this.id
   service_name        = "com.amazonaws.${var.region}.${each.key}"
@@ -164,15 +164,15 @@ resource "aws_vpc_endpoint" "interface" {
 
   tags = merge(var.tags, { Name = "${var.name}-${each.key}" })
 
+  # 消えるまで10分を超えることがある(既定の10分では destroy が失敗する)
+  timeouts {
+    delete = "20m"
+  }
+
   lifecycle {
     precondition {
       condition     = contains(keys(local.subnet_cidrs), coalesce(var.endpoint_availability_zone, "-"))
       error_message = "閉じたネットワークでは、エンドポイントを置くAZ(${coalesce(var.endpoint_availability_zone, "未定")})にサブネットが要ります。"
     }
   }
-}
-
-locals {
-  # ssm: 状態の書き込みと SSM エージェントの登録 / ec2messages と ssmmessages: Session Manager の接続
-  interface_endpoint_services = ["ssm", "ec2messages", "ssmmessages"]
 }

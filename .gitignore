@@ -7,6 +7,8 @@ terraform.tfstate.d/
 crash.log
 crash.*.log
 *.tfplan
+# terraform/bedrock で Lambda のコードを固めた zip
+terraform/bedrock/.build/
 tfplan
 
 # 環境ごとの値(自分のIPなど)を含むため、サンプル以外はコミットしない

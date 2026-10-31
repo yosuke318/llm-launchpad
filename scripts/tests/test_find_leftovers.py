@@ -171,6 +171,23 @@ class FindLeftoversTest(unittest.TestCase):
         self.assertFalse(found["vpce-ssm"]["in_state"])
         self.assertEqual(found["vpce-ssm"]["note"], "1つのAZに置いた分の時間課金がある")
 
+    def test_finds_bedrock_lambda_and_log_group(self):
+        res = responses()
+        res[("lambda", "list-functions", REGION)] = {"Functions": [
+            {"FunctionName": "llm-launchpad-br-haiku-bedrock", "FunctionArn": "arn:aws:lambda:ap-northeast-1:123:function:llm-launchpad-br-haiku-bedrock", "Runtime": "python3.13"},
+            {"FunctionName": "someone-else", "FunctionArn": "arn:aws:lambda:ap-northeast-1:123:function:someone-else"},
+        ]}
+        res[("logs", "describe-log-groups", REGION)] = {"logGroups": [
+            {"logGroupName": "/aws/lambda/llm-launchpad-br-haiku-bedrock", "storedBytes": 2048},
+        ]}
+        code, found = self.resources(FakeAws(res))
+        self.assertEqual(code, 2)
+        self.assertNotIn("someone-else", found)
+        fn = found["llm-launchpad-br-haiku-bedrock"]
+        self.assertEqual((fn["type"], fn["env_id"], fn["in_state"]), ("lambda", "br-haiku", False))
+        log = found["/aws/lambda/llm-launchpad-br-haiku-bedrock"]
+        self.assertEqual((log["type"], log["env_id"]), ("log-group", "br-haiku"))
+
     def test_persistent_resources_are_not_leftovers(self):
         _, found = self.resources()
         self.assertTrue(found["vol-model"]["persistent"])

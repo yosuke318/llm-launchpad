@@ -34,6 +34,10 @@ if command == "output":
         "ssm_port_forward_command": f"aws ssm start-session --target i-0123456789abcdef0 # {ws}",
         "curl_example": "curl http://localhost:11434/api/generate",
         "vpc_id": "vpc-1",
+        # terraform/bedrock の出力
+        "function_name": f"llm-launchpad-{ws}-bedrock",
+        "availability_zone": "ap-northeast-1a",
+        "vpc_endpoint_ids": ["vpce-1"],
     }
     print(json.dumps({k: {"value": v, "type": "string", "sensitive": False} for k, v in values.items()}))
     sys.exit(0)

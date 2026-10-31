@@ -35,6 +35,10 @@ MESSAGES = {
         "ja": "{instance_id} でコマンドを動かせませんでした: {error}",
         "en": "Could not run the command on {instance_id}: {error}",
     },
+    "aws.lambda_failed": {
+        "ja": "Lambda {function} の呼び出しに失敗しました: {error}",
+        "en": "Calling the Lambda function {function} failed: {error}",
+    },
     "aws.command_timeout": {
         "ja": "{instance_id} のコマンドが {sec} 秒たっても終わりませんでした",
         "en": "The command on {instance_id} did not finish in {sec} seconds",
@@ -67,6 +71,10 @@ MESSAGES = {
     "bench.job_not_found": {
         "ja": "計測が見つかりません",
         "en": "The benchmark was not found",
+    },
+    "bedrock.not_ready": {
+        "ja": "Bedrock の環境 {workspace} は、まだ作り終わっていません",
+        "en": "The Bedrock environment {workspace} has not been created yet",
     },
     "chat.no_endpoint": {
         "ja": "環境 {workspace} の接続先(terraform output の ollama_endpoint)を読めませんでした: {error}",
