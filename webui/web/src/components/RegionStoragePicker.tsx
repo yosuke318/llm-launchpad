@@ -6,6 +6,7 @@ import { hourlyTotals, minutes } from "../cost";
 import { storageAllowed } from "../launch";
 import LaunchDialog from "./LaunchDialog";
 import PreflightChecks from "./PreflightChecks";
+import RegionCompare from "./RegionCompare";
 
 interface Props {
   estimate: ModelEstimate;
@@ -92,6 +93,7 @@ export default function RegionStoragePicker({ estimate, contextLength, kvCacheTy
         </select>
       </label>
       {region !== defaultRegion && <p className="warning small">{t("region.moveNotice", { region: regionName(region) })}</p>}
+      {plan && <RegionCompare instanceType={plan.instance_type} region={region} onChoose={setRegion} />}
       {error && <p className="error">{t("region.loadFailed", { error })}</p>}
 
       {plan && (

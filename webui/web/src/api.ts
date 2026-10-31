@@ -189,6 +189,30 @@ export function getRegionPlan(params: { model: string; region: string; context_l
   return request<RegionPlan>(`/api/region-plan?${query}`);
 }
 
+// リージョンごとの比較(インスタンス型を、料金とスポットの起動しやすさで比べる)
+export interface RegionComparisonRow {
+  code: string;
+  name: string;
+  on_demand_hourly_usd: number | null;
+  spot_min: { availability_zone: string; hourly_usd: number } | null;
+  // Spot placement score(1〜10)。取れなかったときは null
+  placement_score: number | null;
+  current: boolean;
+}
+
+export interface RegionComparison {
+  instance_type: string;
+  // スポットの安い順(スポットがなければオンデマンドの安い順)
+  regions: RegionComparisonRow[];
+  recommended: { spot: string | null; on_demand: string | null };
+  low_risk_score: number;
+  warnings: string[];
+}
+
+export function compareRegions(params: { instance_type: string; region: string }) {
+  return request<RegionComparison>(`/api/region-compare?${new URLSearchParams(params)}`);
+}
+
 export function getCatalog() {
   return request<Catalog>("/api/catalog");
 }
