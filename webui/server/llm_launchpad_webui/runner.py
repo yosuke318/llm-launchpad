@@ -41,6 +41,8 @@ LAUNCH_VARIABLES = {
     "instance_type": str,
     # 在庫のないAZを避けたいとき。省くと、インスタンス型を提供しているAZから選ぶ
     "availability_zone": str,
+    # 一覧(catalog/models.yaml)にないモデルの定義。画面で追加したモデルを起動するときに、サーバーが入れる
+    "model_definition": dict,
 }
 
 # 環境ID と同じ規則(terraform/main.tf の time_static.created の precondition)。default はそのまま使える

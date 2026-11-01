@@ -65,6 +65,17 @@ cd webui/web && npm run dev    # http://127.0.0.1:5173 。/api はサーバー(8
 * データは `catalog/models.yaml` と `catalog/instance_types.yaml` を読む。モデル定義を足したら、サーバーを起動し直す
 * 推論エンジンは Ollama だけ(vLLM は選択欄だけ置いて、選べないようにしてある)
 
+### 一覧にないモデルを追加する
+
+「一覧にないモデルを追加する」に、Ollama のタグか Hugging Face の GGUF のリポジトリ名を入れると、モデル定義と同じ項目を調べて一覧に足す。
+
+* 受け付ける形: `qwen3:0.6b`(Ollama library)、`user/model:tag`(Ollama のユーザーのモデル)、`hf.co/ユーザー/リポジトリ:量子化`(Hugging Face。`huggingface.co` の URL でもよい)。タグを省くと `:latest` を付ける
+* 配布サイズは registry(`registry.ollama.ai` / `hf.co`)の manifest から、重みと projector の層の大きさを足して出す
+* 層の数、KVヘッド数、ヘッド次元、最大コンテキスト長などは、GGUF の先頭のメタデータを読む。重みは取らず、トークナイザーの語彙に入ったところで読むのをやめる(数MB)。層ごとの KV ヘッド数が配列のモデル(Mamba などを混ぜたもの)は、0 でない層を注意層として数える
+* 追加したモデルは `terraform/tfvars/added_models.json` に置き、提供元を「Ollama」か「Hugging Face」にして一覧の後ろに出す(「追加」の印を付ける)。「一覧から外す」で消せる。一覧にあるモデルは追加できない
+* 起動するときは、モデル定義を tfvars の `model_definition` に書いて terraform に渡す。`catalog/models.yaml` を書き換えないので、一覧から外しても、起動した環境の削除や起動し直しはできる
+* 読み取った値は、モデル定義のように config.json と見比べて確かめたものではない。見積もりは目安として使う
+
 ### リージョンとモデルの置き場所を選ぶ
 
 モデルを選ぶと、その下に出る。
@@ -205,6 +216,8 @@ terraform のワークスペースのうち、state にリソースがあるも�
 | GET | `/api/catalog` | 提供元、推論エンジン、選べるコンテキスト長と KV キャッシュの型、インスタンス型の表 |
 | GET | `/api/models` | モデルの一覧と見積もり。`?vendor=Alibaba&context_length=32768&kv_cache_type=f16` |
 | GET | `/api/estimate` | 1つのモデルの見積もり。`?model=qwen3:8b&context_length=8192` |
+| POST | `/api/models/added` | 一覧にないモデルを調べて追加する。本文は`{"ref": "hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M"}` |
+| DELETE | `/api/models/added` | 追加したモデルを一覧から外す。`?tag=...` |
 | GET | `/api/regions` | アカウントで使えるリージョンと名前 |
 | GET | `/api/preflight` | 起動前のチェック。`?instance_type=g4dn.xlarge&region=ap-northeast-1` |
 | GET | `/api/region-plan` | リージョンでの料金、AZ、ストレージ方式ごとの料金と起動時間の目安、スポットの placement score。`?model=qwen3:8b&region=ap-northeast-1` |
@@ -256,4 +269,5 @@ cd webui/web && npm test && npm run typecheck
 | `LAUNCHPAD_WEB_DIST` | `webui/web/dist` | 配る画面のディレクトリ |
 | `LAUNCHPAD_BENCHMARK_FILE` | `benchmarks/results.jsonl` | ベンチマークの結果を足していくファイル |
 | `LAUNCHPAD_HISTORY_FILE` | `terraform/tfvars/history.jsonl` | 起動した設定の履歴を足していくファイル |
+| `LAUNCHPAD_ADDED_MODELS_FILE` | `terraform/tfvars/added_models.json` | 一覧にないモデルを追加したときの定義のファイル |
 | `LAUNCHPAD_PRESETS_FILE` | `terraform/tfvars/presets.json` | 名前を付けて保存した設定のファイル |

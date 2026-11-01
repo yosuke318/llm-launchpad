@@ -13,6 +13,24 @@ variable "model" {
   type        = string
 }
 
+variable "model_definition" {
+  description = "モデル定義(models_file)にないモデルの定義。項目は models_file と同じ。null ならモデル定義から探す"
+  type = object({
+    vendor           = optional(string, "")
+    name             = optional(string, "")
+    params_b         = optional(number, 0)
+    quantization     = optional(string, "")
+    file_size_gb     = number
+    max_context      = number
+    layers           = number
+    attention_layers = optional(number)
+    kv_heads         = number
+    head_dim         = number
+    license          = optional(string, "")
+  })
+  default = null
+}
+
 variable "context_length" {
   description = "コンテキスト長(トークン)"
   type        = number

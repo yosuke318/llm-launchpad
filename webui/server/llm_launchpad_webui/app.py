@@ -6,6 +6,7 @@
 """
 
 import asyncio
+import dataclasses
 import datetime
 import json
 import os
@@ -24,6 +25,7 @@ from .chat import ChatError, ChatUnreachable, chat_once
 from .environments import build_environment, drop_deleted, find_leftovers, hourly_usd, managed_resources, state_identifiers, state_instance
 from .launch_history import NAME_MAX_LENGTH, LaunchHistory, LaunchPresets
 from .messages import language, parse_accept_language, t
+from .model_lookup import DEFINITION_FIELDS, AddedModels, ModelLookupError, lookup
 from .runner import COMMANDS, WORKSPACE_PATTERN, BusyError, Runner, RunnerError, list_workspaces
 from .preflight import run_preflight
 from .region_compare import compare as compare_regions
@@ -53,6 +55,8 @@ BENCHMARK_FILE = os.environ.get("LAUNCHPAD_BENCHMARK_FILE", os.path.join(REPO_RO
 HISTORY_FILE = os.environ.get("LAUNCHPAD_HISTORY_FILE")
 # 名前を付けて保存した設定。指定がなければ terraform/tfvars/presets.json
 PRESETS_FILE = os.environ.get("LAUNCHPAD_PRESETS_FILE")
+# 画面で追加した、一覧にないモデル。指定がなければ terraform/tfvars/added_models.json
+ADDED_MODELS_FILE = os.environ.get("LAUNCHPAD_ADDED_MODELS_FILE")
 
 # 何も流れない間も接続が切れないよう、この秒数ごとに SSE のコメントを送る
 HEARTBEAT_SEC = 15
@@ -81,6 +85,11 @@ class PresetRequest(BaseModel):
     name: str
     # 保存する起動の履歴の id
     history_id: str
+
+
+class AddModelRequest(BaseModel):
+    # Ollama のタグか Hugging Face のリポジトリ名
+    ref: str
 
 
 class RelaunchRequest(BaseModel):
@@ -122,7 +131,8 @@ class BedrockChatRequest(BaseModel):
 def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, catalog_dir: str = CATALOG_DIR,
                aws_info: AwsInfo | None = None, benchmark_file: str = BENCHMARK_FILE,
                bedrock_runner: Runner | None = None, history_file: str | None = HISTORY_FILE,
-               presets_file: str | None = PRESETS_FILE) -> FastAPI:
+               presets_file: str | None = PRESETS_FILE, added_models_file: str | None = ADDED_MODELS_FILE,
+               model_lookup=lookup) -> FastAPI:
     app = FastAPI(title="llm-launchpad WebUI")
     app.state.runner = runner or Runner(TERRAFORM_DIR, TERRAFORM_BIN)
     app.state.bedrock_runner = bedrock_runner or Runner(BEDROCK_TERRAFORM_DIR, TERRAFORM_BIN, launch_variables=bedrock.LAUNCH_VARIABLES)
@@ -134,6 +144,7 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
     app.state.benchmarks = BenchmarkStore(benchmark_file)
     app.state.benchmark_jobs = {}
     app.state.launch_history = LaunchHistory(history_file or os.path.join(app.state.runner.terraform_dir, "tfvars", "history.jsonl"))
+    app.state.added_models = AddedModels(added_models_file or os.path.join(app.state.runner.terraform_dir, "tfvars", "added_models.json"))
     app.state.launch_presets = LaunchPresets(presets_file or os.path.join(app.state.runner.terraform_dir, "tfvars", "presets.json"))
     app.state.tasks = set()
     # チャットの送り先(terraform output)。環境ごとに1回だけ読む
@@ -266,8 +277,30 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
         return [az for az in subnet_azs if az in offered]
 
     def catalog():
-        # catalog/*.yaml をそのまま読む(モデル定義を足したら、サーバーを起動し直すと反映される)
-        return load_catalog(catalog_dir)
+        # catalog/*.yaml をそのまま読む(モデル定義を足したら、サーバーを起動し直すと反映される)。
+        # 画面で追加したモデルは added を付けて後ろに足す。一覧と同じタグなら一覧のほうを使う
+        base = load_catalog(catalog_dir)
+        added = {tag: {**m, "added": True} for tag, m in app.state.added_models.all().items() if tag not in base.models}
+        return dataclasses.replace(base, models={**base.models, **added}) if added else base
+
+    @app.post("/api/models/added", status_code=201)
+    def add_model(req: AddModelRequest):
+        """一覧にないモデルを、Ollama のタグか Hugging Face のリポジトリ名から調べて追加する。registry に問い合わせるので数秒かかる"""
+        try:
+            tag, definition = model_lookup(req.ref)
+        except ModelLookupError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        if tag in load_catalog(catalog_dir).models:
+            raise HTTPException(status_code=409, detail=t("model_lookup.in_catalog", model=tag))
+        app.state.added_models.add(tag, definition)
+        return {"tag": tag, "model": {**definition, "added": True}}
+
+    @app.delete("/api/models/added")
+    def remove_added_model(tag: str):
+        """追加したモデルを一覧から外す。起動している環境はそのまま(tfvars にモデル定義を書いてあるので、削除もできる)"""
+        if not app.state.added_models.remove(tag):
+            raise HTTPException(status_code=404, detail=t("added_model.not_found", model=tag))
+        return {"removed": tag}
 
     @app.get("/api/catalog")
     def catalog_summary():
@@ -339,10 +372,19 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
         """起動の確認で Yes を押したとき。tfvars/<環境ID>.tfvars.json を書き、init と apply を実行する。
         料金がかかるインスタンスを作るので、画面の確認を通したときだけ呼ぶ"""
         model = req.variables.get("model")
-        if not isinstance(model, str) or model not in catalog().models:
+        models = catalog().models
+        if not isinstance(model, str) or model not in models:
             raise HTTPException(status_code=422, detail=t("model.unknown", model=model))
+        # 追加したモデルは terraform のモデル定義にないので、定義を tfvars に書いて渡す
+        variables = {k: v for k, v in req.variables.items() if k != "model_definition"}
+        if models[model].get("added"):
+            definition = {k: models[model][k] for k in DEFINITION_FIELDS if models[model].get(k) is not None}
+            # 全層が注意層なら attention_layers は書かない(画面に出す tfvars と同じ)
+            if definition.get("attention_layers") == definition["layers"]:
+                del definition["attention_layers"]
+            variables["model_definition"] = definition
         try:
-            run = await app.state.runner.launch(req.workspace, req.variables)
+            run = await app.state.runner.launch(req.workspace, variables)
         except BusyError as e:
             raise HTTPException(status_code=409, detail=str(e))
         except RunnerError as e:
@@ -696,7 +738,8 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
             except AwsInfoError as e:
                 warnings.append(str(e))
 
-        model = catalog().models.get((tfvars or {}).get("model"))
+        # 追加したモデルを一覧から外していても、tfvars に書いた定義で見る
+        model = catalog().models.get((tfvars or {}).get("model")) or (tfvars or {}).get("model_definition")
         result = build_progress(workspace, tfvars, run, status, model["file_size_gb"] if model else None)
 
         error = result["error"]

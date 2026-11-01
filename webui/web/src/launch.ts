@@ -1,4 +1,4 @@
-import type { LaunchRecord, LaunchVariables, ModelEstimate, NetworkMode, RegionPlan, StorageOption } from "./api";
+import type { LaunchRecord, LaunchVariables, ModelDefinition, ModelEstimate, NetworkMode, RegionPlan, StorageOption } from "./api";
 import { hourlyTotal, networkHourly } from "./cost";
 
 // モデルのタグから環境ID(ワークスペース名)の候補を作る。英小文字・数字・ハイフンの20文字以内(terraform の規則)
@@ -77,6 +77,25 @@ export function launchVariables(
     max_lifetime_hours: settings.maxLifetimeHours,
     // EBS永続はボリュームのAZに起動するので書かない
     ...(settings.availabilityZone && option.id !== "ebs" ? { availability_zone: settings.availabilityZone } : {}),
+    ...(estimate.model.added ? { model_definition: modelDefinition(estimate.model) } : {}),
+  };
+}
+
+// 追加したモデルの定義。サーバーも同じ項目を tfvars に書く(attention_layers は全層と違うときだけ)
+function modelDefinition(m: ModelDefinition): NonNullable<LaunchVariables["model_definition"]> {
+  const { vendor, name, params_b, quantization, file_size_gb, max_context, layers, attention_layers, kv_heads, head_dim, license } = m;
+  return {
+    vendor,
+    name,
+    params_b,
+    quantization,
+    file_size_gb,
+    max_context,
+    layers,
+    ...(attention_layers !== layers ? { attention_layers } : {}),
+    kv_heads,
+    head_dim,
+    license,
   };
 }
 

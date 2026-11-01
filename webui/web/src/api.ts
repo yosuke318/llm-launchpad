@@ -107,6 +107,8 @@ export interface ModelDefinition {
   kv_heads: number;
   head_dim: number;
   license: string;
+  // 画面で追加した、一覧(catalog/models.yaml)にないモデル
+  added?: boolean;
 }
 
 export interface VramEstimate {
@@ -223,6 +225,15 @@ export function listModels(params: { vendor?: string; context_length: number; kv
   return request<{ models: ModelEstimate[] }>(`/api/models?${query}`).then((r) => r.models);
 }
 
+// 一覧にないモデルを、Ollama のタグか Hugging Face のリポジトリ名から調べて追加する。registry に問い合わせるので数秒かかる
+export function addModel(ref: string) {
+  return request<{ tag: string; model: Omit<ModelDefinition, "tag"> }>("/api/models/added", { method: "POST", body: JSON.stringify({ ref }) });
+}
+
+export function removeAddedModel(tag: string) {
+  return request<{ removed: string }>(`/api/models/added?${new URLSearchParams({ tag })}`, { method: "DELETE" });
+}
+
 // 起動前の事前チェック
 
 export type CheckStatus = "ok" | "ng" | "unknown";
@@ -272,6 +283,8 @@ export interface LaunchVariables {
   max_lifetime_hours: number;
   // 省くと、インスタンス型を提供しているAZから terraform が選ぶ
   availability_zone?: string;
+  // 画面で追加した、一覧にないモデルの定義(terraform の model_definition)
+  model_definition?: Partial<Omit<ModelDefinition, "tag" | "added">>;
 }
 
 export function launch(workspace: string, variables: LaunchVariables) {
