@@ -119,6 +119,7 @@ cd webui/web && npm run dev    # http://127.0.0.1:5173 。/api はサーバー(8
 * 「この設定で起動」を押すと、モデル、コンテキスト長、KV キャッシュの型、リージョン、ネットワーク、モデルの置き場所を選び直し、料金と起動前のチェックがそろったところで起動の確認を開く。購入方法、AZ、自動停止、環境IDも履歴の値を入れておく。すぐには起動せず、確認で「はい」を押したときだけ起動する
 * 料金と起動前のチェックは、そのときの値で出し直す。チェックに通らなければ確認は開かない。履歴の購入方法がチェックに通らなければ通ったほうに、履歴のAZが今は選べなければ自動にする
 * 同じ環境IDの環境が動いているときは、その環境IDは入れない(モデル名から作った既定にする)。モデル定義から消したモデルは選べない
+* 履歴の「名前を付けて保存」で、その設定に名前を付けて `terraform/tfvars/presets.json` に保存できる。保存した設定は履歴の上に名前の順で出し、「この設定で起動」で履歴と同じように起動の確認を開く。同じ名前で保存すると置き換える。名前は1〜40文字。保存した設定を削除しても、起動している環境はそのまま
 
 ### 起動の進み具合
 
@@ -228,6 +229,9 @@ terraform のワークスペースのうち、state にリソースがあるも�
 | POST | `/api/bedrock/environments/{環境ID}/destroy` | `terraform/bedrock` で init と destroy を実行する。成功したら tfvars を消す |
 | POST | `/api/launch` | tfvars を書いて init と apply を実行する。`{"workspace": "qwen3-8b", "variables": {"model": "qwen3:8b", ...}}` |
 | GET | `/api/launch-history` | 起動した設定の履歴(新しい順、同じ設定は1件)。同じ環境IDの環境が動いていれば `in_use` が true |
+| GET | `/api/presets` | 名前を付けて保存した設定(名前の順)。`model_name`と`in_use`は履歴と同じ |
+| POST | `/api/presets` | 起動の履歴に名前を付けて保存する。本文は`{"name": "...", "history_id": "..."}`。同じ名前があれば置き換える |
+| DELETE | `/api/presets/{id}` | 保存した設定を削除する |
 | GET | `/api/workspaces` | `terraform workspace list` の結果 |
 | POST | `/api/runs` | コマンドを実行する。`{"command": "plan", "workspace": "qwen-test", "variables": {...}}` |
 | GET | `/api/runs` | 実行の一覧(新しい順) |
@@ -252,3 +256,4 @@ cd webui/web && npm test && npm run typecheck
 | `LAUNCHPAD_WEB_DIST` | `webui/web/dist` | 配る画面のディレクトリ |
 | `LAUNCHPAD_BENCHMARK_FILE` | `benchmarks/results.jsonl` | ベンチマークの結果を足していくファイル |
 | `LAUNCHPAD_HISTORY_FILE` | `terraform/tfvars/history.jsonl` | 起動した設定の履歴を足していくファイル |
+| `LAUNCHPAD_PRESETS_FILE` | `terraform/tfvars/presets.json` | 名前を付けて保存した設定のファイル |

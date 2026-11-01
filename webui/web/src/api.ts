@@ -278,10 +278,9 @@ export function launch(workspace: string, variables: LaunchVariables) {
   return request<RunSummary>("/api/launch", { method: "POST", body: JSON.stringify({ workspace, variables }) });
 }
 
-// 起動した設定の履歴。新しい順で、同じ設定は1件にまとめてある
-export interface LaunchHistoryEntry {
+// 起動の履歴と保存した設定に共通の部分。この値で起動の確認を開き直せる
+export interface LaunchRecord {
   id: string;
-  launched_at: string;
   workspace: string;
   variables: LaunchVariables;
   // モデル定義から消したモデルは null
@@ -290,8 +289,32 @@ export interface LaunchHistoryEntry {
   in_use: boolean;
 }
 
+// 起動した設定の履歴。新しい順で、同じ設定は1件にまとめてある
+export interface LaunchHistoryEntry extends LaunchRecord {
+  launched_at: string;
+}
+
 export function listLaunchHistory() {
   return request<{ launches: LaunchHistoryEntry[] }>("/api/launch-history");
+}
+
+// 名前を付けて保存した設定。名前の順
+export interface LaunchPreset extends LaunchRecord {
+  name: string;
+  saved_at: string;
+}
+
+export function listPresets() {
+  return request<{ presets: LaunchPreset[] }>("/api/presets");
+}
+
+// 起動の履歴を、名前を付けて保存する。同じ名前があれば置き換える
+export function savePreset(name: string, historyId: string) {
+  return request<LaunchPreset>("/api/presets", { method: "POST", body: JSON.stringify({ name, history_id: historyId }) });
+}
+
+export function deletePreset(id: string) {
+  return request<{ deleted: string }>(`/api/presets/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 // 在庫がなくて作れなかった環境を、AZを変えて起動し直す。null なら terraform が選ぶ

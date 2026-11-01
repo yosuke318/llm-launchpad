@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { getCatalog, listModels, type Catalog, type LaunchHistoryEntry, type ModelEstimate } from "../api";
+import { getCatalog, listModels, type Catalog, type LaunchRecord, type ModelEstimate } from "../api";
 import { presetContextLength, presetFromHistory, type Preset } from "../launch";
 import { isTight, vramSegments } from "../vram";
 import BedrockPanel from "./BedrockPanel";
@@ -20,7 +20,7 @@ export default function ModelPicker() {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  // 履歴から選んだ設定。同じ履歴を選び直しても起動の確認を開き直せるよう、選ぶたびに番号を変える
+  // 履歴や保存した設定から選んだもの。同じ履歴を選び直しても起動の確認を開き直せるよう、選ぶたびに番号を変える
   const [preset, setPreset] = useState<(Preset & { key: number }) | null>(null);
 
   const num = useMemo(() => new Intl.NumberFormat(i18n.language, { maximumFractionDigits: 2 }), [i18n.language]);
@@ -57,8 +57,8 @@ export default function ModelPicker() {
     setPreset(null);
   }
 
-  // 履歴の設定を、モデル・コンテキスト長・KV キャッシュの型の選択に入れる。リージョンから先は RegionStoragePicker が入れる
-  function choosePreset(entry: LaunchHistoryEntry) {
+  // 履歴や保存した設定を、モデル・コンテキスト長・KV キャッシュの型の選択に入れる。リージョンから先は RegionStoragePicker が入れる
+  function choosePreset(entry: LaunchRecord) {
     if (!catalog) return;
     const v = entry.variables;
     setEngine("ollama");

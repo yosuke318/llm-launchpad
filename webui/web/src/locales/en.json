@@ -158,6 +158,21 @@
     "choose": "Launch with these",
     "note": "Opens the launch confirmation with the same settings. Prices and preflight checks are fetched again. Repeated launches with the same settings are shown once (the newest)."
   },
+  "presets": {
+    "title": "Saved settings",
+    "loadFailed": "Could not load saved settings: {{error}}",
+    "name": "Name",
+    "savedAt": "Saved",
+    "save": "Save with a name",
+    "namePlaceholder": "e.g. gemma3 test in Tokyo",
+    "submit": "Save",
+    "cancel": "Cancel",
+    "saveFailed": "Could not save: {{error}}",
+    "delete": "Delete",
+    "confirmDelete": "Delete the saved settings \"{{name}}\"? Running environments are not affected",
+    "deleteFailed": "Could not delete: {{error}}",
+    "note": "Save settings you use often from \"Launch with previous settings\" below. Saving with the same name replaces them."
+  },
   "preflight": {
     "heading": "Checks before launch",
     "recheck": "Check again",

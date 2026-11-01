@@ -138,3 +138,61 @@ def test_history_lists_unknown_model_without_name(tmp_path):
     with TestClient(create_app(Runner(str(tmp_path)), web_dist=None, history_file=str(path))) as c:
         entry = c.get("/api/launch-history").json()["launches"][0]
     assert entry["model_name"] is None, "モデル定義から消したモデルは、名前を出さない"
+
+
+def test_history_can_be_saved_as_preset(client, terraform_dir):
+    events(client, launch(client).json()["id"])
+    history_id = client.get("/api/launch-history").json()["launches"][0]["id"]
+
+    res = client.post("/api/presets", json={"name": "  東京で検証  ", "history_id": history_id})
+    assert res.status_code == 201, res.text
+    preset = res.json()
+    assert preset["name"] == "東京で検証", "前後の空白は落とす"
+    assert preset["workspace"] == "qwen3-8b"
+    assert preset["variables"] == VARIABLES
+    assert preset["model_name"] == "Qwen3 8B"
+    assert preset["in_use"] is True
+
+    (terraform_dir / "tfvars" / "qwen3-8b.tfvars.json").unlink()
+    assert client.get("/api/presets").json()["presets"][0]["in_use"] is False
+
+
+def test_preset_with_same_name_is_replaced_and_listed_by_name(client):
+    for workspace, variables in [("first", VARIABLES), ("second", {**VARIABLES, "purchase_option": "on-demand"})]:
+        events(client, launch(client, workspace, variables).json()["id"])
+    second, first = client.get("/api/launch-history").json()["launches"]
+    client.post("/api/presets", json={"name": "b", "history_id": first["id"]})
+    client.post("/api/presets", json={"name": "a", "history_id": first["id"]})
+    client.post("/api/presets", json={"name": "b", "history_id": second["id"]})
+    presets = client.get("/api/presets").json()["presets"]
+    assert [(p["name"], p["workspace"]) for p in presets] == [("a", "first"), ("b", "second")]
+
+
+@pytest.mark.parametrize("body, status", [
+    ({"name": " ", "history_id": "x"}, 422),
+    ({"name": "x" * 41, "history_id": "x"}, 422),
+    ({"name": "ok", "history_id": "no-such"}, 404),
+])
+def test_save_preset_rejects_invalid_input(client, body, status):
+    assert client.post("/api/presets", json=body).status_code == status
+    assert client.get("/api/presets").json() == {"presets": []}
+
+
+def test_preset_can_be_deleted(client):
+    events(client, launch(client).json()["id"])
+    history_id = client.get("/api/launch-history").json()["launches"][0]["id"]
+    preset_id = client.post("/api/presets", json={"name": "a", "history_id": history_id}).json()["id"]
+    assert client.delete(f"/api/presets/{preset_id}").status_code == 200
+    assert client.get("/api/presets").json() == {"presets": []}
+    assert client.delete(f"/api/presets/{preset_id}").status_code == 404
+
+
+def test_old_history_beyond_the_list_can_be_saved(tmp_path):
+    history = LaunchHistory(str(tmp_path / "history.jsonl"))
+    oldest = history.append("old-env", VARIABLES)
+    for i in range(25):
+        history.append(f"env-{i}", {**VARIABLES, "idle_stop_minutes": 10 + i})
+    assert oldest["id"] not in [r["id"] for r in history.list()]
+    with TestClient(create_app(Runner(str(tmp_path)), web_dist=None, history_file=history.path,
+                               presets_file=str(tmp_path / "presets.json"))) as c:
+        assert c.post("/api/presets", json={"name": "old", "history_id": oldest["id"]}).status_code == 201

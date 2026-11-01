@@ -1178,6 +1178,25 @@ button.danger:disabled {
   font-weight: 600;
 }
 
+.launch-history h3 {
+  margin: 0 0 8px;
+}
+
+.history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.history-actions button {
+  white-space: nowrap;
+}
+
+.history-actions input {
+  width: 12em;
+}
+
 .region-recommend {
   margin: 8px 0;
   padding-left: 1.2em;
