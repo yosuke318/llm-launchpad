@@ -278,6 +278,22 @@ export function launch(workspace: string, variables: LaunchVariables) {
   return request<RunSummary>("/api/launch", { method: "POST", body: JSON.stringify({ workspace, variables }) });
 }
 
+// 起動した設定の履歴。新しい順で、同じ設定は1件にまとめてある
+export interface LaunchHistoryEntry {
+  id: string;
+  launched_at: string;
+  workspace: string;
+  variables: LaunchVariables;
+  // モデル定義から消したモデルは null
+  model_name: string | null;
+  // 同じ環境IDの環境が、いま動いている(tfvars がある)
+  in_use: boolean;
+}
+
+export function listLaunchHistory() {
+  return request<{ launches: LaunchHistoryEntry[] }>("/api/launch-history");
+}
+
 // 在庫がなくて作れなかった環境を、AZを変えて起動し直す。null なら terraform が選ぶ
 export function relaunch(workspace: string, availabilityZone: string | null) {
   return request<RunSummary>(`/api/environments/${encodeURIComponent(workspace)}/relaunch`, {

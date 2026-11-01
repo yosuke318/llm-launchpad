@@ -138,6 +138,26 @@
     "none": "No region offers {{type}}.",
     "note": "Spot is the current price in the cheapest AZ of the region. The interruption risk is AWS's Spot placement score for the whole region and may differ in practice. If you change the region, the model storage and the vCPU quota are those of that region (checked before launch)."
   },
+  "history": {
+    "open": "Launch with previous settings ({{count}})",
+    "loadFailed": "Could not load launch history: {{error}}",
+    "columns": {
+      "launchedAt": "Launched",
+      "model": "Model",
+      "where": "Region / storage",
+      "purchase": "Purchase",
+      "autoStop": "Auto stop",
+      "envId": "Environment ID"
+    },
+    "context": "Context {{length}} · KV {{kv}}",
+    "spot": "Spot",
+    "onDemand": "On-demand",
+    "autoStop": "Idle {{idle}} min · max {{hours}} h",
+    "inUse": "An environment with this ID is running. Pick an ID no other environment uses in the confirmation",
+    "unknownModel": "Model not in the catalog",
+    "choose": "Launch with these",
+    "note": "Opens the launch confirmation with the same settings. Prices and preflight checks are fetched again. Repeated launches with the same settings are shown once (the newest)."
+  },
   "preflight": {
     "heading": "Checks before launch",
     "recheck": "Check again",

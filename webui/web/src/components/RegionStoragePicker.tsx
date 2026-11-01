@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { getRegionPlan, listRegions, type ModelEstimate, type NetworkMode, type Preflight, type Region, type RegionPlan, type StorageId } from "../api";
 import { hourlyTotals, minutes } from "../cost";
-import { storageAllowed } from "../launch";
+import { storageAllowed, type Preset } from "../launch";
 import LaunchDialog from "./LaunchDialog";
 import PreflightChecks from "./PreflightChecks";
 import RegionCompare from "./RegionCompare";
@@ -12,16 +12,18 @@ interface Props {
   estimate: ModelEstimate;
   contextLength: number;
   kvCacheType: string;
+  // 履歴の設定で起動し直すとき。その設定のリージョンと置き場所を選び、事前チェックに通ったら起動の確認を開く
+  preset?: Preset | null;
 }
 
 // 選んだモデルについて、リージョンとモデルの置き場所(ストレージ方式)を選ぶ。料金と起動時間の目安を並べる
-export default function RegionStoragePicker({ estimate, contextLength, kvCacheType }: Props) {
+export default function RegionStoragePicker({ estimate, contextLength, kvCacheType, preset }: Props) {
   const { t, i18n } = useTranslation();
   const [regions, setRegions] = useState<Region[]>([]);
   const [defaultRegion, setDefaultRegion] = useState("ap-northeast-1");
-  const [region, setRegion] = useState("ap-northeast-1");
-  const [storage, setStorage] = useState<StorageId>("s3_cache");
-  const [networkMode, setNetworkMode] = useState<NetworkMode>("public");
+  const [region, setRegion] = useState(preset?.entry.variables.region ?? "ap-northeast-1");
+  const [storage, setStorage] = useState<StorageId>(preset?.entry.variables.model_storage ?? "s3_cache");
+  const [networkMode, setNetworkMode] = useState<NetworkMode>(preset?.entry.variables.network_mode ?? "public");
   const [plan, setPlan] = useState<RegionPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -46,7 +48,8 @@ export default function RegionStoragePicker({ estimate, contextLength, kvCacheTy
       .then((r) => {
         setRegions(r.regions);
         setDefaultRegion(r.default);
-        setRegion(r.default);
+        // 履歴の設定なら、そのリージョンのままにする
+        if (!preset) setRegion(r.default);
       })
       .catch((e: Error) => setError(e.message));
   }, []);
@@ -71,6 +74,15 @@ export default function RegionStoragePicker({ estimate, contextLength, kvCacheTy
   // 閉じたネットワークで選べない方式(毎回ダウンロード)を選んでいたら、選んでいないことにする
   const selected = plan?.storage_options.find((o) => o.id === storage && storageAllowed(o.id, networkMode)) ?? null;
   const totals = plan && selected ? hourlyTotals(plan, selected, networkMode) : null;
+
+  // 履歴の設定のときは、料金と事前チェックがそろったところで一度だけ起動の確認を開く
+  const presetOpened = useRef(false);
+  const preflightOk = !!preflight && preflight.region === region && (preflight.can_proceed.spot || preflight.can_proceed.on_demand);
+  useEffect(() => {
+    if (!preset || presetOpened.current || !plan || plan.region !== region || !selected || !preflightOk) return;
+    presetOpened.current = true;
+    setConfirming(true);
+  }, [preset, plan, region, selected, preflightOk]);
 
   function chooseNetwork(mode: NetworkMode) {
     setNetworkMode(mode);
@@ -234,6 +246,7 @@ export default function RegionStoragePicker({ estimate, contextLength, kvCacheTy
               option={selected}
               networkMode={networkMode}
               preflight={preflight}
+              initial={preset ? { settings: preset.settings, envId: preset.envId } : undefined}
               onClose={() => setConfirming(false)}
             />
           )}
