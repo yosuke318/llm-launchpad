@@ -1,4 +1,4 @@
-import type { LaunchVariables, ModelEstimate, NetworkMode, RegionPlan, StorageOption } from "./api";
+import type { LaunchHistoryEntry, LaunchVariables, ModelEstimate, NetworkMode, RegionPlan, StorageOption } from "./api";
 import { hourlyTotal, networkHourly } from "./cost";
 
 // モデルのタグから環境ID(ワークスペース名)の候補を作る。英小文字・数字・ハイフンの20文字以内(terraform の規則)
@@ -105,4 +105,33 @@ export function validIdleStop(minutes: number) {
 
 export function validMaxLifetime(hours: number) {
   return Number.isInteger(hours) && hours >= 0 && hours <= 720;
+}
+
+// 履歴の設定で起動し直すときの値。起動の確認には、この値を入れた状態で開く
+export interface Preset {
+  entry: LaunchHistoryEntry;
+  settings: LaunchSettings;
+  // 同じ環境IDの環境が動いていれば null(モデルのタグから作った候補にする)
+  envId: string | null;
+}
+
+export function presetFromHistory(entry: LaunchHistoryEntry): Preset {
+  const v = entry.variables;
+  return {
+    entry,
+    settings: {
+      purchaseOption: v.purchase_option,
+      idleStopMinutes: v.idle_stop_minutes,
+      maxLifetimeHours: v.max_lifetime_hours,
+      availabilityZone: v.availability_zone ?? null,
+    },
+    envId: entry.in_use ? null : entry.workspace,
+  };
+}
+
+// 画面で選べるコンテキスト長のうち、履歴の値を選んだのと同じ見積もりになるもの。
+// モデルの最大に合わせて書いた値(選択肢にない)なら、それ以上で一番小さいもの(見積もりでは最大に合わせ直される)
+export function presetContextLength(choices: number[], contextLength: number) {
+  if (choices.includes(contextLength)) return contextLength;
+  return choices.find((c) => c >= contextLength) ?? choices[choices.length - 1] ?? contextLength;
 }

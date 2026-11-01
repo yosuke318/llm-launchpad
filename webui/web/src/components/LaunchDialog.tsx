@@ -12,6 +12,7 @@ import {
   validIdleStop,
   validMaxLifetime,
   zonePlacement,
+  type LaunchSettings,
 } from "../launch";
 import { useRun } from "../runContext";
 
@@ -21,21 +22,33 @@ interface Props {
   option: StorageOption;
   networkMode: NetworkMode;
   preflight: Preflight;
+  // 履歴の設定で起動し直すときに、最初から入れておく値。envId が null ならモデルのタグから作る
+  initial?: { settings: LaunchSettings; envId: string | null };
   onClose: () => void;
 }
 
 // 起動の確認。表示した内容を tfvars に書き、Yes で terraform apply に進み、起動の進み具合のタブに切り替える。No なら閉じて選び直す
-export default function LaunchDialog({ estimate, plan, option, networkMode, preflight, onClose }: Props) {
+export default function LaunchDialog({ estimate, plan, option, networkMode, preflight, initial, onClose }: Props) {
   const { t, i18n } = useTranslation();
   const { start, showProgress } = useRun();
   const dialogRef = useRef<HTMLDialogElement>(null);
 
-  const [envId, setEnvId] = useState(() => defaultEnvId(estimate.model.tag));
-  const [purchaseOption, setPurchaseOption] = useState<"spot" | "on-demand">(preflight.can_proceed.spot ? "spot" : "on-demand");
-  const [idleStopMinutes, setIdleStopMinutes] = useState(30);
-  const [maxLifetimeHours, setMaxLifetimeHours] = useState(8);
-  // 在庫のないAZを避けたいときに選ぶ。空なら terraform が選ぶ
-  const [availabilityZone, setAvailabilityZone] = useState<string | null>(null);
+  const zones = plan.availability.launchable_zones ?? [];
+  const [envId, setEnvId] = useState(() => initial?.envId ?? defaultEnvId(estimate.model.tag));
+  // 履歴の購入方法でも、事前チェックに通っていなければ、通ったほうにする
+  const [purchaseOption, setPurchaseOption] = useState<"spot" | "on-demand">(() => {
+    const wanted = initial?.settings.purchaseOption;
+    if (wanted === "spot" && preflight.can_proceed.spot) return "spot";
+    if (wanted === "on-demand" && preflight.can_proceed.on_demand) return "on-demand";
+    return preflight.can_proceed.spot ? "spot" : "on-demand";
+  });
+  const [idleStopMinutes, setIdleStopMinutes] = useState(initial?.settings.idleStopMinutes ?? 30);
+  const [maxLifetimeHours, setMaxLifetimeHours] = useState(initial?.settings.maxLifetimeHours ?? 8);
+  // 在庫のないAZを避けたいときに選ぶ。空なら terraform が選ぶ。履歴のAZが今は選べなければ、terraform に選ばせる
+  const [availabilityZone, setAvailabilityZone] = useState<string | null>(() => {
+    const wanted = initial?.settings.availabilityZone;
+    return wanted && zones.includes(wanted) ? wanted : null;
+  });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,7 +64,6 @@ export default function LaunchDialog({ estimate, plan, option, networkMode, pref
   const num = useMemo(() => new Intl.NumberFormat(i18n.language, { maximumFractionDigits: 2 }), [i18n.language]);
   const money = (v: number | null | undefined) => (v == null ? t("region.unknown") : usd.format(v));
 
-  const zones = plan.availability.launchable_zones ?? [];
   // EBS永続はボリュームのあるAZに決まる
   const fixedZone = option.id === "ebs" ? ebsVolumeZone(plan) : null;
   // 価格と中断のリスクを出すAZ。自動なら terraform が選ぶAZ(選べるAZの最初)

@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from llm_launchpad_webui.app import create_app
+from llm_launchpad_webui.launch_history import LaunchHistory
 from llm_launchpad_webui.runner import Runner
 
 from test_app import events, log_lines
@@ -102,3 +103,38 @@ def test_launch_is_busy_while_another_run(client):
 
 def test_runs_api_still_cannot_apply(client):
     assert client.post("/api/runs", json={"command": "apply"}).status_code == 422
+
+
+def test_launch_is_kept_in_history(client, terraform_dir):
+    run = launch(client, variables={**VARIABLES, "instance_type": None}).json()
+    events(client, run["id"])
+    launches = client.get("/api/launch-history").json()["launches"]
+    assert len(launches) == 1
+    entry = launches[0]
+    assert entry["workspace"] == "qwen3-8b"
+    assert entry["variables"] == VARIABLES, "tfvars に書いた値(null を除いたもの)を残す"
+    assert entry["model_name"] == "Qwen3 8B"
+    assert entry["in_use"] is True, "tfvars がある環境IDは、いま動いている"
+
+    (terraform_dir / "tfvars" / "qwen3-8b.tfvars.json").unlink()
+    assert client.get("/api/launch-history").json()["launches"][0]["in_use"] is False, "削除して tfvars が消えても、履歴は残る"
+
+
+def test_history_keeps_newest_of_same_settings(client):
+    for workspace, variables in [("first", VARIABLES), ("second", {**VARIABLES, "purchase_option": "on-demand"}), ("third", VARIABLES)]:
+        events(client, launch(client, workspace, variables).json()["id"])
+    launches = client.get("/api/launch-history").json()["launches"]
+    assert [(e["workspace"], e["variables"]["purchase_option"]) for e in launches] == [("third", "spot"), ("second", "on-demand")]
+
+
+def test_rejected_launch_is_not_kept_in_history(client):
+    assert launch(client, "default").status_code == 422
+    assert client.get("/api/launch-history").json() == {"launches": []}
+
+
+def test_history_lists_unknown_model_without_name(tmp_path):
+    path = tmp_path / "history.jsonl"
+    LaunchHistory(str(path)).append("old-env", {**VARIABLES, "model": "removed:1b"})
+    with TestClient(create_app(Runner(str(tmp_path)), web_dist=None, history_file=str(path))) as c:
+        entry = c.get("/api/launch-history").json()["launches"][0]
+    assert entry["model_name"] is None, "モデル定義から消したモデルは、名前を出さない"

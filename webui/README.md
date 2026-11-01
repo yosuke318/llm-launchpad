@@ -111,6 +111,15 @@ cd webui/web && npm run dev    # http://127.0.0.1:5173 。/api はサーバー(8
 * 「はい」で、表示した内容を `terraform/tfvars/<環境ID>.tfvars.json` に書き、`terraform init` と `terraform apply -auto-approve` を続けて実行する。起動の進み具合のタブに切り替わる。出力は Terraform のタブで見られる。init が失敗したら apply はしない
 * 「いいえ」なら閉じるだけで、何も書かない
 
+### 前に起動した設定から起動する
+
+起動の確認で「はい」を押すと、tfvars に書いた値を履歴(`terraform/tfvars/history.jsonl`)に足していく。tfvars は環境を削除すると消えるので、履歴は別のファイルに残す。
+
+* モデルを選ぶ画面の一番上に「前に起動した設定から起動する」を出す(履歴があるときだけ)。新しい順に20件まで。同じ設定で何度も起動したものは、新しい1件にまとめる(環境IDの違いは見ない)
+* 「この設定で起動」を押すと、モデル、コンテキスト長、KV キャッシュの型、リージョン、ネットワーク、モデルの置き場所を選び直し、料金と起動前のチェックがそろったところで起動の確認を開く。購入方法、AZ、自動停止、環境IDも履歴の値を入れておく。すぐには起動せず、確認で「はい」を押したときだけ起動する
+* 料金と起動前のチェックは、そのときの値で出し直す。チェックに通らなければ確認は開かない。履歴の購入方法がチェックに通らなければ通ったほうに、履歴のAZが今は選べなければ自動にする
+* 同じ環境IDの環境が動いているときは、その環境IDは入れない(モデル名から作った既定にする)。モデル定義から消したモデルは選べない
+
 ### 起動の進み具合
 
 起動の確認で「はい」を押すと、このタブに切り替わる。画面から起動した環境(tfvars を書いたもの)を選んで見ることもできる(既定は最後に起動した環境)。
@@ -218,6 +227,7 @@ terraform のワークスペースのうち、state にリソースがあるも�
 | POST | `/api/bedrock/environments/{環境ID}/benchmark` | Lambda で計測を始める。`{"runs": 3}`。計測の ID を返す |
 | POST | `/api/bedrock/environments/{環境ID}/destroy` | `terraform/bedrock` で init と destroy を実行する。成功したら tfvars を消す |
 | POST | `/api/launch` | tfvars を書いて init と apply を実行する。`{"workspace": "qwen3-8b", "variables": {"model": "qwen3:8b", ...}}` |
+| GET | `/api/launch-history` | 起動した設定の履歴(新しい順、同じ設定は1件)。同じ環境IDの環境が動いていれば `in_use` が true |
 | GET | `/api/workspaces` | `terraform workspace list` の結果 |
 | POST | `/api/runs` | コマンドを実行する。`{"command": "plan", "workspace": "qwen-test", "variables": {...}}` |
 | GET | `/api/runs` | 実行の一覧(新しい順) |
@@ -241,3 +251,4 @@ cd webui/web && npm test && npm run typecheck
 | `LAUNCHPAD_TERRAFORM_BIN` | `terraform` | terraform のコマンド |
 | `LAUNCHPAD_WEB_DIST` | `webui/web/dist` | 配る画面のディレクトリ |
 | `LAUNCHPAD_BENCHMARK_FILE` | `benchmarks/results.jsonl` | ベンチマークの結果を足していくファイル |
+| `LAUNCHPAD_HISTORY_FILE` | `terraform/tfvars/history.jsonl` | 起動した設定の履歴を足していくファイル |

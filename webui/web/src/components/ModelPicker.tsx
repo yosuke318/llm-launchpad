@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { getCatalog, listModels, type Catalog, type ModelEstimate } from "../api";
+import { getCatalog, listModels, type Catalog, type LaunchHistoryEntry, type ModelEstimate } from "../api";
+import { presetContextLength, presetFromHistory, type Preset } from "../launch";
 import { isTight, vramSegments } from "../vram";
 import BedrockPanel from "./BedrockPanel";
+import LaunchHistory from "./LaunchHistory";
 import RegionStoragePicker from "./RegionStoragePicker";
 
 // 提供元(会社)を選び、モデルの一覧から選ぶ。コンテキスト長と KV キャッシュの型で、必要 VRAM と推奨のインスタンス型が変わる
@@ -18,6 +20,8 @@ export default function ModelPicker() {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // 履歴から選んだ設定。同じ履歴を選び直しても起動の確認を開き直せるよう、選ぶたびに番号を変える
+  const [preset, setPreset] = useState<(Preset & { key: number }) | null>(null);
 
   const num = useMemo(() => new Intl.NumberFormat(i18n.language, { maximumFractionDigits: 2 }), [i18n.language]);
 
@@ -48,6 +52,23 @@ export default function ModelPicker() {
     };
   }, [catalog, vendor, contextLength, kvCacheType]);
 
+  function selectModel(tag: string) {
+    setSelectedTag(tag);
+    setPreset(null);
+  }
+
+  // 履歴の設定を、モデル・コンテキスト長・KV キャッシュの型の選択に入れる。リージョンから先は RegionStoragePicker が入れる
+  function choosePreset(entry: LaunchHistoryEntry) {
+    if (!catalog) return;
+    const v = entry.variables;
+    setEngine("ollama");
+    setVendor("");
+    setContextLength(presetContextLength(catalog.context_lengths, v.context_length));
+    setKvCacheType(v.kv_cache_type);
+    setSelectedTag(v.model);
+    setPreset((p) => ({ ...presetFromHistory(entry), key: (p?.key ?? 0) + 1 }));
+  }
+
   // 提供元を変えて選んでいたモデルが一覧から消えたら、選択を外す
   const selected = models.find((m) => m.model.tag === selectedTag) ?? null;
 
@@ -74,6 +95,7 @@ export default function ModelPicker() {
 
   return (
     <>
+      <LaunchHistory onChoose={choosePreset} />
       <div className="models">
         <section className="card">
           <div className="filters">
@@ -128,9 +150,9 @@ export default function ModelPicker() {
                   const e = m.vram_estimate;
                   const isSelected = m.model.tag === selectedTag;
                   return (
-                    <tr key={m.model.tag} className={isSelected ? "selected" : ""} onClick={() => setSelectedTag(m.model.tag)}>
+                    <tr key={m.model.tag} className={isSelected ? "selected" : ""} onClick={() => selectModel(m.model.tag)}>
                       <td>
-                        <button className="link" onClick={() => setSelectedTag(m.model.tag)} aria-pressed={isSelected}>
+                        <button className="link" onClick={() => selectModel(m.model.tag)} aria-pressed={isSelected}>
                           {m.model.name}
                         </button>
                         <div className="muted small">
@@ -170,7 +192,15 @@ export default function ModelPicker() {
         </section>
       </div>
       {/* モデルを選んだら、次にリージョンとモデルの置き場所を選ぶ */}
-      {selected && selected.instance && <RegionStoragePicker estimate={selected} contextLength={contextLength} kvCacheType={kvCacheType} />}
+      {selected && selected.instance && (
+        <RegionStoragePicker
+          key={preset ? `preset-${preset.key}` : "manual"}
+          estimate={selected}
+          contextLength={contextLength}
+          kvCacheType={kvCacheType}
+          preset={preset}
+        />
+      )}
     </>
   );
 }

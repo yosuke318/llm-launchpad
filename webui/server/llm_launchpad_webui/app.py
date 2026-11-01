@@ -22,6 +22,7 @@ from .aws_info import AwsInfo, AwsInfoError
 from .benchmark import DEFAULT_RUNS, MAX_RUNS, BenchmarkError, BenchmarkStore, bench_command, parse_output, summarize
 from .chat import ChatError, ChatUnreachable, chat_once
 from .environments import build_environment, drop_deleted, find_leftovers, hourly_usd, managed_resources, state_identifiers, state_instance
+from .launch_history import LaunchHistory
 from .messages import language, parse_accept_language, t
 from .runner import COMMANDS, WORKSPACE_PATTERN, BusyError, Runner, RunnerError, list_workspaces
 from .preflight import run_preflight
@@ -48,6 +49,8 @@ TERRAFORM_BIN = os.environ.get("LAUNCHPAD_TERRAFORM_BIN", "terraform")
 WEB_DIST = os.environ.get("LAUNCHPAD_WEB_DIST", os.path.join(REPO_ROOT, "webui", "web", "dist"))
 # ベンチマークの結果を足していくファイル(JSON Lines)
 BENCHMARK_FILE = os.environ.get("LAUNCHPAD_BENCHMARK_FILE", os.path.join(REPO_ROOT, "benchmarks", "results.jsonl"))
+# 起動した設定の履歴。指定がなければ、画面から書く tfvars と同じ場所(terraform/tfvars/history.jsonl)に置く
+HISTORY_FILE = os.environ.get("LAUNCHPAD_HISTORY_FILE")
 
 # 何も流れない間も接続が切れないよう、この秒数ごとに SSE のコメントを送る
 HEARTBEAT_SEC = 15
@@ -110,7 +113,7 @@ class BedrockChatRequest(BaseModel):
 
 def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, catalog_dir: str = CATALOG_DIR,
                aws_info: AwsInfo | None = None, benchmark_file: str = BENCHMARK_FILE,
-               bedrock_runner: Runner | None = None) -> FastAPI:
+               bedrock_runner: Runner | None = None, history_file: str | None = HISTORY_FILE) -> FastAPI:
     app = FastAPI(title="llm-launchpad WebUI")
     app.state.runner = runner or Runner(TERRAFORM_DIR, TERRAFORM_BIN)
     app.state.bedrock_runner = bedrock_runner or Runner(BEDROCK_TERRAFORM_DIR, TERRAFORM_BIN, launch_variables=bedrock.LAUNCH_VARIABLES)
@@ -121,6 +124,7 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
     # ベンチマークの履歴と、実行中の計測(サーバーのメモリにだけ持つ)
     app.state.benchmarks = BenchmarkStore(benchmark_file)
     app.state.benchmark_jobs = {}
+    app.state.launch_history = LaunchHistory(history_file or os.path.join(app.state.runner.terraform_dir, "tfvars", "history.jsonl"))
     app.state.tasks = set()
     # チャットの送り先(terraform output)。環境ごとに1回だけ読む
     app.state.chat_outputs = {}
@@ -333,7 +337,19 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
             raise HTTPException(status_code=409, detail=str(e))
         except RunnerError as e:
             raise HTTPException(status_code=422, detail=str(e))
+        # 同じ設定でもう一度起動できるよう、tfvars に書いた値を履歴に残す
+        app.state.launch_history.append(req.workspace, app.state.runner.read_var_file(req.workspace))
         return run.summary()
+
+    @app.get("/api/launch-history")
+    def launch_history():
+        """起動した設定の履歴。新しい順。いま動いている環境と同じ環境IDのものは in_use にする"""
+        models = catalog().models
+        in_use = set(app.state.runner.launched_environments())
+        return {"launches": [
+            {**r, "model_name": (models.get(r["variables"].get("model")) or {}).get("name"), "in_use": r["workspace"] in in_use}
+            for r in app.state.launch_history.list()
+        ]}
 
     @app.post("/api/environments/{workspace}/relaunch", status_code=201)
     async def relaunch(workspace: str, req: RelaunchRequest):
