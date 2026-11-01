@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { LaunchHistoryEntry } from "./api";
+import type { LaunchHistoryEntry, LaunchPreset } from "./api";
 import { presetContextLength, presetFromHistory } from "./launch";
 
 const entry: LaunchHistoryEntry = {
@@ -38,6 +38,12 @@ describe("presetFromHistory", () => {
 
   it("同じ環境IDの環境が動いていれば、その環境IDは使わない", () => {
     expect(presetFromHistory({ ...entry, in_use: true }).envId).toBeNull();
+  });
+
+  it("保存した設定からも、同じ値で起動の確認を開く", () => {
+    const { launched_at: _, ...record } = entry;
+    const preset: LaunchPreset = { ...record, id: "p1", name: "北欧で検証", saved_at: "2026-10-31T00:00:00+00:00" };
+    expect(presetFromHistory(preset)).toMatchObject({ settings: presetFromHistory(entry).settings, envId: "qwen3-8b" });
   });
 });
 

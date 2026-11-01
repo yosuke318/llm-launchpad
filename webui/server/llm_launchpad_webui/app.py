@@ -22,7 +22,7 @@ from .aws_info import AwsInfo, AwsInfoError
 from .benchmark import DEFAULT_RUNS, MAX_RUNS, BenchmarkError, BenchmarkStore, bench_command, parse_output, summarize
 from .chat import ChatError, ChatUnreachable, chat_once
 from .environments import build_environment, drop_deleted, find_leftovers, hourly_usd, managed_resources, state_identifiers, state_instance
-from .launch_history import LaunchHistory
+from .launch_history import NAME_MAX_LENGTH, LaunchHistory, LaunchPresets
 from .messages import language, parse_accept_language, t
 from .runner import COMMANDS, WORKSPACE_PATTERN, BusyError, Runner, RunnerError, list_workspaces
 from .preflight import run_preflight
@@ -51,6 +51,8 @@ WEB_DIST = os.environ.get("LAUNCHPAD_WEB_DIST", os.path.join(REPO_ROOT, "webui",
 BENCHMARK_FILE = os.environ.get("LAUNCHPAD_BENCHMARK_FILE", os.path.join(REPO_ROOT, "benchmarks", "results.jsonl"))
 # 起動した設定の履歴。指定がなければ、画面から書く tfvars と同じ場所(terraform/tfvars/history.jsonl)に置く
 HISTORY_FILE = os.environ.get("LAUNCHPAD_HISTORY_FILE")
+# 名前を付けて保存した設定。指定がなければ terraform/tfvars/presets.json
+PRESETS_FILE = os.environ.get("LAUNCHPAD_PRESETS_FILE")
 
 # 何も流れない間も接続が切れないよう、この秒数ごとに SSE のコメントを送る
 HEARTBEAT_SEC = 15
@@ -73,6 +75,12 @@ class LaunchRequest(BaseModel):
     workspace: str
     # tfvars に書く値。runner.LAUNCH_VARIABLES のものだけ
     variables: dict[str, object]
+
+
+class PresetRequest(BaseModel):
+    name: str
+    # 保存する起動の履歴の id
+    history_id: str
 
 
 class RelaunchRequest(BaseModel):
@@ -113,7 +121,8 @@ class BedrockChatRequest(BaseModel):
 
 def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, catalog_dir: str = CATALOG_DIR,
                aws_info: AwsInfo | None = None, benchmark_file: str = BENCHMARK_FILE,
-               bedrock_runner: Runner | None = None, history_file: str | None = HISTORY_FILE) -> FastAPI:
+               bedrock_runner: Runner | None = None, history_file: str | None = HISTORY_FILE,
+               presets_file: str | None = PRESETS_FILE) -> FastAPI:
     app = FastAPI(title="llm-launchpad WebUI")
     app.state.runner = runner or Runner(TERRAFORM_DIR, TERRAFORM_BIN)
     app.state.bedrock_runner = bedrock_runner or Runner(BEDROCK_TERRAFORM_DIR, TERRAFORM_BIN, launch_variables=bedrock.LAUNCH_VARIABLES)
@@ -125,6 +134,7 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
     app.state.benchmarks = BenchmarkStore(benchmark_file)
     app.state.benchmark_jobs = {}
     app.state.launch_history = LaunchHistory(history_file or os.path.join(app.state.runner.terraform_dir, "tfvars", "history.jsonl"))
+    app.state.launch_presets = LaunchPresets(presets_file or os.path.join(app.state.runner.terraform_dir, "tfvars", "presets.json"))
     app.state.tasks = set()
     # チャットの送り先(terraform output)。環境ごとに1回だけ読む
     app.state.chat_outputs = {}
@@ -341,15 +351,41 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
         app.state.launch_history.append(req.workspace, app.state.runner.read_var_file(req.workspace))
         return run.summary()
 
+    def with_launch_info(records):
+        """履歴や保存した設定に、モデルの名前(モデル定義から消したものは None)と、同じ環境IDの環境が動いているかを足す"""
+        models = catalog().models
+        in_use = set(app.state.runner.launched_environments())
+        return [
+            {**r, "model_name": (models.get(r["variables"].get("model")) or {}).get("name"), "in_use": r["workspace"] in in_use}
+            for r in records
+        ]
+
     @app.get("/api/launch-history")
     def launch_history():
         """起動した設定の履歴。新しい順。いま動いている環境と同じ環境IDのものは in_use にする"""
-        models = catalog().models
-        in_use = set(app.state.runner.launched_environments())
-        return {"launches": [
-            {**r, "model_name": (models.get(r["variables"].get("model")) or {}).get("name"), "in_use": r["workspace"] in in_use}
-            for r in app.state.launch_history.list()
-        ]}
+        return {"launches": with_launch_info(app.state.launch_history.list())}
+
+    @app.get("/api/presets")
+    def list_presets():
+        """名前を付けて保存した設定。名前の順"""
+        return {"presets": with_launch_info(app.state.launch_presets.list())}
+
+    @app.post("/api/presets", status_code=201)
+    def save_preset(req: PresetRequest):
+        """起動の履歴を、名前を付けて保存する。同じ名前があれば置き換える"""
+        name = req.name.strip()
+        if not 1 <= len(name) <= NAME_MAX_LENGTH:
+            raise HTTPException(status_code=422, detail=t("preset.name_invalid", max=NAME_MAX_LENGTH))
+        record = app.state.launch_history.get(req.history_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail=t("preset.history_not_found"))
+        return with_launch_info([app.state.launch_presets.save(name, record["workspace"], record["variables"])])[0]
+
+    @app.delete("/api/presets/{preset_id}")
+    def delete_preset(preset_id: str):
+        if not app.state.launch_presets.delete(preset_id):
+            raise HTTPException(status_code=404, detail=t("preset.not_found"))
+        return {"deleted": preset_id}
 
     @app.post("/api/environments/{workspace}/relaunch", status_code=201)
     async def relaunch(workspace: str, req: RelaunchRequest):

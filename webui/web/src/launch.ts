@@ -1,4 +1,4 @@
-import type { LaunchHistoryEntry, LaunchVariables, ModelEstimate, NetworkMode, RegionPlan, StorageOption } from "./api";
+import type { LaunchRecord, LaunchVariables, ModelEstimate, NetworkMode, RegionPlan, StorageOption } from "./api";
 import { hourlyTotal, networkHourly } from "./cost";
 
 // モデルのタグから環境ID(ワークスペース名)の候補を作る。英小文字・数字・ハイフンの20文字以内(terraform の規則)
@@ -107,15 +107,15 @@ export function validMaxLifetime(hours: number) {
   return Number.isInteger(hours) && hours >= 0 && hours <= 720;
 }
 
-// 履歴の設定で起動し直すときの値。起動の確認には、この値を入れた状態で開く
+// 履歴や保存した設定で起動し直すときの値。起動の確認には、この値を入れた状態で開く
 export interface Preset {
-  entry: LaunchHistoryEntry;
+  entry: LaunchRecord;
   settings: LaunchSettings;
   // 同じ環境IDの環境が動いていれば null(モデルのタグから作った候補にする)
   envId: string | null;
 }
 
-export function presetFromHistory(entry: LaunchHistoryEntry): Preset {
+export function presetFromHistory(entry: LaunchRecord): Preset {
   const v = entry.variables;
   return {
     entry,

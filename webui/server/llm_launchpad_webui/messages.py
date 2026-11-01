@@ -197,6 +197,18 @@ MESSAGES = {
               "With EBS persistence the instance can only start in {zone}, where the volume is, so change the purchase option "
               "or launch again later. To use another Availability Zone, choose S3 cache or download",
     },
+    "preset.name_invalid": {
+        "ja": "名前は1〜{max}文字で入れてください",
+        "en": "Enter a name of 1 to {max} characters",
+    },
+    "preset.history_not_found": {
+        "ja": "保存する起動の履歴が見つかりません",
+        "en": "The launch history entry to save was not found",
+    },
+    "preset.not_found": {
+        "ja": "保存した設定が見つかりません",
+        "en": "The saved settings were not found",
+    },
     # 環境と実行(app.py)
     "env.invalid": {
         "ja": "環境ID が正しくありません",
