@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { getCatalog, listModels, type Catalog, type LaunchRecord, type ModelEstimate } from "../api";
+import { getCatalog, listModels, removeAddedModel, type Catalog, type LaunchRecord, type ModelEstimate } from "../api";
 import { presetContextLength, presetFromHistory, type Preset } from "../launch";
 import { isTight, vramSegments } from "../vram";
+import AddModel from "./AddModel";
 import BedrockPanel from "./BedrockPanel";
 import LaunchHistory from "./LaunchHistory";
 import RegionStoragePicker from "./RegionStoragePicker";
@@ -69,6 +70,32 @@ export default function ModelPicker() {
     setPreset((p) => ({ ...presetFromHistory(entry), key: (p?.key ?? 0) + 1 }));
   }
 
+  // モデルを追加したり外したりしたら、提供元の選択肢とモデルの一覧を読み直す
+  function reloadCatalog() {
+    return getCatalog()
+      .then(setCatalog)
+      .catch((e: Error) => setError(e.message));
+  }
+
+  function modelAdded(tag: string) {
+    setVendor("");
+    selectModel(tag);
+    reloadCatalog();
+  }
+
+  async function removeModel(tag: string) {
+    try {
+      await removeAddedModel(tag);
+      // 外したモデルだけの提供元を選んでいると、選択肢から消えて戻れなくなるので「すべて」にする
+      setVendor("");
+      setSelectedTag(null);
+      setPreset(null);
+      await reloadCatalog();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
   // 提供元を変えて選んでいたモデルが一覧から消えたら、選択を外す
   const selected = models.find((m) => m.model.tag === selectedTag) ?? null;
 
@@ -131,6 +158,8 @@ export default function ModelPicker() {
             ))}
           </div>
   
+          <AddModel onAdded={modelAdded} />
+
           {error && <p className="error">{t("models.loadFailed", { error })}</p>}
   
           <div className="table-wrap" aria-busy={loading}>
@@ -157,6 +186,7 @@ export default function ModelPicker() {
                         </button>
                         <div className="muted small">
                           <code>{m.model.tag}</code> · {m.model.vendor}
+                          {m.model.added && <span className="badge added">{t("addModel.badge")}</span>}
                         </div>
                       </td>
                       <td className="num">{num.format(m.model.params_b)}B</td>
@@ -188,7 +218,7 @@ export default function ModelPicker() {
         </section>
   
         <section className="card detail" aria-live="polite">
-          {selected ? <ModelDetail estimate={selected} format={num.format} /> : <p className="muted">{t("models.selectPrompt")}</p>}
+          {selected ? <ModelDetail estimate={selected} format={num.format} onRemove={removeModel} /> : <p className="muted">{t("models.selectPrompt")}</p>}
         </section>
       </div>
       {/* モデルを選んだら、次にリージョンとモデルの置き場所を選ぶ */}
@@ -205,7 +235,7 @@ export default function ModelPicker() {
   );
 }
 
-function ModelDetail({ estimate, format }: { estimate: ModelEstimate; format: (n: number) => string }) {
+function ModelDetail({ estimate, format, onRemove }: { estimate: ModelEstimate; format: (n: number) => string; onRemove: (tag: string) => void }) {
   const { t } = useTranslation();
   const { model, vram_estimate: e, instance } = estimate;
   const seg = vramSegments(e);
@@ -217,6 +247,14 @@ function ModelDetail({ estimate, format }: { estimate: ModelEstimate; format: (n
         <p className="muted">
           <code>{model.tag}</code> · {model.vendor} · {model.license}
         </p>
+        {model.added && (
+          <div className="added-note">
+            <p className="muted small">{t("addModel.detailNote")}</p>
+            <button className="secondary" onClick={() => onRemove(model.tag)}>
+              {t("addModel.remove")}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="recommend">

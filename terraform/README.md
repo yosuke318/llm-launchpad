@@ -393,6 +393,7 @@ terraform test
 | 変数 | 既定値 | 説明 |
 |---|---|---|
 | `model` | (必須) | 動かすモデル。Ollama のタグ(`catalog/models.yaml` のキー) |
+| `model_definition` | `null` | `catalog/models.yaml` にないモデルを動かすときの定義(項目は `models.yaml` と同じ)。WebUI で一覧にないモデルを追加して起動すると書かれる |
 | `context_length` | `8192` | コンテキスト長。KVキャッシュの見積もりに使う |
 | `kv_cache_type` | `f16` | KVキャッシュの型(`f16` / `q8_0` / `q4_0`) |
 | `vram_overhead_gib` | `1.5` | 重みとKVキャッシュのほかに見込む余裕(GiB) |

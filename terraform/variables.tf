@@ -160,6 +160,24 @@ variable "model" {
   type        = string
 }
 
+variable "model_definition" {
+  description = "catalog/models.yaml にないモデルを動かすときの定義。項目は models.yaml と同じ。WebUI で一覧にないモデルを追加して起動すると、tfvars に書かれる"
+  type = object({
+    vendor           = optional(string, "")
+    name             = optional(string, "")
+    params_b         = optional(number, 0)
+    quantization     = optional(string, "")
+    file_size_gb     = number
+    max_context      = number
+    layers           = number
+    attention_layers = optional(number)
+    kv_heads         = number
+    head_dim         = number
+    license          = optional(string, "")
+  })
+  default = null
+}
+
 variable "context_length" {
   description = "コンテキスト長(トークン)。KVキャッシュの見積もりに使う"
   type        = number

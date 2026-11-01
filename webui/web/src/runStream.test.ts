@@ -211,6 +211,30 @@ describe("launch helpers", () => {
     });
   });
 
+  it("writes the definition of an added model", () => {
+    const settings = { purchaseOption: "spot" as const, idleStopMinutes: 30, maxLifetimeHours: 8, availabilityZone: null };
+    const model = {
+      tag: "granite4:tiny-h",
+      vendor: "Ollama",
+      name: "Granite 4.0 H Tiny",
+      params_b: 6.9,
+      quantization: "Q4_K_M",
+      file_size_gb: 4.23,
+      max_context: 1048576,
+      layers: 40,
+      attention_layers: 4,
+      kv_heads: 4,
+      head_dim: 128,
+      license: "apache-2.0",
+      added: true,
+    };
+    const { tag: _, added: __, ...definition } = model;
+    expect(launchVariables({ ...estimate, model }, plan, option, settings).model_definition).toEqual(definition);
+    // 全層が注意層なら attention_layers は書かない(サーバーと同じ)
+    expect(launchVariables({ ...estimate, model: { ...model, attention_layers: 40 } }, plan, option, settings).model_definition).not.toHaveProperty("attention_layers");
+    expect(launchVariables(estimate, plan, option, settings)).not.toHaveProperty("model_definition");
+  });
+
   it("writes the chosen zone except for EBS persistence", () => {
     const settings = { purchaseOption: "spot" as const, idleStopMinutes: 30, maxLifetimeHours: 8, availabilityZone: "us-east-1a" };
     expect(launchVariables(estimate, plan, { ...option, id: "s3_cache" }, settings).availability_zone).toBe("us-east-1a");

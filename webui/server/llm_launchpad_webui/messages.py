@@ -197,6 +197,35 @@ MESSAGES = {
               "With EBS persistence the instance can only start in {zone}, where the volume is, so change the purchase option "
               "or launch again later. To use another Availability Zone, choose S3 cache or download",
     },
+    # 一覧にないモデルを調べる(model_lookup.py)
+    "model_lookup.invalid_ref": {
+        "ja": "Ollamaのタグ(例: qwen3:8b)か、Hugging Faceのリポジトリ名(例: hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M)を入れてください",
+        "en": "Enter an Ollama tag (e.g. qwen3:8b) or a Hugging Face repository (e.g. hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M)",
+    },
+    "model_lookup.not_found": {
+        "ja": "{model} が見つかりません。タグやリポジトリ名を確かめてください",
+        "en": "{model} was not found. Check the tag or repository name",
+    },
+    "model_lookup.not_gguf": {
+        "ja": "{model} にはGGUFの重みがありません",
+        "en": "{model} has no GGUF weights",
+    },
+    "model_lookup.unsupported": {
+        "ja": "{model}(アーキテクチャ {architecture})は、層の数やKVヘッド数が読めないため見積もれません",
+        "en": "Cannot estimate {model} (architecture {architecture}) because its layer count or KV heads could not be read",
+    },
+    "model_lookup.failed": {
+        "ja": "{model} を調べられませんでした: {error}",
+        "en": "Could not look up {model}: {error}",
+    },
+    "model_lookup.in_catalog": {
+        "ja": "{model} はモデルの一覧にあります",
+        "en": "{model} is already in the model list",
+    },
+    "added_model.not_found": {
+        "ja": "追加したモデル {model} が見つかりません",
+        "en": "The added model {model} was not found",
+    },
     "preset.name_invalid": {
         "ja": "名前は1〜{max}文字で入れてください",
         "en": "Enter a name of 1 to {max} characters",

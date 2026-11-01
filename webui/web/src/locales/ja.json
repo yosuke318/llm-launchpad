@@ -68,6 +68,18 @@
     },
     "estimateNote": "見積もりは目安です。Ollama の同時リクエスト数は 1 を前提にしています。"
   },
+  "addModel": {
+    "open": "一覧にないモデルを追加する",
+    "label": "Ollamaのタグか、Hugging Faceのリポジトリ名",
+    "placeholder": "例: qwen3:0.6b / hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M",
+    "submit": "調べて追加",
+    "looking": "調べています…",
+    "failed": "追加できませんでした: {{error}}",
+    "note": "Ollama libraryのタグ(qwen3:0.6b、ユーザーのモデルは user/model:tag)か、Hugging FaceのGGUFのリポジトリ名(hf.co/ユーザー/リポジトリ:量子化。huggingface.coのURLでもよい)を入れます。配布サイズ、層の数、KVヘッド数などはregistryとGGUFの先頭から読み取り、必要VRAMとインスタンス型を見積もります。",
+    "badge": "追加",
+    "detailNote": "一覧にないモデルです。値はregistryとGGUFから読み取ったもので、モデル定義のように確かめてはいません。起動するときは、この定義をtfvarsに書いてterraformに渡します。",
+    "remove": "一覧から外す"
+  },
   "region": {
     "heading": "{{model}} を動かすリージョンとモデルの置き場所",
     "region": "リージョン",

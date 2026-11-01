@@ -4,7 +4,10 @@ locals {
   catalog        = yamldecode(file(var.models_file))
   instance_types = yamldecode(file(var.instance_types_file)).instance_types
 
-  model_found = contains(keys(local.catalog.models), var.model)
+  # モデル定義にないモデルは、model_definition で渡された定義を使う(WebUI で一覧にないモデルを追加したとき)
+  # (条件式で2つの形を切り替えると型がそろえられてしまうので、for で null のときは何も足さない)
+  models      = merge(local.catalog.models, { for k, v in { (var.model) = var.model_definition } : k => v if v != null })
+  model_found = contains(keys(local.models), var.model)
 
   # カタログにないモデルでも後続の式がエラーにならないよう、空の値で埋めておく(出力の precondition で止める)
   model = merge({
@@ -19,7 +22,7 @@ locals {
     kv_heads         = 0
     head_dim         = 0
     license          = ""
-  }, try(local.catalog.models[var.model], {}))
+  }, try(local.models[var.model], {}))
 
   # Mamba や線形注意を混ぜたモデルは、注意層だけがKVキャッシュを持つ
   attention_layers = coalesce(local.model.attention_layers, local.model.layers)

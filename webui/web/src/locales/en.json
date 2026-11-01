@@ -68,6 +68,18 @@
     },
     "estimateNote": "Estimates are approximate. They assume Ollama serves one request at a time."
   },
+  "addModel": {
+    "open": "Add a model that is not in the list",
+    "label": "Ollama tag or Hugging Face repository",
+    "placeholder": "e.g. qwen3:0.6b / hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M",
+    "submit": "Look up and add",
+    "looking": "Looking up…",
+    "failed": "Could not add the model: {{error}}",
+    "note": "Enter an Ollama library tag (qwen3:0.6b, or user/model:tag for user models) or a Hugging Face GGUF repository (hf.co/user/repo:quant; a huggingface.co URL also works). The download size, layer count, KV heads and so on are read from the registry and the GGUF header to estimate VRAM and the instance type.",
+    "badge": "Added",
+    "detailNote": "This model is not in the list. Its values were read from the registry and the GGUF file and have not been checked like the model definitions. When launching, this definition is written to the tfvars file and passed to Terraform.",
+    "remove": "Remove from the list"
+  },
   "region": {
     "heading": "Region and model storage for {{model}}",
     "region": "Region",

@@ -263,3 +263,35 @@ run "rejects_when_nothing_fits" {
 
   expect_failures = [output.instance_type]
 }
+
+run "model_definition_for_model_not_in_catalog" {
+  command = plan
+
+  module {
+    source = "./modules/sizing"
+  }
+
+  variables {
+    model = "hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M"
+    model_definition = {
+      vendor       = "Hugging Face"
+      name         = "Llama 3.2 1B Instruct"
+      file_size_gb = 0.81
+      max_context  = 131072
+      layers       = 16
+      kv_heads     = 8
+      head_dim     = 64
+    }
+  }
+
+  # 重み 0.81GB = 0.75 GiB、KV 2 x 16 x 8 x 64 x 8192 x 2 バイト = 0.25 GiB
+  assert {
+    condition     = output.instance_type == "g4dn.xlarge" && output.vram_estimate.weights_gib == 0.75 && output.vram_estimate.kv_cache_gib == 0.25
+    error_message = "モデル定義にないモデルも、渡した定義で見積もること"
+  }
+
+  assert {
+    condition     = output.model.tag == "hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M" && output.model.attention_layers == 16 && output.model.license == ""
+    error_message = "省いた項目は既定の値で埋めること"
+  }
+}

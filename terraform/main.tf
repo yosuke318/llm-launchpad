@@ -26,6 +26,7 @@ module "sizing" {
   models_file         = "${path.module}/../catalog/models.yaml"
   instance_types_file = "${path.module}/../catalog/instance_types.yaml"
   model               = var.model
+  model_definition    = var.model_definition
   context_length      = var.context_length
   kv_cache_type       = var.kv_cache_type
   vram_overhead_gib   = var.vram_overhead_gib
