@@ -550,5 +550,26 @@
     "benchResult": "TTFT {{ttft}} 秒 / 出力 {{tps}} tok/s / {{cost}} / 100万トークン(入力の分も含む)",
     "destroyConfirm": "Bedrock の環境 {{workspace}} を削除します。VPC、エンドポイント、Lambda、IAM ロールを消します。よろしいですか?",
     "destroyNote": "エンドポイントの時間課金は、環境を削除するまでかかります。削除にはエンドポイントの分で数分かかります。"
+  },
+  "notify": {
+    "ready": "環境 {{workspace}} の準備ができました",
+    "autoStopSoon": {
+      "idle": "環境 {{workspace}} は、リクエストがないため約{{minutes}}分後に止まります",
+      "max_lifetime": "環境 {{workspace}} は、最大稼働時間に達するため約{{minutes}}分後に止まります"
+    },
+    "spotInterrupted": "環境 {{workspace}} のスポットインスタンスが中断され、止まりました",
+    "title": "llm-launchpad",
+    "open": "知らせ({{count}}件)",
+    "empty": "まだ知らせはありません",
+    "enable": "デスクトップ通知を有効にする",
+    "on": "デスクトップ通知: オン",
+    "off": "デスクトップ通知: オフ",
+    "denied": "ブラウザで通知がブロックされています",
+    "unsupported": "このブラウザはデスクトップ通知に対応していません",
+    "slackOn": "Slackにも送ります",
+    "slackOff": "LAUNCHPAD_SLACK_WEBHOOK_URLを指定すると、Slackにも送ります",
+    "watchOff": "サーバーが環境を見に行かない設定(LAUNCHPAD_NOTIFY_INTERVAL_SEC=0)です",
+    "note": "準備ができたとき、自動停止の約10分前、スポットが中断されたときに知らせます。デスクトップ通知は、この画面を開いている間だけ出ます。",
+    "loadFailed": "知らせを読み込めませんでした: {{error}}"
   }
 }

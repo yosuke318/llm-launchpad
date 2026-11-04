@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import BenchmarkPanel from "./components/BenchmarkPanel";
 import EnvironmentsPanel from "./components/EnvironmentsPanel";
 import ModelPicker from "./components/ModelPicker";
+import NotificationCenter from "./components/NotificationCenter";
 import ProgressPanel from "./components/ProgressPanel";
 import TerraformPanel from "./components/TerraformPanel";
 import { LANGUAGES, saveLanguage, type Language } from "./i18n";
@@ -34,16 +35,19 @@ export default function App() {
             <h1>{t("app.title")}</h1>
             <p className="muted">{t("app.subtitle")}</p>
           </div>
-          <label className="field inline">
-            <span>{t("language.label")}</span>
-            <select value={i18n.resolvedLanguage} onChange={(e) => changeLanguage(e.target.value as Language)}>
-              {LANGUAGES.map((lang) => (
-                <option key={lang} value={lang}>
-                  {t(`language.${lang}`)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="header-actions">
+            <NotificationCenter />
+            <label className="field inline">
+              <span>{t("language.label")}</span>
+              <select value={i18n.resolvedLanguage} onChange={(e) => changeLanguage(e.target.value as Language)}>
+                {LANGUAGES.map((lang) => (
+                  <option key={lang} value={lang}>
+                    {t(`language.${lang}`)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </header>
 
         <nav className="tabs" role="tablist" aria-label={t("tabs.label")}>

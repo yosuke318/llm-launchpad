@@ -6,6 +6,7 @@
 """
 
 import asyncio
+import contextlib
 import dataclasses
 import datetime
 import json
@@ -26,6 +27,7 @@ from .environments import build_environment, drop_deleted, find_leftovers, hourl
 from .launch_history import NAME_MAX_LENGTH, LaunchHistory, LaunchPresets
 from .messages import language, parse_accept_language, t
 from .model_lookup import DEFINITION_FIELDS, AddedModels, ModelLookupError, lookup
+from .notifications import Notifier, detect
 from .runner import COMMANDS, WORKSPACE_PATTERN, BusyError, Runner, RunnerError, list_workspaces
 from .preflight import run_preflight
 from .region_compare import compare as compare_regions
@@ -57,6 +59,12 @@ HISTORY_FILE = os.environ.get("LAUNCHPAD_HISTORY_FILE")
 PRESETS_FILE = os.environ.get("LAUNCHPAD_PRESETS_FILE")
 # 画面で追加した、一覧にないモデル。指定がなければ terraform/tfvars/added_models.json
 ADDED_MODELS_FILE = os.environ.get("LAUNCHPAD_ADDED_MODELS_FILE")
+# 出した知らせ。指定がなければ terraform/tfvars/notifications.jsonl
+NOTIFICATIONS_FILE = os.environ.get("LAUNCHPAD_NOTIFICATIONS_FILE")
+# 知らせを Slack にも送るときの Incoming Webhook の URL
+SLACK_WEBHOOK_URL = os.environ.get("LAUNCHPAD_SLACK_WEBHOOK_URL") or None
+# 起動した環境を見に行く間隔(秒)。0 なら見ない
+NOTIFY_INTERVAL_SEC = int(os.environ.get("LAUNCHPAD_NOTIFY_INTERVAL_SEC", "60"))
 
 # 何も流れない間も接続が切れないよう、この秒数ごとに SSE のコメントを送る
 HEARTBEAT_SEC = 15
@@ -132,8 +140,21 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
                aws_info: AwsInfo | None = None, benchmark_file: str = BENCHMARK_FILE,
                bedrock_runner: Runner | None = None, history_file: str | None = HISTORY_FILE,
                presets_file: str | None = PRESETS_FILE, added_models_file: str | None = ADDED_MODELS_FILE,
-               model_lookup=lookup) -> FastAPI:
-    app = FastAPI(title="llm-launchpad WebUI")
+               model_lookup=lookup, notifications_file: str | None = NOTIFICATIONS_FILE,
+               slack_webhook_url: str | None = SLACK_WEBHOOK_URL, notify_interval_sec: int = 0) -> FastAPI:
+    @contextlib.asynccontextmanager
+    async def lifespan(app):
+        # 起動した環境を見に行く。テストでは止めておき、check_notifications を直接呼ぶ
+        task = asyncio.create_task(watch_environments()) if notify_interval_sec > 0 else None
+        app.state.watch_task = task
+        yield
+        if task:
+            task.cancel()
+            # 止まり終わるのを待つ
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    app = FastAPI(title="llm-launchpad WebUI", lifespan=lifespan)
     app.state.runner = runner or Runner(TERRAFORM_DIR, TERRAFORM_BIN)
     app.state.bedrock_runner = bedrock_runner or Runner(BEDROCK_TERRAFORM_DIR, TERRAFORM_BIN, launch_variables=bedrock.LAUNCH_VARIABLES)
     # AWS への問い合わせは、使うときに初めて用意する(認証情報がなくても、ほかの画面は動くように)
@@ -145,6 +166,8 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
     app.state.benchmark_jobs = {}
     app.state.launch_history = LaunchHistory(history_file or os.path.join(app.state.runner.terraform_dir, "tfvars", "history.jsonl"))
     app.state.added_models = AddedModels(added_models_file or os.path.join(app.state.runner.terraform_dir, "tfvars", "added_models.json"))
+    app.state.notifier = Notifier(notifications_file or os.path.join(app.state.runner.terraform_dir, "tfvars", "notifications.jsonl"),
+                                  slack_webhook_url)
     app.state.launch_presets = LaunchPresets(presets_file or os.path.join(app.state.runner.terraform_dir, "tfvars", "presets.json"))
     app.state.tasks = set()
     # チャットの送り先(terraform output)。環境ごとに1回だけ読む
@@ -401,6 +424,65 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
             {**r, "model_name": (models.get(r["variables"].get("model")) or {}).get("name"), "in_use": r["workspace"] in in_use}
             for r in records
         ]
+
+    async def lifetime_stop_at(workspace, tfvars):
+        """最大稼働時間で止まる時刻(terraform output の auto_stop.stop_at)。起動の実行ごとに1回だけ読む"""
+        if not tfvars.get("max_lifetime_hours"):
+            return None
+        run = app.state.runner.latest_run(workspace)
+        if run is not None and run.status != "succeeded":
+            return None
+        key = (workspace, run.id if run else None)
+        if key not in app.state.outputs:
+            app.state.outputs[key] = await app.state.runner.outputs(workspace)
+        return ((app.state.outputs[key] or {}).get("auto_stop") or {}).get("stop_at")
+
+    async def check_notifications():
+        """画面から起動した環境を1回見て、知らせることがあれば足す。足したものを返す"""
+        runner = app.state.runner
+        environments = {ws: runner.read_var_file(ws) or {} for ws in runner.launched_environments()}
+        if not environments:
+            return []
+        info = aws()
+        now = datetime.datetime.now(datetime.timezone.utc)
+        instances = {}
+        for region in {v.get("region", DEFAULT_REGION) for v in environments.values()}:
+            for inst in await asyncio.to_thread(info.project_instances, region):
+                instances[(region, inst["env_id"])] = inst
+        events = []
+        for workspace, tfvars in environments.items():
+            region = tfvars.get("region", DEFAULT_REGION)
+            instance = instances.get((region, workspace))
+            if instance is None:
+                continue
+            status = await asyncio.to_thread(info.bootstrap_status, region, workspace)
+            try:
+                stop_at = await lifetime_stop_at(workspace, tfvars) if instance["state"] == "running" else None
+            except RunnerError:
+                stop_at = None
+            events += detect(workspace, status, instance, stop_at, now)
+        return await asyncio.to_thread(app.state.notifier.add, events)
+
+    app.state.check_notifications = check_notifications
+
+    async def watch_environments():
+        while True:
+            try:
+                await check_notifications()
+            except Exception as e:  # noqa: BLE001 見に行けなくても止めず、次の回にまた見る(認証情報がないときなど)
+                print(f"llm-launchpad: 環境を見に行けませんでした: {e}", flush=True)
+            await asyncio.sleep(notify_interval_sec)
+
+    @app.get("/api/notifications")
+    def notifications(after: int = 0):
+        """after より後の知らせ(古い順)。画面は最後に見た id を after に入れて読み直す"""
+        n = app.state.notifier
+        return {
+            "notifications": n.list(after),
+            "slack": bool(n.slack_webhook_url),
+            "slack_error": n.last_error,
+            "interval_sec": notify_interval_sec,
+        }
 
     @app.get("/api/launch-history")
     def launch_history():
@@ -983,4 +1065,4 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
     return app
 
 
-app = create_app()
+app = create_app(notify_interval_sec=NOTIFY_INTERVAL_SEC)

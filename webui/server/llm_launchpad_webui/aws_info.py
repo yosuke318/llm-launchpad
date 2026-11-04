@@ -474,6 +474,8 @@ class AwsInfo:
                             "launch_time": inst["LaunchTime"].isoformat(),
                             "purchase_option": "spot" if inst.get("InstanceLifecycle") == "spot" else "on-demand",
                             "env_id": tags.get("EnvId"),
+                            # 止まった理由。スポットの中断なら Server.SpotInstanceShutdown
+                            "state_reason": (inst.get("StateReason") or {}).get("Code"),
                         })
             return instances
 

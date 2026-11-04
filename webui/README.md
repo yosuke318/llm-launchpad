@@ -163,6 +163,18 @@ terraform のワークスペースのうち、state にリソースがあるも�
 * 消し忘れたリソースは、管理用タグ `Project=llm-launchpad` が付いているのに、どの環境の state にもないもの(Resource Groups Tagging API で探す)。model-store と budget のリソース(`Persistent=true`)は除く。state を読めなかった環境と、apply や destroy の途中の環境のリソースは、消し忘れと決めない。探すのは、環境のあるリージョンと既定のリージョン(ap-northeast-1)。IAM のロールなどリージョンのないものは探さない
 * 一覧は、タブを開いている間だけ30秒ごと(状態が変わっている途中は5秒ごと)に読み直す。読むたびにワークスペースごとに `terraform state pull` を実行する
 
+### 知らせ
+
+画面の右上の「知らせ」に、起動した環境の知らせを並べ、デスクトップ通知を出す。Slack の Incoming Webhook を指定すれば、そこにも送る。
+
+* 知らせるのは3つ。準備ができたとき(起動処理の状態が ready になったとき)、自動停止の約10分前、スポットが中断されて止まったとき
+* サーバーが60秒ごと(`LAUNCHPAD_NOTIFY_INTERVAL_SEC`)に、画面から起動した環境(tfvars があるもの)のインスタンスと起動処理の状態を見て見つける
+* 自動停止は2つとも見る。アイドル停止は、インスタンスが5分ごとに書く「このまま使われなければ止まる時刻」(状態の `idle_stop_at`)、最大稼働時間は terraform output の `auto_stop.stop_at`
+* スポットの中断は、インスタンスが止まった理由(`StateReason` が `Server.SpotInstanceShutdown` など)で見分ける。手やアイドル停止で止めたものは知らせない
+* 同じ知らせは1回だけ出す。出した知らせは `terraform/tfvars/notifications.jsonl` に足していくので、サーバーを起動し直しても出し直さない。サーバーを止めていた間の準備完了は、1時間以内のものだけ知らせる
+* デスクトップ通知は、この画面を開いている間だけ出る(画面が30秒ごとに聞きに行く)。画面を開いたときに前からあった知らせは、通知せずに並べるだけ。通知は「知らせ」から止められる
+* Slack は `LAUNCHPAD_SLACK_WEBHOOK_URL` を指定したときだけ送る。送れなくても知らせは残し、エラーを「知らせ」に出す
+
 ### ベンチマーク
 
 起動した環境(インスタンスが動いているもの)で、決まったプロンプトを流して測る。
@@ -241,6 +253,7 @@ terraform のワークスペースのうち、state にリソースがあるも�
 | POST | `/api/bedrock/environments/{環境ID}/benchmark` | Lambda で計測を始める。`{"runs": 3}`。計測の ID を返す |
 | POST | `/api/bedrock/environments/{環境ID}/destroy` | `terraform/bedrock` で init と destroy を実行する。成功したら tfvars を消す |
 | POST | `/api/launch` | tfvars を書いて init と apply を実行する。`{"workspace": "qwen3-8b", "variables": {"model": "qwen3:8b", ...}}` |
+| GET | `/api/notifications` | 起動した環境の知らせ(古い順、50件まで)。`after`がなければ新しいほうから、`?after=<最後に見たid>`ならその続きを返す |
 | GET | `/api/launch-history` | 起動した設定の履歴(新しい順、同じ設定は1件)。同じ環境IDの環境が動いていれば `in_use` が true |
 | GET | `/api/presets` | 名前を付けて保存した設定(名前の順)。`model_name`と`in_use`は履歴と同じ |
 | POST | `/api/presets` | 起動の履歴に名前を付けて保存する。本文は`{"name": "...", "history_id": "..."}`。同じ名前があれば置き換える |
@@ -269,5 +282,8 @@ cd webui/web && npm test && npm run typecheck
 | `LAUNCHPAD_WEB_DIST` | `webui/web/dist` | 配る画面のディレクトリ |
 | `LAUNCHPAD_BENCHMARK_FILE` | `benchmarks/results.jsonl` | ベンチマークの結果を足していくファイル |
 | `LAUNCHPAD_HISTORY_FILE` | `terraform/tfvars/history.jsonl` | 起動した設定の履歴を足していくファイル |
+| `LAUNCHPAD_NOTIFY_INTERVAL_SEC` | `60` | 起動した環境を見に行き、知らせを探す間隔(秒)。`0`なら見ない |
+| `LAUNCHPAD_SLACK_WEBHOOK_URL` | (なし) | 知らせを Slack にも送るときの Incoming Webhook の URL |
+| `LAUNCHPAD_NOTIFICATIONS_FILE` | `terraform/tfvars/notifications.jsonl` | 出した知らせを足していくファイル |
 | `LAUNCHPAD_ADDED_MODELS_FILE` | `terraform/tfvars/added_models.json` | 一覧にないモデルを追加したときの定義のファイル |
 | `LAUNCHPAD_PRESETS_FILE` | `terraform/tfvars/presets.json` | 名前を付けて保存した設定のファイル |

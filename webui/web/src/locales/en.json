@@ -550,5 +550,26 @@
     "benchResult": "TTFT {{ttft}} s / output {{tps}} tok/s / {{cost}} per 1M tokens (including input)",
     "destroyConfirm": "Delete the Bedrock environment {{workspace}}? This removes the VPC, endpoint, Lambda function and IAM role.",
     "destroyNote": "The hourly endpoint charge continues until you delete the environment. Deleting takes a few minutes because of the endpoint."
+  },
+  "notify": {
+    "ready": "Environment {{workspace}} is ready",
+    "autoStopSoon": {
+      "idle": "Environment {{workspace}} will stop in about {{minutes}} min because it has had no requests",
+      "max_lifetime": "Environment {{workspace}} will stop in about {{minutes}} min because it reaches its max lifetime"
+    },
+    "spotInterrupted": "The Spot Instance of environment {{workspace}} was interrupted and stopped",
+    "title": "llm-launchpad",
+    "open": "Notifications ({{count}})",
+    "empty": "No notifications yet",
+    "enable": "Turn on desktop notifications",
+    "on": "Desktop notifications: on",
+    "off": "Desktop notifications: off",
+    "denied": "Notifications are blocked in the browser",
+    "unsupported": "This browser does not support desktop notifications",
+    "slackOn": "Also sent to Slack",
+    "slackOff": "Set LAUNCHPAD_SLACK_WEBHOOK_URL to also send them to Slack",
+    "watchOff": "The server is set not to check environments (LAUNCHPAD_NOTIFY_INTERVAL_SEC=0)",
+    "note": "You are notified when an environment is ready, about 10 minutes before an auto stop, and when a Spot Instance is interrupted. Desktop notifications appear only while this page is open.",
+    "loadFailed": "Could not load notifications: {{error}}"
   }
 }

@@ -70,6 +70,51 @@ h2 {
   margin-bottom: 20px;
 }
 
+.header-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.notifications {
+  position: relative;
+}
+
+.notifications summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.notifications-body {
+  position: absolute;
+  right: 0;
+  z-index: 10;
+  width: min(420px, calc(100vw - 32px));
+  margin-top: 6px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}
+
+.notifications-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.notification-list {
+  margin: 8px 0;
+  padding-left: 1.2em;
+}
+
+.notification-list li {
+  margin: 4px 0;
+}
+
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 340px) minmax(0, 1fr);

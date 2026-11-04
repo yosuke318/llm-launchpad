@@ -638,3 +638,28 @@ export function startBedrockBenchmark(workspace: string, runs: number) {
 export function destroyBedrockEnvironment(workspace: string) {
   return request<RunSummary>(`/api/bedrock/environments/${encodeURIComponent(workspace)}/destroy`, { method: "POST" });
 }
+
+// 起動した環境の知らせ。サーバーが一定の間隔で環境を見て足していく
+export interface AppNotification {
+  id: number;
+  key: string;
+  created_at: string;
+  kind: "ready" | "auto_stop_soon" | "spot_interrupted";
+  workspace: string;
+  // auto_stop_soon のとき。idle はアイドル停止、max_lifetime は最大稼働時間
+  reason?: "idle" | "max_lifetime";
+  stop_at?: string;
+}
+
+export interface NotificationList {
+  notifications: AppNotification[];
+  // Slack の Webhook を指定してあるか
+  slack: boolean;
+  slack_error: string | null;
+  // サーバーが環境を見に行く間隔(秒)。0 なら見ていない
+  interval_sec: number;
+}
+
+export function listNotifications(after: number) {
+  return request<NotificationList>(`/api/notifications?after=${after}`);
+}

@@ -238,6 +238,27 @@ MESSAGES = {
         "ja": "保存した設定が見つかりません",
         "en": "The saved settings were not found",
     },
+    # 知らせ(notifications.py)。Slack に送る文
+    "notify.ready": {
+        "ja": "llm-launchpad: 環境 {workspace} の準備ができました",
+        "en": "llm-launchpad: Environment {workspace} is ready",
+    },
+    "notify.auto_stop_soon.idle": {
+        "ja": "llm-launchpad: 環境 {workspace} は、リクエストがないため約{minutes}分後に止まります",
+        "en": "llm-launchpad: Environment {workspace} will stop in about {minutes} min because it has had no requests",
+    },
+    "notify.auto_stop_soon.max_lifetime": {
+        "ja": "llm-launchpad: 環境 {workspace} は、最大稼働時間に達するため約{minutes}分後に止まります",
+        "en": "llm-launchpad: Environment {workspace} will stop in about {minutes} min because it reaches its max lifetime",
+    },
+    "notify.spot_interrupted": {
+        "ja": "llm-launchpad: 環境 {workspace} のスポットインスタンスが中断され、止まりました",
+        "en": "llm-launchpad: The Spot Instance of environment {workspace} was interrupted and stopped",
+    },
+    "notify.slack_failed": {
+        "ja": "Slackに送れませんでした: {error}",
+        "en": "Could not send to Slack: {error}",
+    },
     # 環境と実行(app.py)
     "env.invalid": {
         "ja": "環境ID が正しくありません",
