@@ -13,3 +13,9 @@ export function notificationText(n: AppNotification, now: Date): { key: string; 
 export function newNotifications(list: AppNotification[], lastId: number | null) {
   return lastId === null ? [] : list.filter((n) => n.id > lastId);
 }
+
+// 読んだ知らせを、持っている一覧の後ろに足す。同じ id は1つにし、新しいほうから keep 件だけ持つ
+export function mergeNotifications(list: AppNotification[], more: AppNotification[], keep: number) {
+  const seen = new Set(list.map((n) => n.id));
+  return [...list, ...more.filter((n) => !seen.has(n.id))].slice(-keep);
+}

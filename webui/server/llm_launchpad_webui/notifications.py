@@ -113,5 +113,9 @@ class Notifier:
             self.last_error = t("notify.slack_failed", error=e)
 
     def list(self, after=0, limit=DEFAULT_LIMIT):
-        """after より後の知らせ。古い順"""
-        return [r for r in self.records if r["id"] > after][-limit:]
+        """知らせを古い順に返す。after が 0 なら新しいほうから limit 件。
+        after を指定したら、その後のものを古いほうから limit 件(多いときは、続きを次に読めば取りこぼさない)"""
+        with self._lock:
+            if after <= 0:
+                return self.records[-limit:]
+            return [r for r in self.records if r["id"] > after][:limit]

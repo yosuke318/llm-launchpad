@@ -146,9 +146,13 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
     async def lifespan(app):
         # 起動した環境を見に行く。テストでは止めておき、check_notifications を直接呼ぶ
         task = asyncio.create_task(watch_environments()) if notify_interval_sec > 0 else None
+        app.state.watch_task = task
         yield
         if task:
             task.cancel()
+            # 止まり終わるのを待つ
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
     app = FastAPI(title="llm-launchpad WebUI", lifespan=lifespan)
     app.state.runner = runner or Runner(TERRAFORM_DIR, TERRAFORM_BIN)

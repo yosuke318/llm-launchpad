@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { AppNotification } from "./api";
-import { newNotifications, notificationText } from "./notify";
+import { mergeNotifications, newNotifications, notificationText } from "./notify";
 
 const base = { id: 1, key: "k", created_at: "2026-11-03T03:00:00+00:00", workspace: "qwen3-8b" };
 
@@ -31,5 +31,18 @@ describe("newNotifications", () => {
 
   it("最後に見た id より後だけ", () => {
     expect(newNotifications(list, 1).map((n) => n.id)).toEqual([2, 3]);
+  });
+});
+
+describe("mergeNotifications", () => {
+  const ids = (list: AppNotification[]) => list.map((n) => n.id);
+  const make = (...id: number[]): AppNotification[] => id.map((i) => ({ ...base, id: i, kind: "ready" }));
+
+  it("後ろに足し、同じ id は1つにする", () => {
+    expect(ids(mergeNotifications(make(1, 2), make(2, 3), 10))).toEqual([1, 2, 3]);
+  });
+
+  it("新しいほうから決まった件数だけ持つ", () => {
+    expect(ids(mergeNotifications(make(1, 2, 3), make(4, 5), 3))).toEqual([3, 4, 5]);
   });
 });

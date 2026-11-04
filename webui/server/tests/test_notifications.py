@@ -79,6 +79,23 @@ def test_notifier_adds_each_key_once_and_keeps_them(tmp_path):
     assert [r["id"] for r in reloaded.list(after=1)] == [2]
 
 
+def test_list_reads_latest_first_then_continues_after_last_id(tmp_path):
+    n = Notifier(str(tmp_path / "n.jsonl"))
+    n.add([{"key": f"k{i}", "kind": "ready", "workspace": "qwen3-8b"} for i in range(1, 8)])
+    assert [r["id"] for r in n.list(limit=3)] == [5, 6, 7], "初めは新しいほうから"
+    assert [r["id"] for r in n.list(after=2, limit=3)] == [3, 4, 5], "続きは古いほうから。多くても取りこぼさない"
+    assert [r["id"] for r in n.list(after=5, limit=3)] == [6, 7]
+
+
+def test_watcher_stops_with_server(tmp_path):
+    d = tmp_path / "terraform"
+    d.mkdir()
+    app = create_app(Runner(str(d), "terraform"), web_dist=None, aws_info=FakeAwsInfo([], {}), notify_interval_sec=3600)
+    with TestClient(app):
+        assert not app.state.watch_task.done()
+    assert app.state.watch_task.cancelled(), "サーバーを止めたら、見に行くのも止まり終わる"
+
+
 def test_slack_failure_keeps_notification(tmp_path):
     def fail(url, body):
         raise urllib.error.URLError("connection refused")

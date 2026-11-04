@@ -253,7 +253,7 @@ terraform のワークスペースのうち、state にリソースがあるも�
 | POST | `/api/bedrock/environments/{環境ID}/benchmark` | Lambda で計測を始める。`{"runs": 3}`。計測の ID を返す |
 | POST | `/api/bedrock/environments/{環境ID}/destroy` | `terraform/bedrock` で init と destroy を実行する。成功したら tfvars を消す |
 | POST | `/api/launch` | tfvars を書いて init と apply を実行する。`{"workspace": "qwen3-8b", "variables": {"model": "qwen3:8b", ...}}` |
-| GET | `/api/notifications` | 起動した環境の知らせ(古い順)。`?after=<最後に見たid>` |
+| GET | `/api/notifications` | 起動した環境の知らせ(古い順、50件まで)。`after`がなければ新しいほうから、`?after=<最後に見たid>`ならその続きを返す |
 | GET | `/api/launch-history` | 起動した設定の履歴(新しい順、同じ設定は1件)。同じ環境IDの環境が動いていれば `in_use` が true |
 | GET | `/api/presets` | 名前を付けて保存した設定(名前の順)。`model_name`と`in_use`は履歴と同じ |
 | POST | `/api/presets` | 起動の履歴に名前を付けて保存する。本文は`{"name": "...", "history_id": "..."}`。同じ名前があれば置き換える |

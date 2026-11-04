@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { listNotifications, type NotificationList } from "../api";
-import { newNotifications, notificationText } from "../notify";
+import { listNotifications, type AppNotification, type NotificationList } from "../api";
+import { mergeNotifications, newNotifications, notificationText } from "../notify";
 
 // 画面がサーバーに知らせを聞きに行く間隔
 const POLL_MS = 30_000;
 // 画面に並べる件数
 const SHOWN = 10;
+// 画面が持っておく件数(サーバーが1回に返す件数と同じ)
+const KEEP = 50;
 const STORAGE_KEY = "llm-launchpad.desktopNotifications";
 
 type Permission = NotificationPermission | "unsupported";
@@ -37,6 +39,7 @@ function saveDesktopEnabled(on: boolean) {
 export default function NotificationCenter() {
   const { t, i18n } = useTranslation();
   const [data, setData] = useState<NotificationList | null>(null);
+  const [items, setItems] = useState<AppNotification[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [perm, setPerm] = useState<Permission>(permission);
   const [enabled, setEnabled] = useState(desktopEnabled);
@@ -51,11 +54,13 @@ export default function NotificationCenter() {
 
     async function poll() {
       try {
-        const res = await listNotifications(0);
+        // 初めは新しいほうから、そのあとは最後に見た id の続きを読む。間に多く足されても取りこぼさない
+        const res = await listNotifications(lastId.current ?? 0);
         if (cancelled) return;
         const fresh = newNotifications(res.notifications, lastId.current);
         lastId.current = Math.max(lastId.current ?? 0, ...res.notifications.map((n) => n.id));
         setData(res);
+        setItems((prev) => mergeNotifications(prev, res.notifications, KEEP));
         setError(null);
         if (enabledRef.current && permission() === "granted") {
           for (const n of fresh) {
@@ -93,12 +98,12 @@ export default function NotificationCenter() {
     saveDesktopEnabled(false);
   }
 
-  const recent = (data?.notifications ?? []).slice(-SHOWN).reverse();
+  const recent = items.slice(-SHOWN).reverse();
   const time = new Intl.DateTimeFormat(i18n.language, { dateStyle: "short", timeStyle: "short" });
 
   return (
     <details className="notifications">
-      <summary>{t("notify.open", { count: data?.notifications.length ?? 0 })}</summary>
+      <summary>{t("notify.open", { count: items.length })}</summary>
       <div className="notifications-body">
         <div className="notifications-controls">
           {perm === "unsupported" ? (
