@@ -489,20 +489,21 @@ def parse_time(ts):
     return calendar.timegm(time.strptime(ts, "%Y-%m-%dT%H:%M:%SZ"))
 
 
-def ollama_requests_since(minutes):
-    """Ollama のログ(journald)にある、直近 minutes 分のリクエストの数。ログは [GIN] ... | POST "/api/chat" の形"""
+def ollama_request_times(minutes):
+    """Ollama のログ(journald)にある、直近 minutes 分のリクエストの時刻(エポック秒)。
+    ログは「1730000000.123456 ホスト ollama[123]: [GIN] ... | POST "/api/chat"」の形(-o short-unix)"""
     out = subprocess.run(
-        ["journalctl", "-u", "ollama", "--since", f"-{minutes}min", "--no-pager", "-o", "cat"],
+        ["journalctl", "-u", "ollama", "--since", f"-{minutes}min", "--no-pager", "-o", "short-unix"],
         capture_output=True, text=True, check=True,
     ).stdout
-    count = 0
+    times = []
     for line in out.splitlines():
         if "[GIN]" not in line:
             continue
         m = re.search(r'"(/[^"]*)"', line)
         if m and m.group(1) != "/" and not m.group(1).startswith(IGNORED_PATHS):
-            count += 1
-    return count
+            times.append(float(line.split(" ", 1)[0]))
+    return times
 
 
 def bootstrap_running():
@@ -512,7 +513,8 @@ def bootstrap_running():
 
 
 def idle_check(minutes, dry_run=False):
-    """Ollama へのリクエストが minutes 分なければインスタンスを止める。systemd のタイマーから数分ごとに呼ぶ"""
+    """Ollama へのリクエストが minutes 分なければインスタンスを止める。systemd のタイマーから数分ごとに呼ぶ。
+    このまま使われなければ止まる時刻を idle_stop_at に書く(WebUI が止まる前に知らせるため)"""
     s = load_state()
     if s.get("state") not in ("ready", "failed") or bootstrap_running():
         log("起動処理の途中なので止めません")
@@ -523,12 +525,17 @@ def idle_check(minutes, dry_run=False):
         uptime = float(f.read().split()[0])
     # 起動処理が終わってから、また今回の起動(停止からの再開を含む)から minutes 分は止めない
     finished_at = parse_time(s.get("ready_at") or s["updated_at"])
+    times = ollama_request_times(minutes)
+    stop_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(max([time.time() - uptime, finished_at, *times]) + window))
+    if stop_at != s.get("idle_stop_at"):
+        # set_status は updated_at を変え、ready_at がないときの止める時刻の数え始めがずれるので、この項目だけ書く
+        s["idle_stop_at"] = stop_at
+        save_state(s)
     if uptime < window or time.time() - finished_at < window:
         return
 
-    requests = ollama_requests_since(minutes)
-    if requests:
-        log(f"直近 {minutes} 分に {requests} 件のリクエストがありました")
+    if times:
+        log(f"直近 {minutes} 分に {len(times)} 件のリクエストがありました")
         return
 
     log(f"直近 {minutes} 分 Ollama へのリクエストがないため、インスタンスを止めます")

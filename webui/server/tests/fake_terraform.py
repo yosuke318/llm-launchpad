@@ -38,6 +38,8 @@ if command == "output":
         "function_name": f"llm-launchpad-{ws}-bedrock",
         "availability_zone": "ap-northeast-1a",
         "vpc_endpoint_ids": ["vpce-1"],
+        # 最大稼働時間で止まる時刻は FAKE_TERRAFORM_STOP_AT で渡す
+        "auto_stop": {"idle_stop_minutes": 30, "stop_at": os.environ.get("FAKE_TERRAFORM_STOP_AT")},
     }
     print(json.dumps({k: {"value": v, "type": "string", "sensitive": False} for k, v in values.items()}))
     sys.exit(0)
