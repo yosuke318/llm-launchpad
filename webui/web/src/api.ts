@@ -186,8 +186,11 @@ export function listRegions() {
   return request<{ regions: Region[]; default: string }>("/api/regions");
 }
 
-export function getRegionPlan(params: { model: string; region: string; context_length: number; kv_cache_type: string }) {
-  const query = new URLSearchParams({ ...params, context_length: String(params.context_length) });
+// instance_type を省くと、そのモデルの推奨のインスタンス型で出す
+export function getRegionPlan(params: { model: string; region: string; context_length: number; kv_cache_type: string; instance_type?: string }) {
+  const { instance_type, ...rest } = params;
+  const query = new URLSearchParams({ ...rest, context_length: String(params.context_length) });
+  if (instance_type) query.set("instance_type", instance_type);
   return request<RegionPlan>(`/api/region-plan?${query}`);
 }
 
@@ -553,6 +556,81 @@ export function getBenchmarkJob(id: string) {
 
 export function listBenchmarks() {
   return request<{ benchmarks: Benchmark[] }>(BENCHMARKS_JSON_URL).then((r) => r.benchmarks);
+}
+
+// 比較モード(同じモデルを複数の構成で順に起動して測る)
+
+export interface ComparisonConfig {
+  instance_type: string;
+  model_storage: StorageId;
+  purchase_option: "spot" | "on-demand";
+}
+
+export interface ComparisonRequest {
+  model: string;
+  region: string;
+  context_length: number;
+  kv_cache_type: string;
+  network_mode: NetworkMode;
+  runs: number;
+  idle_stop_minutes: number;
+  max_lifetime_hours: number;
+  configs: ComparisonConfig[];
+}
+
+export type ComparisonConfigStatus = "pending" | "launching" | "starting" | "benchmarking" | "destroying" | "done" | "failed" | "skipped";
+
+export interface ComparisonConfigState extends ComparisonConfig {
+  index: number;
+  workspace: string;
+  status: ComparisonConfigStatus;
+  // 起動の段階(起動の進み具合と同じ)
+  stage: ProgressStageId | null;
+  error: string | null;
+  // 削除できたか。起動しなかった構成は null
+  destroyed: boolean | null;
+  // terraform apply から使える状態になるまで
+  startup_sec: number | null;
+  started_at: string | null;
+  finished_at: string | null;
+  // 起動を始めてから削除し終えるまで
+  elapsed_sec: number | null;
+  // elapsed_sec × 1時間あたりの料金
+  run_cost_usd: number | null;
+  launch_run_id: string | null;
+  destroy_run_id: string | null;
+  result: (Benchmark & { comparison_id: string }) | null;
+}
+
+export interface Comparison extends Omit<ComparisonRequest, "configs"> {
+  id: string;
+  // partial は測れなかった構成があるとき、failed は削除できずに止めたとき
+  status: "running" | "succeeded" | "partial" | "failed" | "canceled";
+  cancel_requested: boolean;
+  error: string | null;
+  started_at: string;
+  finished_at: string | null;
+  configs: ComparisonConfigState[];
+}
+
+export function startComparison(req: ComparisonRequest) {
+  return request<Comparison>("/api/comparisons", { method: "POST", body: JSON.stringify(req) });
+}
+
+export function listComparisons() {
+  return request<{ comparisons: Comparison[] }>("/api/comparisons").then((r) => r.comparisons);
+}
+
+export function getComparison(id: string) {
+  return request<Comparison>(`/api/comparisons/${encodeURIComponent(id)}`);
+}
+
+export function cancelComparison(id: string) {
+  return request<Comparison>(`/api/comparisons/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+}
+
+export function comparisonCsvUrl(id: string) {
+  return `/api/comparisons/${encodeURIComponent(id)}.csv`;
 }
 
 export interface ChatMessage {

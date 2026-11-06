@@ -14,6 +14,7 @@
     "progress": "Launch progress",
     "environments": "Environments",
     "benchmark": "Benchmark",
+    "compare": "Compare",
     "terraform": "Terraform"
   },
   "models": {
@@ -454,6 +455,68 @@
     "chatSend": "Send",
     "chatSending": "Waiting for the response…",
     "chatClear": "Clear the chat"
+  },
+  "compare": {
+    "heading": "Comparison mode",
+    "lead": "Launch the same model with several configurations (instance type, model storage, purchase option) one at a time, measure each, and show a comparison table. To keep costs down, each configuration is launched, measured, and deleted before the next one starts (only one environment runs at a time).",
+    "model": "Model",
+    "contextCapped": "Estimated at the model's maximum context length ({{max}}).",
+    "columns": {
+      "instanceType": "Instance type",
+      "purchase": "Purchase option",
+      "hourly": "Per hour",
+      "duration": "Launch to delete",
+      "config": "Configuration",
+      "state": "State",
+      "gpu": "GPU",
+      "startup": "Time to ready",
+      "runCost": "Cost of this run"
+    },
+    "remove": "Remove",
+    "add": "Add a configuration (up to {{max}})",
+    "maxLifetime": "Stop this many hours after launch (1 to 720, so it stops even if the server goes down)",
+    "settingsInvalid": "Use {{min}} to {{max}} runs, an idle stop of 0 or 10 to 1440 minutes, and a maximum lifetime of 1 to 720 hours.",
+    "problems": {
+      "duplicate": "The same configuration is listed more than once",
+      "storageNotReady": "This storage is not set up in {{region}} yet (apply terraform/model-store first)",
+      "downloadPrivate": "Download on every launch is not available on the private network",
+      "checkFailed": "The pre-launch checks (credentials or vCPU quota) did not pass. See the details on the model screen",
+      "notFit": "Not enough VRAM at this context length",
+      "notOffered": "This instance type is not available in {{region}}"
+    },
+    "total": "Estimated cost of the whole comparison",
+    "totalDetail": "{{time}} in total (launch to delete for each configuration, added up)",
+    "note": "The cost is the estimated hourly price (spot uses the cheapest AZ) multiplied by the estimated time from launch to delete. The launch time assumes the model is downloaded for the first time and is shorter when the model is already in S3 or on EBS. The storage price (a monthly charge, even while stopped) is spread over the hours.",
+    "confirm": "Start the comparison",
+    "alreadyRunning": "Another comparison is running. You can start once it finishes or is canceled.",
+    "dialogTitle": "Start the comparison?",
+    "dialogLead": "{{model}} will be launched and measured in {{region}} with these {{count}} configurations, one at a time.",
+    "dialogSteps": "For each configuration: terraform apply, wait until ready, measure, then terraform destroy before moving on. A failed configuration is also deleted before moving on. If a deletion fails, the comparison stops there. Each environment stops after {{idle}} idle minutes or {{hours}} hours after launch.",
+    "yes": "Yes (launch and measure one at a time)",
+    "resultHeading": "Comparison results",
+    "pick": "Comparison",
+    "summary": "{{model}} · {{region}} · context length {{context}} · KV {{kv}} · {{network}} · {{runs}} runs",
+    "status": {
+      "running": "Running",
+      "succeeded": "Finished",
+      "partial": "Some configurations could not be measured",
+      "failed": "Stopped",
+      "canceled": "Canceled"
+    },
+    "configStatus": {
+      "pending": "Waiting",
+      "launching": "Launching",
+      "starting": "Waiting until ready",
+      "benchmarking": "Measuring",
+      "destroying": "Deleting",
+      "done": "Measured",
+      "failed": "Failed",
+      "skipped": "Not measured"
+    },
+    "cancel": "Cancel",
+    "canceling": "Canceling…",
+    "notDestroyed": "The environment {{workspace}} is still there. Delete it from the environments tab.",
+    "resultNote": "Bold marks the best value in each column. The results are also kept in the benchmark history (the comparison records are cleared when the server restarts). \"Time to ready\" is from terraform apply until ready, and \"Cost of this run\" is the time from launch to delete multiplied by the hourly price."
   },
   "terraform": {
     "heading": "Terraform",

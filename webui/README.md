@@ -194,6 +194,21 @@ terraform のワークスペースのうち、state にリソースがあるも�
 * SSM で接続する環境(`access_mode=ssm`)では `http://localhost:11434` なので、サーバーを動かしている端末で `ssm_port_forward_command` を動かしたままにする。つながらないときは、そのコマンドをエラーに出す
 * 会話はサーバーに残さない。環境を変えると消える
 
+### 比較モード
+
+「比較モード」のタブで、同じモデルを複数の構成(インスタンス型 / モデルの置き場所 / 購入方法)で1つずつ順に起動して測り、比較表を出す。
+
+* 構成ごとに、`terraform apply` → 使える状態になるまで待つ → 計測(ベンチマークと同じ)→ `terraform destroy` をしてから、次の構成に進む。費用を抑えるため、同時に動かす環境は1つだけ
+* 起動、使える状態になるまでの待ち、計測のどこで失敗しても、その構成を削除してから次へ進む。削除に失敗したら(もう一度だけ試す)、環境が残ったまま次を起動しないよう、比較をそこで止める。残った環境は環境の一覧から削除する
+* 構成は2〜6個。そのモデルとコンテキスト長で VRAM に収まるインスタンス型だけ選べる。閉じたネットワークでは毎回ダウンロードを選べない。同じ構成は2つ置けない
+* モデル、リージョン、コンテキスト長、KV キャッシュの型、ネットワーク、何周流すか、自動停止は全部の構成で同じ。AZ は書かず、terraform に選ばせる
+* 環境IDは `cmp-<比較のIDの先頭6文字>-<番号>`。tfvars は起動したときに書き、削除すると消える。起動の履歴には入れない
+* 画面では、構成ごとに1時間あたりの目安と、起動から削除までの時間の目安(起動時間の目安 + 計測 120秒 + 1周 60秒 + 削除 180秒)を出し、全体の料金の目安を足す。構成のインスタンス型ごとに起動前のチェックをし、通らない購入方法や、モデルの置き場所の準備(model-store)がないものがあれば始められない
+* 確認のポップアップで「はい」を押したときだけ始める。動いている比較は1つだけ。取り消すと、動いている構成は起動や計測の区切りで止めて削除し、残りの構成は起動しない(計測の途中なら、計測が終わってから削除する)
+* 比較表には、構成ごとに状態、GPU、使えるまでの時間(apply から使える状態まで)、TTFT、tok/s、VRAM の実測、1時間あたりの料金、$/100万トークン、この構成の料金(起動から削除までの時間 × 1時間あたり)を並べ、列ごとに一番よい値を太字にする。CSV で保存できる
+* サーバーが途中で止まっても環境が動き続けないよう、最大の稼働時間は 1〜720 時間(既定は2時間)にする。0(止めない)は選べない
+* 比較の記録はサーバーのメモリにだけ持つ(サーバーを起動し直すと消える)。測った結果はベンチマークの履歴に `comparison_id` を付けて残る
+
 ### Bedrock
 
 推論エンジンに Bedrock を選ぶと、モデルの選択の画面が Bedrock 用に変わる。GPUインスタンスは起動せず、`terraform/bedrock` で閉じた VPC と bedrock-runtime のエンドポイントと Lambda を作る。
@@ -245,6 +260,11 @@ terraform のワークスペースのうち、state にリソースがあるも�
 | GET | `/api/benchmarks/jobs/{id}` | 計測の状態と結果 |
 | GET | `/api/benchmarks` | 測った結果の履歴(新しい順、プロンプトごとの結果を含む) |
 | GET | `/api/benchmarks.csv` | 測った結果の履歴の CSV |
+| POST | `/api/comparisons` | 比較を始める。`{"model": "qwen3:8b", "region": "ap-northeast-1", "runs": 3, "configs": [{"instance_type": "g6.xlarge", "model_storage": "s3_cache", "purchase_option": "spot"}, ...]}` |
+| GET | `/api/comparisons` | 比較の記録(新しい順) |
+| GET | `/api/comparisons/{id}` | 比較の状態と、構成ごとの状態と結果 |
+| POST | `/api/comparisons/{id}/cancel` | 比較を取り消す |
+| GET | `/api/comparisons/{id}.csv` | 比較表の CSV |
 | POST | `/api/environments/{環境ID}/chat` | モデルと話す。`{"messages": [{"role": "user", "content": "..."}]}` |
 | GET | `/api/bedrock/models` | Bedrock のモデルと、100万トークンあたりの料金、エンドポイントの時間課金。`?region=ap-northeast-1` |
 | POST | `/api/bedrock/launch` | `terraform/bedrock` の tfvars を書いて init と apply を実行する。`{"workspace": "br-haiku", "variables": {"model": "jp.anthropic.claude-haiku-4-5-20251001-v1:0", "region": "ap-northeast-1"}}` |
