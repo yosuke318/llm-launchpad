@@ -9,6 +9,12 @@
         ルーターのポート開放などでインターネットから届いても入れない
 
 /api 以外(ビルドした画面の HTML、JS、CSS)は合言葉なしで配る。ログインの画面を出すため。
+
+リバースプロキシの後ろに置くとき:
+    uvicorn は既定で、127.0.0.1 から来た X-Forwarded-For を信じて、送り元を本当のクライアントに直す
+    (--forwarded-allow-ips)。それでも、中継された印(X-Forwarded-For、Forwarded、X-Real-IP)が付いたリクエストは、
+    送り元が 127.0.0.1 でも「この PC から」とは扱わない。中継の印を付けないプロキシは見分けられないので、
+    プロキシの後ろでは合言葉を必ず決める(README)
 """
 
 import hmac
@@ -25,6 +31,9 @@ DEFAULT_ALLOWED_CIDRS = (
     # IPv6 のユニークローカルとリンクローカル
     "fc00::/7", "fe80::/10",
 )
+
+# リバースプロキシが中継したことを表すヘッダー
+FORWARDING_HEADERS = ("x-forwarded-for", "forwarded", "x-real-ip")
 
 # 合言葉なしで使えるパス。ログインの状態を見る、ログインする、ログアウトする
 PUBLIC_PATHS = {"/api/auth", "/api/auth/login", "/api/auth/logout"}
@@ -88,13 +97,24 @@ def bearer(header):
     return None
 
 
-def decide(path, host, token, networks, cookie, authorization):
+def is_local(host, forwarded=False):
+    """この PC から来たか。中継された印があれば、送り元がループバックでも違うものとして扱う。
+    テストクライアントのように送り元が分からないときは、この PC から来たものとして扱う"""
+    if forwarded:
+        return False
+    return host in (None, "testclient") or is_loopback(client_address(host))
+
+
+def forwarded(headers):
+    return any(headers.get(h) for h in FORWARDING_HEADERS)
+
+
+def decide(path, host, token, networks, cookie, authorization, forwarded=False):
     """入れてよいか。入れてよければ None、だめなら (ステータス, 文言の key)"""
     if not path.startswith("/api"):
         return None
     address = client_address(host)
-    # テストクライアントのように送り元が分からないときは、この PC から来たものとして扱う
-    local = host in (None, "testclient") or is_loopback(address)
+    local = is_local(host, forwarded)
     if not local and not is_allowed(address, networks):
         return 403, "access.address_not_allowed"
     if path in PUBLIC_PATHS:
@@ -106,8 +126,7 @@ def decide(path, host, token, networks, cookie, authorization):
     return 401, "access.login_required"
 
 
-def authenticated(host, token, cookie, authorization):
+def authenticated(host, token, cookie, authorization, forwarded=False):
     if token is None:
-        address = client_address(host)
-        return host in (None, "testclient") or is_loopback(address)
+        return is_local(host, forwarded)
     return token_matches(token, cookie) or token_matches(token, bearer(authorization))

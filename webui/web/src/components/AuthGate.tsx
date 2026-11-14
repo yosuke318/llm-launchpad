@@ -38,6 +38,18 @@ export default function AuthGate({ children }: { children: (status: AuthStatus, 
     );
   }
   if (!status) return null;
+  // 合言葉が決められていないのに使えないのは、ほかの PC から開いたとき。ログインしても入れないので、決め方を案内する
+  if (!status.required && !status.authenticated) {
+    return (
+      <div className="page">
+        <section className="card login">
+          <h1>{t("app.title")}</h1>
+          <p>{t("auth.tokenNotSet")}</p>
+          <p className="muted small">{t("auth.tokenNotSetHelp")}</p>
+        </section>
+      </div>
+    );
+  }
   if (!status.authenticated) return <LoginForm onDone={() => setStatus({ required: true, authenticated: true })} />;
   return <>{children(status, signOut)}</>;
 }

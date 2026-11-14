@@ -101,3 +101,16 @@ def test_default_allowed_networks(host, allowed):
 
 def test_ipv4_mapped_loopback_is_local():
     assert access.is_loopback(ipaddress.ip_address("::ffff:127.0.0.1"))
+
+
+@pytest.mark.parametrize("header", ["X-Forwarded-For", "Forwarded", "X-Real-IP"])
+def test_forwarded_requests_from_loopback_are_not_treated_as_this_pc(tmp_path, header):
+    # 同じ PC のリバースプロキシから来ると、送り元は 127.0.0.1 になる。中継の印があれば、この PC とは扱わない
+    value = "for=192.168.1.20" if header == "Forwarded" else "192.168.1.20"
+    with make(tmp_path, client=LOCAL, token=None) as c:
+        res = c.get("/api/health", headers={header: value})
+        assert res.status_code == 403
+        assert c.get("/api/auth", headers={header: value}).json() == {"required": False, "authenticated": False}
+    with make(tmp_path, client=LOCAL) as c:
+        assert c.get("/api/health", headers={header: value}).status_code == 401
+        assert c.get("/api/health", headers={header: value, "Authorization": f"Bearer {TOKEN}"}).status_code == 200
