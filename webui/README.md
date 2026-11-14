@@ -44,7 +44,7 @@ uv run uvicorn llm_launchpad_webui.app:app --host 0.0.0.0 --port 8000
 * リバースプロキシ(nginx など)の後ろに置くときは、合言葉を必ず決める。中継の印(`X-Forwarded-For`、`Forwarded`、`X-Real-IP`)が付いたリクエストは、送り元が 127.0.0.1 でも「この PC から」とは扱わないが、印を付けないプロキシは見分けられない。同じ PC のプロキシからの `X-Forwarded-For` は、uvicorn が既定(`--forwarded-allow-ips` が 127.0.0.1)で本当の送り元に直す
 * 画面のファイル(HTML、JS、CSS)は、ログインの画面を出すために合言葉なしで配る
 * HTTP なので、合言葉と Cookie は LAN の中を暗号化せずに流れる。信頼できない人がいるネットワーク(公衆 Wi-Fi など)では使わない
-* AWS の認証情報、terraform、SSM のポートフォワードは、サーバーを動かしている PC のものを使う。チャットもサーバーから Ollama に送るので、ほかの PC でポートフォワードを動かす必要はない
+* AWS の認証情報、terraform、SSM のポートフォワードは、サーバーを動かしている PC のものを使う。チャットもサーバーから Ollama に送るので、ほかの PC でポートフォワードを動かす必要はない。ほかの PC から GPU インスタンスまでどうつながるかは [docs/connection.md](../docs/connection.md)
 * デスクトップ通知は、ブラウザが HTTPS か localhost でしか許さないので、ほかの PC からは出ない(「知らせ」の一覧には出る)
 * 合言葉は1つで、使う人を分けない。誰が操作したかは残らない
 
