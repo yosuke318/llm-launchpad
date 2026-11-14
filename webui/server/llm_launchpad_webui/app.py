@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import bedrock
+from . import comparison as comparisons
 from .aws_info import AwsInfo, AwsInfoError
 from .benchmark import DEFAULT_RUNS, MAX_RUNS, BenchmarkError, BenchmarkStore, bench_command, parse_output, summarize
 from .chat import ChatError, ChatUnreachable, chat_once
@@ -117,6 +118,27 @@ class BenchmarkRequest(BaseModel):
     runs: int = DEFAULT_RUNS
 
 
+class ComparisonConfig(BaseModel):
+    instance_type: str
+    # s3_cache / ebs / download
+    model_storage: str
+    # spot / on-demand
+    purchase_option: str
+
+
+class ComparisonRequest(BaseModel):
+    model: str
+    region: str = DEFAULT_REGION
+    context_length: int = DEFAULT_CONTEXT_LENGTH
+    kv_cache_type: str = DEFAULT_KV_CACHE_TYPE
+    network_mode: str = "public"
+    runs: int = DEFAULT_RUNS
+    idle_stop_minutes: int = 30
+    # サーバーが途中で止まっても、この時間で止まる
+    max_lifetime_hours: int = 2
+    configs: list[ComparisonConfig]
+
+
 class ChatMessage(BaseModel):
     role: Literal["system", "user", "assistant"]
     content: str
@@ -141,7 +163,10 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
                bedrock_runner: Runner | None = None, history_file: str | None = HISTORY_FILE,
                presets_file: str | None = PRESETS_FILE, added_models_file: str | None = ADDED_MODELS_FILE,
                model_lookup=lookup, notifications_file: str | None = NOTIFICATIONS_FILE,
-               slack_webhook_url: str | None = SLACK_WEBHOOK_URL, notify_interval_sec: int = 0) -> FastAPI:
+               slack_webhook_url: str | None = SLACK_WEBHOOK_URL, notify_interval_sec: int = 0,
+               comparison_poll_sec: float = comparisons.DEFAULT_POLL_SEC,
+               comparison_ready_timeout_sec: float = comparisons.DEFAULT_READY_TIMEOUT_SEC,
+               comparison_busy_timeout_sec: float = comparisons.DEFAULT_BUSY_TIMEOUT_SEC) -> FastAPI:
     @contextlib.asynccontextmanager
     async def lifespan(app):
         # 起動した環境を見に行く。テストでは止めておき、check_notifications を直接呼ぶ
@@ -164,6 +189,8 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
     # ベンチマークの履歴と、実行中の計測(サーバーのメモリにだけ持つ)
     app.state.benchmarks = BenchmarkStore(benchmark_file)
     app.state.benchmark_jobs = {}
+    # 比較モードの記録(サーバーのメモリにだけ持つ)。始めた順
+    app.state.comparisons = {}
     app.state.launch_history = LaunchHistory(history_file or os.path.join(app.state.runner.terraform_dir, "tfvars", "history.jsonl"))
     app.state.added_models = AddedModels(added_models_file or os.path.join(app.state.runner.terraform_dir, "tfvars", "added_models.json"))
     app.state.notifier = Notifier(notifications_file or os.path.join(app.state.runner.terraform_dir, "tfvars", "notifications.jsonl"),
@@ -395,17 +422,9 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
         """起動の確認で Yes を押したとき。tfvars/<環境ID>.tfvars.json を書き、init と apply を実行する。
         料金がかかるインスタンスを作るので、画面の確認を通したときだけ呼ぶ"""
         model = req.variables.get("model")
-        models = catalog().models
-        if not isinstance(model, str) or model not in models:
+        if not isinstance(model, str) or model not in catalog().models:
             raise HTTPException(status_code=422, detail=t("model.unknown", model=model))
-        # 追加したモデルは terraform のモデル定義にないので、定義を tfvars に書いて渡す
-        variables = {k: v for k, v in req.variables.items() if k != "model_definition"}
-        if models[model].get("added"):
-            definition = {k: models[model][k] for k in DEFINITION_FIELDS if models[model].get(k) is not None}
-            # 全層が注意層なら attention_layers は書かない(画面に出す tfvars と同じ)
-            if definition.get("attention_layers") == definition["layers"]:
-                del definition["attention_layers"]
-            variables["model_definition"] = definition
+        variables = with_model_definition(req.variables)
         try:
             run = await app.state.runner.launch(req.workspace, variables)
         except BusyError as e:
@@ -415,6 +434,19 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
         # 同じ設定でもう一度起動できるよう、tfvars に書いた値を履歴に残す
         app.state.launch_history.append(req.workspace, app.state.runner.read_var_file(req.workspace))
         return run.summary()
+
+    def with_model_definition(variables):
+        """追加したモデルは terraform のモデル定義にないので、定義を tfvars に書いて渡す。画面から来た定義は使わない"""
+        models = catalog().models
+        model = variables.get("model")
+        variables = {k: v for k, v in variables.items() if k != "model_definition"}
+        if models[model].get("added"):
+            definition = {k: models[model][k] for k in DEFINITION_FIELDS if models[model].get(k) is not None}
+            # 全層が注意層なら attention_layers は書かない(画面に出す tfvars と同じ)
+            if definition.get("attention_layers") == definition["layers"]:
+                del definition["attention_layers"]
+            variables["model_definition"] = definition
+        return variables
 
     def with_launch_info(records):
         """履歴や保存した設定に、モデルの名前(モデル定義から消したものは None)と、同じ環境IDの環境が動いているかを足す"""
@@ -691,35 +723,42 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
         # エラーは、読んだ人の言語で出す
         return {**{k: v for k, v in job.items() if k != "error"}, "error": None if job["error"] is None else str(job["error"])}
 
+    def measure(workspace, model, runs, region, instance, tfvars, warnings, extra=None):
+        """スレッドで動かす。インスタンスで測り、料金と VRAM の見積もりを足して保存し、その1件を返す。
+        extra は結果に足す値(比較モードの comparison_id)"""
+        res = aws().run_command(region, instance["id"], bench_command(model, runs))
+        if res["status"] != "Success":
+            raise BenchmarkError("bench.failed", status=res["status"], code=res["exit_code"], stderr=res["stderr"].strip()[-2000:])
+        raw = parse_output(res["stdout"])
+        prices = None
+        try:
+            if instance["purchase_option"] == "spot":
+                prices = {"spot_by_az": aws().spot_hourly_by_az(region, instance["instance_type"])}
+            else:
+                prices = {"on_demand": aws().on_demand_hourly(region, instance["instance_type"])}
+        except AwsInfoError as e:
+            warnings.append(e)
+        # tfvars に書いていない値は、terraform の既定と同じものを使ったことになる。見積もりにも結果にも、その値を入れる
+        tfvars = {
+            **tfvars,
+            "context_length": tfvars.get("context_length") or (raw.get("loaded") or {}).get("context_length") or DEFAULT_CONTEXT_LENGTH,
+            "kv_cache_type": tfvars.get("kv_cache_type") or DEFAULT_KV_CACHE_TYPE,
+        }
+        try:
+            est = estimate(catalog(), model, tfvars["context_length"], tfvars["kv_cache_type"])
+            vram_estimate = est["vram_estimate"]["required_gib"]
+        except SizingError as e:
+            warnings.append(e)
+            vram_estimate = None
+        record = {**summarize(raw, workspace, tfvars, {**instance, "region": region}, hourly_usd(prices, instance), vram_estimate),
+                  **(extra or {})}
+        app.state.benchmarks.append(record)
+        return record
+
     def run_benchmark(job, region, instance, tfvars):
         """スレッドで動かす。インスタンスで測り、料金と VRAM の見積もりを足して保存する"""
         try:
-            res = aws().run_command(region, instance["id"], bench_command(job["model"], job["runs"]))
-            if res["status"] != "Success":
-                raise BenchmarkError("bench.failed", status=res["status"], code=res["exit_code"], stderr=res["stderr"].strip()[-2000:])
-            raw = parse_output(res["stdout"])
-            prices = None
-            try:
-                if instance["purchase_option"] == "spot":
-                    prices = {"spot_by_az": aws().spot_hourly_by_az(region, instance["instance_type"])}
-                else:
-                    prices = {"on_demand": aws().on_demand_hourly(region, instance["instance_type"])}
-            except AwsInfoError as e:
-                job["warnings"].append(e)
-            # tfvars に書いていない値は、terraform の既定と同じものを使ったことになる。見積もりにも結果にも、その値を入れる
-            tfvars = {
-                **tfvars,
-                "context_length": tfvars.get("context_length") or (raw.get("loaded") or {}).get("context_length") or DEFAULT_CONTEXT_LENGTH,
-                "kv_cache_type": tfvars.get("kv_cache_type") or DEFAULT_KV_CACHE_TYPE,
-            }
-            try:
-                est = estimate(catalog(), job["model"], tfvars["context_length"], tfvars["kv_cache_type"])
-                vram_estimate = est["vram_estimate"]["required_gib"]
-            except SizingError as e:
-                job["warnings"].append(e)
-                vram_estimate = None
-            record = summarize(raw, job["workspace"], tfvars, {**instance, "region": region}, hourly_usd(prices, instance), vram_estimate)
-            app.state.benchmarks.append(record)
+            record = measure(job["workspace"], job["model"], job["runs"], region, instance, tfvars, job["warnings"])
             job.update(status="succeeded", result=record)
         except (AwsInfoError, BenchmarkError) as e:
             job.update(status="failed", error=e)
@@ -770,6 +809,109 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
     def benchmarks_csv():
         return Response(app.state.benchmarks.csv(), media_type="text/csv; charset=utf-8",
                         headers={"Content-Disposition": 'attachment; filename="benchmarks.csv"'})
+
+    class ComparisonOps:
+        """比較モード(comparison.run)が使う、terraform と AWS への呼び出し"""
+
+        async def launch(self, workspace, variables):
+            return await app.state.runner.launch(workspace, with_model_definition(variables))
+
+        async def destroy(self, workspace):
+            return await app.state.runner.destroy(workspace)
+
+        async def wait(self, run):
+            async with run.changed:
+                await run.changed.wait_for(lambda: run.status != "running")
+
+        def is_busy_error(self, e):
+            return isinstance(e, BusyError)
+
+        async def progress(self, workspace):
+            runner = app.state.runner
+            tfvars = runner.read_var_file(workspace)
+            run = runner.latest_launch(workspace)
+            status = None
+            if run is None or run.status == "succeeded":
+                try:
+                    status = await asyncio.to_thread(aws().bootstrap_status, (tfvars or {}).get("region", DEFAULT_REGION), workspace)
+                except AwsInfoError:
+                    # 読めなかったときは、次の回にまた読む
+                    status = None
+            model = catalog().models.get((tfvars or {}).get("model")) or (tfvars or {}).get("model_definition")
+            return build_progress(workspace, tfvars, run, status, model["file_size_gb"] if model else None)
+
+        async def benchmark(self, workspace, comparison, config):
+            try:
+                region, instance = await environment_instance(workspace)
+            except HTTPException as e:
+                raise comparisons.ComparisonError("comparison.bench_unavailable", error=e.detail) from e
+            if instance["state"] != "running":
+                raise comparisons.ComparisonError(
+                    "comparison.bench_unavailable", error=t("bench.not_running", workspace=workspace, state=instance["state"]))
+            tfvars = app.state.runner.read_var_file(workspace) or {}
+            return await asyncio.to_thread(measure, workspace, comparison["model"], comparison["runs"], region, instance, tfvars,
+                                           [], {"comparison_id": comparison["id"]})
+
+    def get_comparison(comparison_id):
+        found = app.state.comparisons.get(comparison_id)
+        if found is None:
+            raise HTTPException(status_code=404, detail=t("comparison.not_found"))
+        return found
+
+    @app.post("/api/comparisons", status_code=201)
+    async def start_comparison(req: ComparisonRequest):
+        """同じモデルを複数の構成で順に起動して測る。構成ごとに起動 → 計測 → 削除してから次へ進む。
+        料金がかかるインスタンスを作るので、画面の確認を通したときだけ呼ぶ。進み具合は GET /api/comparisons/{id} で読む"""
+        if any(c["status"] == "running" for c in app.state.comparisons.values()):
+            raise HTTPException(status_code=409, detail=t("comparison.busy"))
+        c = catalog()
+        if req.model not in c.models:
+            raise HTTPException(status_code=422, detail=t("model.unknown", model=req.model))
+        context_length = min(req.context_length, c.models[req.model]["max_context"])
+        try:
+            est = estimate(c, req.model, context_length, req.kv_cache_type)
+        except SizingError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        request = {**req.model_dump(), "context_length": context_length,
+                   "configs": [cfg.model_dump() for cfg in req.configs]}
+        try:
+            comparisons.validate(request, c.models, est["fitting_instance_types"])
+        except comparisons.ComparisonError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
+        comparison = comparisons.new_comparison(request)
+        app.state.comparisons[comparison["id"]] = comparison
+        task = asyncio.create_task(comparisons.run(
+            comparison, ComparisonOps(), poll_sec=comparison_poll_sec, ready_timeout_sec=comparison_ready_timeout_sec,
+            busy_timeout_sec=comparison_busy_timeout_sec,
+        ))
+        app.state.tasks.add(task)
+        task.add_done_callback(app.state.tasks.discard)
+        return comparisons.summary(comparison)
+
+    @app.get("/api/comparisons")
+    def list_comparisons():
+        """比較の記録。新しい順"""
+        return {"comparisons": [comparisons.summary(c) for c in reversed(list(app.state.comparisons.values()))]}
+
+    # {id}.csv を先に置く({comparison_id} が .csv まで受け取らないように)
+    @app.get("/api/comparisons/{comparison_id}.csv")
+    def comparison_csv(comparison_id: str):
+        found = get_comparison(comparison_id)
+        return Response(comparisons.to_csv(found), media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="comparison-{comparison_id}.csv"'})
+
+    @app.get("/api/comparisons/{comparison_id}")
+    def comparison_detail(comparison_id: str):
+        return comparisons.summary(get_comparison(comparison_id))
+
+    @app.post("/api/comparisons/{comparison_id}/cancel")
+    def cancel_comparison(comparison_id: str):
+        """取り消す。動いている構成は、起動や計測の区切りで止めて削除する。残りの構成は起動しない"""
+        found = get_comparison(comparison_id)
+        if found["status"] == "running":
+            found["cancel_requested"] = True
+        return comparisons.summary(found)
 
     @app.post("/api/environments/{workspace}/chat")
     async def chat(workspace: str, req: ChatRequest):

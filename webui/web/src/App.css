@@ -1188,6 +1188,29 @@ button.danger:disabled {
   resize: vertical;
 }
 
+/* 比較モード */
+.comparison-form > * + * {
+  margin-top: 12px;
+}
+
+.comparison-table td {
+  vertical-align: top;
+}
+
+.comparison-table .badge {
+  white-space: nowrap;
+}
+
+/* 待っている構成と、測らなかった構成 */
+.badge.neutral {
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.comparison-table td.best {
+  font-weight: 700;
+}
+
 /* Bedrock(推論エンジンに Bedrock を選んだとき) */
 .bedrock {
   display: grid;

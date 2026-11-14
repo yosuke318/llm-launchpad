@@ -67,4 +67,16 @@ for i in range(3):
     print(f"line {i} 日本語", flush=True)
 if command == os.environ.get("FAKE_TERRAFORM_FAIL") and os.environ.get("FAKE_TERRAFORM_ERROR"):
     print(os.environ["FAKE_TERRAFORM_ERROR"], flush=True)
-sys.exit(1 if command in ("validate", os.environ.get("FAKE_TERRAFORM_FAIL")) else 0)
+failed = command in ("validate", os.environ.get("FAKE_TERRAFORM_FAIL"))
+if os.environ.get("FAKE_TERRAFORM_WRITE_STATE") and not failed:
+    # apply すると、インスタンス(ID は i-<ワークスペース>)のある state を作り、destroy すると消す
+    ws = os.environ.get("TF_WORKSPACE", "")
+    path = os.path.join(chdir.removeprefix("-chdir="), "fake-state", f"{ws}.json")
+    if command == "apply":
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"version": 4, "resources": [{"mode": "managed", "type": "aws_instance", "name": "this", "instances": [
+                {"attributes": {"id": f"i-{ws}", "region": "ap-northeast-1", "instance_type": "g6.xlarge"}}]}]}, f)
+    elif command == "destroy" and os.path.exists(path):
+        os.remove(path)
+sys.exit(1 if failed else 0)

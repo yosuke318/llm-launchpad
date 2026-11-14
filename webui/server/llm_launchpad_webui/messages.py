@@ -72,6 +72,84 @@ MESSAGES = {
         "ja": "計測が見つかりません",
         "en": "The benchmark was not found",
     },
+    # 比較モード(comparison.py)
+    "comparison.region_invalid": {
+        "ja": "リージョンの形が正しくありません(例: ap-northeast-1)",
+        "en": "The region is not valid (for example, ap-northeast-1)",
+    },
+    "comparison.network_invalid": {
+        "ja": "ネットワークは public か private を指定してください",
+        "en": "The network must be public or private",
+    },
+    "comparison.idle_stop_invalid": {
+        "ja": "アイドルで止めるまでの分は、0(止めない)か 10〜1440 にしてください",
+        "en": "The idle stop must be 0 (never) or 10 to 1440 minutes",
+    },
+    "comparison.max_lifetime_invalid": {
+        "ja": "比較モードでは、サーバーが途中で止まっても環境が動き続けないよう、最大の稼働時間を 1〜720 時間にしてください",
+        "en": "In comparison mode, set the maximum lifetime to 1 to 720 hours so that environments do not keep running if the server stops",
+    },
+    "comparison.config_count": {
+        "ja": "比べる構成は {min}〜{max} 個にしてください",
+        "en": "Choose {min} to {max} configurations to compare",
+    },
+    "comparison.instance_type_not_fit": {
+        "ja": "{instance_type} は、このコンテキスト長では {model} の VRAM の見積もりに収まりません",
+        "en": "{instance_type} does not have enough VRAM for {model} at this context length",
+    },
+    "comparison.storage_invalid": {
+        "ja": "モデルの置き場所 \"{storage}\" は選べません",
+        "en": "The model storage \"{storage}\" is not available",
+    },
+    "comparison.download_private": {
+        "ja": "閉じたネットワークでは、毎回ダウンロードは選べません",
+        "en": "Download on every launch is not available on the private network",
+    },
+    "comparison.purchase_invalid": {
+        "ja": "購入方法 \"{purchase}\" は選べません(spot か on-demand)",
+        "en": "The purchase option \"{purchase}\" is not available (spot or on-demand)",
+    },
+    "comparison.duplicate_config": {
+        "ja": "同じ構成が2つあります({instance_type} / {storage} / {purchase})",
+        "en": "The same configuration is listed twice ({instance_type} / {storage} / {purchase})",
+    },
+    "comparison.busy": {
+        "ja": "別の比較が動いています。終わるか取り消してから始めてください",
+        "en": "Another comparison is running. Wait for it to finish or cancel it first",
+    },
+    "comparison.not_found": {
+        "ja": "比較が見つかりません(サーバーを起動し直すと消えます)",
+        "en": "The comparison was not found (comparisons are cleared when the server restarts)",
+    },
+    "comparison.busy_timeout": {
+        "ja": "ほかの起動や削除が {sec} 秒たっても終わらなかったので、始められませんでした",
+        "en": "Could not start because another launch or deletion did not finish in {sec} seconds",
+    },
+    "comparison.ready_timeout": {
+        "ja": "{sec} 秒たっても使える状態になりませんでした",
+        "en": "The environment did not become ready in {sec} seconds",
+    },
+    "comparison.launch_failed": {
+        "ja": "起動が「{stage}」の段階で失敗しました: {error}",
+        "en": "The launch failed at the \"{stage}\" stage: {error}",
+    },
+    "comparison.destroy_failed": {
+        "ja": "環境 {workspace} を削除できませんでした。費用がかかり続けないよう、比較をここで止めました。環境の一覧から削除してください",
+        "en": "Could not delete the environment {workspace}. The comparison stopped here so that costs do not keep growing. "
+              "Delete it from the environments tab",
+    },
+    "comparison.bench_unavailable": {
+        "ja": "計測を始められませんでした: {error}",
+        "en": "Could not start the benchmark: {error}",
+    },
+    "comparison.canceled": {
+        "ja": "取り消したので、測りませんでした",
+        "en": "Not measured because the comparison was canceled",
+    },
+    "comparison.unexpected": {
+        "ja": "比較の途中で、想定していないエラーが起きました: {error}",
+        "en": "An unexpected error occurred during the comparison: {error}",
+    },
     "bedrock.not_ready": {
         "ja": "Bedrock の環境 {workspace} は、まだ作り終わっていません",
         "en": "The Bedrock environment {workspace} has not been created yet",

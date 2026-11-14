@@ -14,6 +14,7 @@
     "progress": "起動の進み具合",
     "environments": "環境の一覧",
     "benchmark": "ベンチマーク",
+    "compare": "比較モード",
     "terraform": "Terraform"
   },
   "models": {
@@ -454,6 +455,68 @@
     "chatSend": "送る",
     "chatSending": "応答を待っています…",
     "chatClear": "会話を消す"
+  },
+  "compare": {
+    "heading": "比較モード",
+    "lead": "同じモデルを、インスタンス型・モデルの置き場所・購入方法を変えた構成で1つずつ順に起動して測り、比較表を出します。費用を抑えるため、構成ごとに 起動 → 計測 → 削除 してから次へ進みます(同時に動かす環境は1つだけ)。",
+    "model": "モデル",
+    "contextCapped": "モデルの最大コンテキスト長({{max}})で見積もります。",
+    "columns": {
+      "instanceType": "インスタンス型",
+      "purchase": "購入方法",
+      "hourly": "1時間あたり",
+      "duration": "起動から削除まで",
+      "config": "構成",
+      "state": "状態",
+      "gpu": "GPU",
+      "startup": "使えるまで",
+      "runCost": "この構成の料金"
+    },
+    "remove": "外す",
+    "add": "構成を足す(最大 {{max}} 個)",
+    "maxLifetime": "起動から何時間たったら止めるか(1〜720。サーバーが途中で止まっても、この時間で止まる)",
+    "settingsInvalid": "何周流すかは {{min}}〜{{max}}、アイドルで止めるまでは 0 か 10〜1440 分、最大の稼働時間は 1〜720 時間にしてください。",
+    "problems": {
+      "duplicate": "同じ構成がほかにもあります",
+      "storageNotReady": "{{region}} にはこの置き場所の準備(terraform/model-store の apply)がまだありません",
+      "downloadPrivate": "閉じたネットワークでは毎回ダウンロードを選べません",
+      "checkFailed": "起動前のチェック(認証情報や vCPU クォータ)に通っていません。モデルを選ぶ画面で詳しく見られます",
+      "notFit": "このコンテキスト長では VRAM に収まりません",
+      "notOffered": "{{region}} ではこのインスタンス型を使えません"
+    },
+    "total": "比較全体の料金の目安",
+    "totalDetail": "全部で {{time}}(起動から削除までを順に足した目安)",
+    "note": "料金は、1時間あたりの目安(スポットは一番安いAZ)に、起動から削除までの時間の目安を掛けたものです。起動時間はモデルを初めて取得するときの目安で、S3 や EBS にモデルがあれば短くなります。保管の料金(止めている間もかかる月額)は1時間あたりに割って入れています。",
+    "confirm": "この内容で比較を始める",
+    "alreadyRunning": "別の比較が動いています。終わるか取り消すと始められます。",
+    "dialogTitle": "比較を始めますか?",
+    "dialogLead": "{{model}} を {{region}} で、次の {{count}} 個の構成で順に起動して測ります。",
+    "dialogSteps": "構成ごとに terraform apply → 使える状態になるまで待つ → 計測 → terraform destroy をしてから、次の構成に進みます。失敗した構成も削除してから次へ進みます。削除に失敗したら、そこで止めます。各環境は、アイドル {{idle}} 分か、起動から {{hours}} 時間で止まります。",
+    "yes": "はい(順に起動して測る)",
+    "resultHeading": "比較の結果",
+    "pick": "比較",
+    "summary": "{{model}} · {{region}} · コンテキスト長 {{context}} · KV {{kv}} · {{network}} · {{runs}} 周",
+    "status": {
+      "running": "動いています",
+      "succeeded": "終わりました",
+      "partial": "一部の構成は測れませんでした",
+      "failed": "止まりました",
+      "canceled": "取り消しました"
+    },
+    "configStatus": {
+      "pending": "待っています",
+      "launching": "起動しています",
+      "starting": "使える状態を待っています",
+      "benchmarking": "測っています",
+      "destroying": "削除しています",
+      "done": "測りました",
+      "failed": "失敗しました",
+      "skipped": "測りませんでした"
+    },
+    "cancel": "取り消す",
+    "canceling": "取り消しています…",
+    "notDestroyed": "環境 {{workspace}} が残っています。環境の一覧から削除してください。",
+    "resultNote": "太字はその列で一番よい値です。測った結果はベンチマークの履歴にも残ります(比較の記録はサーバーを起動し直すと消えます)。「使えるまで」は terraform apply から使える状態になるまで、「この構成の料金」は起動から削除までの時間に1時間あたりの料金を掛けた目安です。"
   },
   "terraform": {
     "heading": "Terraform",
