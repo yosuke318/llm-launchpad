@@ -68,6 +68,27 @@ MESSAGES = {
         "ja": "runs は 1〜{max} にしてください",
         "en": "runs must be between 1 and {max}",
     },
+    # LAN 内のほかの PC から使うとき(access.py)
+    "access.address_not_allowed": {
+        "ja": "この画面は、LAN 内(LAUNCHPAD_ALLOWED_CIDRS)からだけ使えます",
+        "en": "This screen can be used only from the local network (LAUNCHPAD_ALLOWED_CIDRS)",
+    },
+    "access.token_not_set": {
+        "ja": "ほかの PC から使うには、サーバーを起動するときに LAUNCHPAD_ACCESS_TOKEN(合言葉)を決めてください",
+        "en": "To use this screen from another computer, set LAUNCHPAD_ACCESS_TOKEN (a passphrase) when starting the server",
+    },
+    "access.login_required": {
+        "ja": "ログインしてください",
+        "en": "Please log in",
+    },
+    "access.wrong_token": {
+        "ja": "合言葉が違います",
+        "en": "The passphrase is wrong",
+    },
+    "access.token_not_required": {
+        "ja": "合言葉は決められていないので、ログインは要りません",
+        "en": "No passphrase is set, so logging in is not needed",
+    },
     "bench.job_not_found": {
         "ja": "計測が見つかりません",
         "en": "The benchmark was not found",

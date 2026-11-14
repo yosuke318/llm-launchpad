@@ -1289,3 +1289,24 @@ button.danger:disabled {
   gap: 8px;
   align-items: center;
 }
+
+/* ログイン(合言葉を決めたとき) */
+.login {
+  max-width: 420px;
+  margin: 10vh auto 0;
+  display: grid;
+  gap: 12px;
+}
+
+.login h1 {
+  margin: 0;
+}
+
+.login input {
+  font: inherit;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}

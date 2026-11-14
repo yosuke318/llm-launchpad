@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import AuthGate from "./components/AuthGate";
 import BenchmarkPanel from "./components/BenchmarkPanel";
 import EnvironmentsPanel from "./components/EnvironmentsPanel";
 import ModelPicker from "./components/ModelPicker";
@@ -18,6 +19,10 @@ const tabId = (name: Tab) => `tab-${name}`;
 const panelId = (name: Tab) => `panel-${name}`;
 
 export default function App() {
+  return <AuthGate>{(status, onLogout) => <Main showLogout={status.required} onLogout={onLogout} />}</AuthGate>;
+}
+
+function Main({ showLogout, onLogout }: { showLogout: boolean; onLogout: () => void }) {
   const { t, i18n } = useTranslation();
   const [tab, setTab] = useState<Tab>("models");
 
@@ -47,6 +52,11 @@ export default function App() {
                 ))}
               </select>
             </label>
+            {showLogout && (
+              <button className="secondary" onClick={onLogout}>
+                {t("auth.logout")}
+              </button>
+            )}
           </div>
         </header>
 
