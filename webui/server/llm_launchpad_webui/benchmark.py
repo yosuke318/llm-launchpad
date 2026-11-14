@@ -29,6 +29,8 @@ CSV_COLUMNS = [
     "ttft_sec", "first_response_sec", "thinking", "output_tokens_per_sec", "prompt_tokens_per_sec", "warmup_load_sec",
     "vram_estimate_gib", "vram_measured_gib", "vram_diff_gib", "vram_total_gib",
     "hourly_usd", "input_usd_per_million", "output_usd_per_million", "usd_per_million_tokens",
+    # 比較モードで測ったものは、その比較の ID
+    "comparison_id",
 ]
 
 GIB_PER_MIB = 1 / 1024

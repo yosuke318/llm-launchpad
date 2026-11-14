@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import AuthGate from "./components/AuthGate";
 import BenchmarkPanel from "./components/BenchmarkPanel";
+import ComparisonPanel from "./components/ComparisonPanel";
 import EnvironmentsPanel from "./components/EnvironmentsPanel";
 import ModelPicker from "./components/ModelPicker";
 import NotificationCenter from "./components/NotificationCenter";
@@ -11,7 +12,7 @@ import TerraformPanel from "./components/TerraformPanel";
 import { LANGUAGES, saveLanguage, type Language } from "./i18n";
 import { RunProvider } from "./runContext";
 
-const TABS = ["models", "progress", "environments", "benchmark", "terraform"] as const;
+const TABS = ["models", "progress", "environments", "benchmark", "compare", "terraform"] as const;
 type Tab = (typeof TABS)[number];
 
 // タブとパネルを ARIA で結びつける id(WAI-ARIA の tabs パターン)
@@ -89,6 +90,9 @@ function Main({ showLogout, onLogout }: { showLogout: boolean; onLogout: () => v
         </div>
         <div id={panelId("benchmark")} role="tabpanel" aria-labelledby={tabId("benchmark")} hidden={tab !== "benchmark"}>
           <BenchmarkPanel />
+        </div>
+        <div id={panelId("compare")} role="tabpanel" aria-labelledby={tabId("compare")} hidden={tab !== "compare"}>
+          <ComparisonPanel />
         </div>
         <div id={panelId("terraform")} role="tabpanel" aria-labelledby={tabId("terraform")} hidden={tab !== "terraform"}>
           <TerraformPanel />
