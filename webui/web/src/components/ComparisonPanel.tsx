@@ -62,8 +62,8 @@ export default function ComparisonPanel() {
   const selected = comparisons.find((c) => c.id === selectedId) ?? null;
   const running = comparisons.some((c) => c.status === "running");
 
-  // 動いている比較を読み直す
-  const runningId = selected?.status === "running" ? selected.id : null;
+  // 動いている比較を読み直す。選んでいる比較が別でも読む(終わったと分からないと、始めるボタンが押せないままになる)
+  const runningId = comparisons.find((c) => c.status === "running")?.id ?? null;
   useEffect(() => {
     if (!runningId) return;
     let cancelled = false;
