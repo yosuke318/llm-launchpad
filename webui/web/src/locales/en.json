@@ -8,6 +8,15 @@
     "ja": "日本語",
     "en": "English"
   },
+  "auth": {
+    "lead": "This screen is protected by a passphrase. Enter the LAUNCHPAD_ACCESS_TOKEN the server was started with.",
+    "token": "Passphrase",
+    "login": "Log in",
+    "loggingIn": "Checking…",
+    "logout": "Log out",
+    "tokenNotSet": "This screen can be used only on the computer running the server.",
+    "tokenNotSetHelp": "To use it from another computer, set LAUNCHPAD_ACCESS_TOKEN (a passphrase of 16 or more characters) when starting the server. See webui/README.md for details."
+  },
   "tabs": {
     "label": "Screens",
     "models": "Pick a model",

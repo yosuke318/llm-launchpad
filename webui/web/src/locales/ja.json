@@ -8,6 +8,15 @@
     "ja": "日本語",
     "en": "English"
   },
+  "auth": {
+    "lead": "この画面は合言葉で守られています。サーバーを起動したときの LAUNCHPAD_ACCESS_TOKEN を入れてください。",
+    "token": "合言葉",
+    "login": "ログイン",
+    "loggingIn": "確かめています…",
+    "logout": "ログアウト",
+    "tokenNotSet": "この画面は、サーバーを動かしている PC からだけ使えます。",
+    "tokenNotSetHelp": "ほかの PC から使うには、サーバーを起動するときに LAUNCHPAD_ACCESS_TOKEN(16文字以上の合言葉)を決めてください。くわしくは webui/README.md の「LAN 内のほかの PC から使う」を見てください。"
+  },
   "tabs": {
     "label": "画面の切り替え",
     "models": "モデルを選ぶ",

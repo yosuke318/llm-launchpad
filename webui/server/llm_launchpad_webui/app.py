@@ -15,11 +15,11 @@ import uuid
 from typing import Literal
 
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import bedrock
+from . import access, bedrock
 from . import comparison as comparisons
 from .aws_info import AwsInfo, AwsInfoError
 from .benchmark import DEFAULT_RUNS, MAX_RUNS, BenchmarkError, BenchmarkStore, bench_command, parse_output, summarize
@@ -67,6 +67,12 @@ SLACK_WEBHOOK_URL = os.environ.get("LAUNCHPAD_SLACK_WEBHOOK_URL") or None
 # 起動した環境を見に行く間隔(秒)。0 なら見ない
 NOTIFY_INTERVAL_SEC = int(os.environ.get("LAUNCHPAD_NOTIFY_INTERVAL_SEC", "60"))
 
+# LAN 内のほかの PC から使うときの合言葉と、入れる場所(access.py)。合言葉がなければ、この PC からだけ使える
+ACCESS_TOKEN = os.environ.get("LAUNCHPAD_ACCESS_TOKEN") or None
+ALLOWED_CIDRS = os.environ.get("LAUNCHPAD_ALLOWED_CIDRS")
+# ログインで合言葉を間違えたときに待たせる秒数(総当たりを遅くする)
+LOGIN_FAILURE_DELAY_SEC = 1.0
+
 # 何も流れない間も接続が切れないよう、この秒数ごとに SSE のコメントを送る
 HEARTBEAT_SEC = 15
 
@@ -88,6 +94,10 @@ class LaunchRequest(BaseModel):
     workspace: str
     # tfvars に書く値。runner.LAUNCH_VARIABLES のものだけ
     variables: dict[str, object]
+
+
+class LoginRequest(BaseModel):
+    token: str
 
 
 class PresetRequest(BaseModel):
@@ -166,7 +176,12 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
                slack_webhook_url: str | None = SLACK_WEBHOOK_URL, notify_interval_sec: int = 0,
                comparison_poll_sec: float = comparisons.DEFAULT_POLL_SEC,
                comparison_ready_timeout_sec: float = comparisons.DEFAULT_READY_TIMEOUT_SEC,
-               comparison_busy_timeout_sec: float = comparisons.DEFAULT_BUSY_TIMEOUT_SEC) -> FastAPI:
+               comparison_busy_timeout_sec: float = comparisons.DEFAULT_BUSY_TIMEOUT_SEC,
+               access_token: str | None = None, allowed_cidrs: str | None = None,
+               login_failure_delay_sec: float = LOGIN_FAILURE_DELAY_SEC) -> FastAPI:
+    access_token = access.check_token(access_token)
+    networks = access.parse_cidrs(allowed_cidrs)
+
     @contextlib.asynccontextmanager
     async def lifespan(app):
         # 起動した環境を見に行く。テストでは止めておき、check_notifications を直接呼ぶ
@@ -201,6 +216,18 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
     app.state.chat_outputs = {}
 
     @app.middleware("http")
+    async def check_access(request: Request, call_next):
+        """/api に入れてよいか(access.py)。言語を選ぶミドルウェアの内側で動くので、断る文言も画面の言語で出す"""
+        denied = access.decide(
+            request.url.path, request.client.host if request.client else None, access_token, networks,
+            request.cookies.get(access.COOKIE_NAME), request.headers.get("authorization"), access.forwarded(request.headers),
+        )
+        if denied:
+            status, key = denied
+            return JSONResponse({"detail": t(key)}, status_code=status)
+        return await call_next(request)
+
+    @app.middleware("http")
     async def select_language(request: Request, call_next):
         """画面が送る Accept-Language で、エラーや警告の文言の言語を選ぶ"""
         token = language.set(parse_accept_language(request.headers.get("accept-language")))
@@ -208,6 +235,35 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
             return await call_next(request)
         finally:
             language.reset(token)
+
+    def is_authenticated(request):
+        return access.authenticated(request.client.host if request.client else None, access_token,
+                                    request.cookies.get(access.COOKIE_NAME), request.headers.get("authorization"),
+                                    access.forwarded(request.headers))
+
+    @app.get("/api/auth")
+    def auth_status(request: Request):
+        """合言葉が要るか、もう入れているか。画面はこれを見てログインの画面を出す"""
+        return {"required": access_token is not None, "authenticated": is_authenticated(request)}
+
+    @app.post("/api/auth/login")
+    async def login(req: LoginRequest):
+        """合言葉が合えば、HttpOnly の Cookie に入れて返す。SameSite=Strict なので、ほかのサイトからは送られない"""
+        if access_token is None:
+            raise HTTPException(status_code=400, detail=t("access.token_not_required"))
+        if not access.token_matches(access_token, req.token):
+            await asyncio.sleep(login_failure_delay_sec)
+            raise HTTPException(status_code=401, detail=t("access.wrong_token"))
+        response = JSONResponse({"authenticated": True})
+        response.set_cookie(access.COOKIE_NAME, req.token, max_age=access.COOKIE_MAX_AGE_SEC, httponly=True,
+                            samesite="strict", path="/api")
+        return response
+
+    @app.post("/api/auth/logout")
+    def logout():
+        response = JSONResponse({"authenticated": False})
+        response.delete_cookie(access.COOKIE_NAME, path="/api", httponly=True, samesite="strict")
+        return response
 
     def aws():
         if app.state.aws_info is None:
@@ -1207,4 +1263,4 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
     return app
 
 
-app = create_app(notify_interval_sec=NOTIFY_INTERVAL_SEC)
+app = create_app(notify_interval_sec=NOTIFY_INTERVAL_SEC, access_token=ACCESS_TOKEN, allowed_cidrs=ALLOWED_CIDRS)

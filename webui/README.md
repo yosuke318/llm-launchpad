@@ -23,8 +23,30 @@ uv run uvicorn llm_launchpad_webui.app:app --host 127.0.0.1 --port 8000
 
 ブラウザで http://127.0.0.1:8000 を開く。
 
-* 料金がかかる操作ができるため、`127.0.0.1` だけで待ち受ける。`--host 0.0.0.0` にしない
+* 料金がかかる操作ができるため、ふだんは `127.0.0.1` だけで待ち受ける。LAN 内のほかの PC から使うときは、下の「LAN 内のほかの PC から使う」のとおり合言葉を決める
 * AWS の認証情報は、サーバーを起動した端末のもの(環境変数や `~/.aws`)をそのまま使う
+
+### LAN 内のほかの PC から使う
+
+合言葉(`LAUNCHPAD_ACCESS_TOKEN`)を決めて、`--host 0.0.0.0` で起動する。ほかの PC のブラウザで `http://<このPCのIPアドレス>:8000` を開き、合言葉でログインする。
+
+```sh
+cd webui/server
+export LAUNCHPAD_ACCESS_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
+echo "$LAUNCHPAD_ACCESS_TOKEN"   # ほかの PC でログインするときに入れる
+uv run uvicorn llm_launchpad_webui.app:app --host 0.0.0.0 --port 8000
+```
+
+* 画面からは料金のかかるインスタンスを起動できるので、次の2つで守る(`server/llm_launchpad_webui/access.py`)
+  * 合言葉: 決めると、`/api` はどこからでも(この PC からも)ログインが要る。16文字以上でないと起動しない。ログインすると HttpOnly・SameSite=Strict の Cookie に入れ、30日覚えておく。合言葉を変えてサーバーを起動し直すと、ログインし直しになる。間違えると1秒待たせる
+  * 入れる場所: `LAUNCHPAD_ALLOWED_CIDRS`(カンマ区切り)。既定はプライベートアドレス(`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`、`fc00::/7`、`fe80::/10`)とループバックだけ。ルーターのポート開放などでインターネットから届いても入れない。この PC からはいつでも入れる
+* 合言葉を決めずに `--host 0.0.0.0` で起動しても、ほかの PC からの `/api` は断る。画面は、合言葉の決め方を案内する
+* リバースプロキシ(nginx など)の後ろに置くときは、合言葉を必ず決める。中継の印(`X-Forwarded-For`、`Forwarded`、`X-Real-IP`)が付いたリクエストは、送り元が 127.0.0.1 でも「この PC から」とは扱わないが、印を付けないプロキシは見分けられない。同じ PC のプロキシからの `X-Forwarded-For` は、uvicorn が既定(`--forwarded-allow-ips` が 127.0.0.1)で本当の送り元に直す
+* 画面のファイル(HTML、JS、CSS)は、ログインの画面を出すために合言葉なしで配る
+* HTTP なので、合言葉と Cookie は LAN の中を暗号化せずに流れる。信頼できない人がいるネットワーク(公衆 Wi-Fi など)では使わない
+* AWS の認証情報、terraform、SSM のポートフォワードは、サーバーを動かしている PC のものを使う。チャットもサーバーから Ollama に送るので、ほかの PC でポートフォワードを動かす必要はない。ほかの PC から GPU インスタンスまでどうつながるかは [docs/connection.md](../docs/connection.md)
+* デスクトップ通知は、ブラウザが HTTPS か localhost でしか許さないので、ほかの PC からは出ない(「知らせ」の一覧には出る)
+* 合言葉は1つで、使う人を分けない。誰が操作したかは残らない
 
 ### 画面を直しながら動かす
 
@@ -239,6 +261,9 @@ terraform のワークスペースのうち、state にリソースがあるも�
 
 | メソッド | パス | 内容 |
 |---|---|---|
+| GET | `/api/auth` | 合言葉が要るか(`required`)と、ログインしているか(`authenticated`)。合言葉なしで呼べる |
+| POST | `/api/auth/login` | 合言葉が合えば Cookie を返す。`{"token": "..."}` |
+| POST | `/api/auth/logout` | Cookie を消す |
 | GET | `/api/health` | 動いているか、terraform のディレクトリ、実行できるコマンド |
 | GET | `/api/catalog` | 提供元、推論エンジン、選べるコンテキスト長と KV キャッシュの型、インスタンス型の表 |
 | GET | `/api/models` | モデルの一覧と見積もり。`?vendor=Alibaba&context_length=32768&kv_cache_type=f16` |
@@ -306,4 +331,6 @@ cd webui/web && npm test && npm run typecheck
 | `LAUNCHPAD_SLACK_WEBHOOK_URL` | (なし) | 知らせを Slack にも送るときの Incoming Webhook の URL |
 | `LAUNCHPAD_NOTIFICATIONS_FILE` | `terraform/tfvars/notifications.jsonl` | 出した知らせを足していくファイル |
 | `LAUNCHPAD_ADDED_MODELS_FILE` | `terraform/tfvars/added_models.json` | 一覧にないモデルを追加したときの定義のファイル |
+| `LAUNCHPAD_ACCESS_TOKEN` | (なし) | LAN 内のほかの PC から使うときの合言葉(16文字以上)。決めると、この PC からもログインが要る |
+| `LAUNCHPAD_ALLOWED_CIDRS` | プライベートアドレスとループバック | 入れる送り元のアドレス(カンマ区切りの CIDR) |
 | `LAUNCHPAD_PRESETS_FILE` | `terraform/tfvars/presets.json` | 名前を付けて保存した設定のファイル |

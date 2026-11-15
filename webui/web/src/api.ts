@@ -49,9 +49,34 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // 本文が JSON でなければ、ステータスの文言を使う
     }
+    // ログインが切れた(合言葉が変わった、ログアウトした)ら、ログインの画面に戻す
+    if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
     throw new ApiError(detail, res.status);
   }
   return res.json() as Promise<T>;
+}
+
+// ログイン(LAN 内のほかの PC から使うとき。サーバーで LAUNCHPAD_ACCESS_TOKEN を決めたときだけ要る)
+
+export const UNAUTHORIZED_EVENT = "launchpad:unauthorized";
+
+export interface AuthStatus {
+  // 合言葉が決められているか
+  required: boolean;
+  // この画面から使えるか(合言葉が要らないか、もうログインしているか)
+  authenticated: boolean;
+}
+
+export function getAuthStatus() {
+  return request<AuthStatus>("/api/auth");
+}
+
+export function login(token: string) {
+  return request<{ authenticated: boolean }>("/api/auth/login", { method: "POST", body: JSON.stringify({ token }) });
+}
+
+export function logout() {
+  return request<{ authenticated: boolean }>("/api/auth/logout", { method: "POST" });
 }
 
 export function listWorkspaces() {
