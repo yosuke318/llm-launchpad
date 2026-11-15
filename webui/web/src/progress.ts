@@ -48,3 +48,12 @@ export function openaiPythonExample(endpoint: string, model: string, prompt: str
 export function tailLogCommand(logPath: string) {
   return `sudo tail -n 100 ${logPath}`;
 }
+
+// VSCode の Cline や Continue に入れる値。WebUI の OpenAI 互換 API の中継(サーバーの /api/environments/<環境ID>/openai/v1)を使う
+export function editorAgentSettings(origin: string, workspace: string, model: string, keyNote: string) {
+  return [
+    `Base URL: ${origin}/api/environments/${encodeURIComponent(workspace)}/openai/v1`,
+    `API Key:  ${keyNote}`,
+    `Model ID: ${model}`,
+  ].join("\n");
+}

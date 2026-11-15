@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ApiError, getProgress, listEnvironments, relaunch, type Progress, type ProgressStage } from "../api";
-import { isFinished, openaiPythonExample, POLL_MS, splitDuration, stageSec, tailLogCommand, tick } from "../progress";
+import { editorAgentSettings, isFinished, openaiPythonExample, POLL_MS, splitDuration, stageSec, tailLogCommand, tick } from "../progress";
 import { useRun } from "../runContext";
 
 const ICON = { done: "✓", active: "●", failed: "✕", pending: "○" } as const;
@@ -317,6 +317,13 @@ function ConnectionCard({ progress }: { progress: Progress }) {
       {c.openai_api_example && <CommandBlock label={t("progress.openaiCurl")} command={c.openai_api_example} />}
       {progress.model && <CommandBlock label={t("progress.openaiPython")} help={t("progress.openaiPythonHelp")} command={openaiPythonExample(endpoint, progress.model, t("progress.samplePrompt"))} />}
       {c.ssm_session_command && <CommandBlock label={t("progress.openShell")} command={c.ssm_session_command} />}
+      {progress.model && (
+        <CommandBlock
+          label={t("progress.editorAgent")}
+          help={t("progress.editorAgentHelp")}
+          command={editorAgentSettings(window.location.origin, progress.workspace, progress.model, t("progress.editorAgentKey"))}
+        />
+      )}
     </section>
   );
 }

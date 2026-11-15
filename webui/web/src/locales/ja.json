@@ -372,7 +372,10 @@
       "relaunch": "このAZで起動し直す",
       "help": "AZのほかは、前に起動したときと同じ内容でterraform applyを実行します。料金がかかり始めます。",
       "noZones": "ほかに選べるAZがありません。時間をおいて起動し直すか、別のリージョンを選んでください。"
-    }
+    },
+    "editorAgent": "VSCode(Cline や Continue)から使う",
+    "editorAgentHelp": "拡張機能で「OpenAI 互換」の接続先を選び、次の値を入れます。LAN 内のほかの PC からも使えます(AWS の認証情報は要りません)。SSM で接続する環境では、このサーバーの PC でポートフォワードを動かしたままにしてください。",
+    "editorAgentKey": "WebUI の合言葉(LAUNCHPAD_ACCESS_TOKEN)。決めていなければ任意の文字列(この PC からだけ使えます)"
   },
   "environments": {
     "heading": "環境の一覧",
