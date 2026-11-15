@@ -985,6 +985,9 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
                 outputs = await app.state.runner.outputs(workspace)
             except RunnerError as e:
                 raise HTTPException(status_code=502, detail=t("chat.no_endpoint", workspace=workspace, error=e))
+            # 同じ環境の前の起動の分は要らないので消す(起動し直すたびに増え続けないように)
+            for old in [k for k in app.state.chat_outputs if k[0] == workspace]:
+                del app.state.chat_outputs[old]
             app.state.chat_outputs[key] = outputs
         endpoint = outputs.get("ollama_endpoint")
         if not endpoint:

@@ -147,3 +147,18 @@ def test_body_size_limit(tmp_path, ollama, monkeypatch):
     with make(tmp_path, ollama) as c:
         res = c.post(f"{BASE}/chat/completions", headers=AUTH, json={"model": "qwen3:8b", "messages": [{"role": "user", "content": "x" * 200}]})
     assert res.status_code == 413
+
+
+def test_endpoint_cache_keeps_only_the_latest_launch_per_environment(tmp_path, ollama):
+    # 起動し直すと、前の起動の分の terraform output は消える
+    with make(tmp_path, ollama) as c:
+        app = c.app
+        app.state.chat_outputs.clear()
+        app.state.chat_outputs[(WS, "old-run")] = {"ollama_endpoint": "http://127.0.0.1:9"}
+        app.state.chat_outputs[("other-env", "run")] = {"ollama_endpoint": "http://127.0.0.1:9"}
+        # 今の起動(記録がないので None)の分はまだ覚えていないので、terraform output を読み直す
+        async def fake_outputs(workspace):
+            return {"ollama_endpoint": ollama}
+        app.state.runner.outputs = fake_outputs
+        assert c.get(f"{BASE}/models", headers=AUTH).status_code == 200
+        assert set(app.state.chat_outputs) == {(WS, None), ("other-env", "run")}, "同じ環境の古い分だけ消え、ほかの環境の分は残る"
