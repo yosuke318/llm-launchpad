@@ -282,7 +282,11 @@
     "zoneAutoUnknown": "Automatic (a zone that offers the instance type)",
     "zoneSpot": "{{zone}} (spot {{price}}/h, Spot placement score {{score}}/10)",
     "zoneHelp": "GPU capacity differs by zone. If the chosen zone has no capacity, the launch fails; then choose another zone and launch again.",
-    "zoneFixedByVolume": "With EBS persistence, the instance starts in {{zone}}, where the volume is."
+    "zoneFixedByVolume": "With EBS persistence, the instance starts in {{zone}}, where the volume is.",
+    "openWebUI": "Chat screen (Open WebUI)",
+    "openWebUIInstall": "Also install Open WebUI",
+    "openWebUIHelp": "Installs a browser chat screen on the same instance. It listens only on the instance's 127.0.0.1:8080 and is reachable only through an SSM port forward. Pulling the image adds a few minutes to the launch, and the root volume grows by 10 GiB.",
+    "openWebUIPrivate": "Not available on the private network (the image is pulled from ghcr.io)."
   },
   "progress": {
     "heading": "Launch progress",
@@ -375,7 +379,9 @@
     },
     "editorAgent": "Use from VSCode (Cline or Continue)",
     "editorAgentHelp": "In the extension, choose an \"OpenAI compatible\" provider and enter these values. This works from other computers on the LAN too (no AWS credentials needed). For environments that connect through SSM, keep the port forward running on this server's computer.",
-    "editorAgentKey": "The WebUI passphrase (LAUNCHPAD_ACCESS_TOKEN). If none is set, any string (works only on this computer)"
+    "editorAgentKey": "The WebUI passphrase (LAUNCHPAD_ACCESS_TOKEN). If none is set, any string (works only on this computer)",
+    "openWebUI": "Open Open WebUI (keep the port forward running)",
+    "openWebUIHelp": "While this command is running, open {{url}} in your browser to use Open WebUI. Run it separately from the Ollama port forward."
   },
   "environments": {
     "heading": "Environments",

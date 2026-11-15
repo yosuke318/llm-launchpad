@@ -41,12 +41,21 @@ LAUNCH_VARIABLES = {
     "instance_type": str,
     # 在庫のないAZを避けたいとき。省くと、インスタンス型を提供しているAZから選ぶ
     "availability_zone": str,
+    # Open WebUI も入れるか(パブリックなネットワークだけ)
+    "open_webui": bool,
     # 一覧(catalog/models.yaml)にないモデルの定義。画面で追加したモデルを起動するときに、サーバーが入れる
     "model_definition": dict,
 }
 
 # 環境ID と同じ規則(terraform/main.tf の time_static.created の precondition)。default はそのまま使える
 WORKSPACE_PATTERN = re.compile(r"^(default|[a-z0-9][a-z0-9-]{0,19})$")
+
+
+def _has_type(value, typ):
+    """bool は int の仲間なので、bool の変数には bool だけ、数の変数には bool 以外だけを受け付ける"""
+    if typ is bool:
+        return isinstance(value, bool)
+    return isinstance(value, typ) and not isinstance(value, bool)
 
 
 class RunnerError(MessageError):
@@ -202,9 +211,7 @@ class Runner:
         if unknown:
             raise RunnerError("launch.unknown_variables", names=", ".join(unknown))
         for name, typ in self.launch_variables.items():
-            if name in variables and variables[name] is not None and not (
-                isinstance(variables[name], typ) and not isinstance(variables[name], bool)
-            ):
+            if name in variables and variables[name] is not None and not _has_type(variables[name], typ):
                 raise RunnerError("launch.wrong_type", name=name)
         if "model" not in variables:
             raise RunnerError("launch.model_required")

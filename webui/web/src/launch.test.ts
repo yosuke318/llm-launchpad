@@ -36,6 +36,11 @@ describe("presetFromHistory", () => {
     expect(presetFromHistory({ ...entry, variables }).settings.availabilityZone).toBeNull();
   });
 
+  it("Open WebUI を入れたかも引き継ぐ(書いていなければ入れない)", () => {
+    expect(presetFromHistory({ ...entry, variables: { ...entry.variables, open_webui: true } }).settings.openWebUI).toBe(true);
+    expect(presetFromHistory(entry).settings.openWebUI).toBe(false);
+  });
+
   it("同じ環境IDの環境が動いていれば、その環境IDは使わない", () => {
     expect(presetFromHistory({ ...entry, in_use: true }).envId).toBeNull();
   });

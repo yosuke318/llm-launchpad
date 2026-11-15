@@ -116,6 +116,9 @@ module "bootstrap" {
   idle_stop_minutes          = var.idle_stop_minutes
   offline                    = local.private
   ollama_install_bucket_name = local.ollama_install_bucket_name
+  open_webui                 = var.open_webui
+  open_webui_image           = local.open_webui_image
+  open_webui_port            = local.open_webui_port
   tags                       = local.resource_tags
 }
 
@@ -147,6 +150,7 @@ module "instance" {
   models_on_root_volume  = var.model_storage != "ebs"
   model_volume_id        = local.model_volume_id
   root_volume_size_gib   = var.root_volume_size_gib
+  extra_root_volume_gib  = local.open_webui_root_volume_gib
   root_volume_throughput = var.root_volume_throughput
   root_volume_iops       = var.root_volume_iops
   user_data_base64       = module.bootstrap.user_data_base64

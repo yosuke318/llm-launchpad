@@ -9,6 +9,7 @@ import {
   isValidEnvId,
   launchHourly,
   launchVariables,
+  openWebUIAllowed,
   validIdleStop,
   validMaxLifetime,
   zonePlacement,
@@ -49,6 +50,7 @@ export default function LaunchDialog({ estimate, plan, option, networkMode, pref
     const wanted = initial?.settings.availabilityZone;
     return wanted && zones.includes(wanted) ? wanted : null;
   });
+  const [openWebUI, setOpenWebUI] = useState(initial?.settings.openWebUI ?? false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,7 +70,7 @@ export default function LaunchDialog({ estimate, plan, option, networkMode, pref
   const fixedZone = option.id === "ebs" ? ebsVolumeZone(plan) : null;
   // 価格と中断のリスクを出すAZ。自動なら terraform が選ぶAZ(選べるAZの最初)
   const zone = option.id === "ebs" ? fixedZone : (availabilityZone ?? zones[0] ?? null);
-  const settings = { purchaseOption, idleStopMinutes, maxLifetimeHours, availabilityZone };
+  const settings = { purchaseOption, idleStopMinutes, maxLifetimeHours, availabilityZone, openWebUI };
   const variables = launchVariables(estimate, plan, option, settings, networkMode);
   const hourly = launchHourly(plan, option, purchaseOption, zone, networkMode);
   const placement = zonePlacement(plan.spot_placement_scores, zone);
@@ -223,6 +225,20 @@ export default function LaunchDialog({ estimate, plan, option, networkMode, pref
             <span className="muted small">{t("launch.zoneHelp")}</span>
           </label>
         )}
+      </fieldset>
+
+      <fieldset className="launch-options">
+        <legend>{t("launch.openWebUI")}</legend>
+        <label className={!openWebUIAllowed(networkMode) ? "disabled" : ""}>
+          <input
+            type="checkbox"
+            checked={openWebUI && openWebUIAllowed(networkMode)}
+            disabled={!openWebUIAllowed(networkMode)}
+            onChange={(ev) => setOpenWebUI(ev.target.checked)}
+          />
+          {t("launch.openWebUIInstall")}
+        </label>
+        <p className="muted small">{openWebUIAllowed(networkMode) ? t("launch.openWebUIHelp") : t("launch.openWebUIPrivate")}</p>
       </fieldset>
 
       <fieldset className="launch-options">

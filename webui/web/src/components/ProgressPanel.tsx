@@ -313,6 +313,13 @@ function ConnectionCard({ progress }: { progress: Progress }) {
       {c.access_mode !== "direct" && c.ssm_port_forward_command && (
         <CommandBlock label={t("progress.portForward")} help={t("progress.portForwardHelp")} command={c.ssm_port_forward_command} />
       )}
+      {c.open_webui_port_forward_command && (
+        <CommandBlock
+          label={t("progress.openWebUI")}
+          help={t("progress.openWebUIHelp", { url: c.open_webui_url ?? "http://localhost:8080" })}
+          command={c.open_webui_port_forward_command}
+        />
+      )}
       {c.curl_example && <CommandBlock label={t("progress.curl")} command={c.curl_example} />}
       {c.openai_api_example && <CommandBlock label={t("progress.openaiCurl")} command={c.openai_api_example} />}
       {progress.model && <CommandBlock label={t("progress.openaiPython")} help={t("progress.openaiPythonHelp")} command={openaiPythonExample(endpoint, progress.model, t("progress.samplePrompt"))} />}

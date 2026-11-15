@@ -50,7 +50,7 @@ locals {
 
   # AMI の大きさ + モデル2つ分(取得中の一時ファイルや、S3からのコピーの分) + 余裕 10 GiB。
   # モデルを別の EBS ボリュームに置くときは、ルートにはモデルを置かない
-  default_root_volume_size_gib = local.ami_root_size_gib + (var.models_on_root_volume ? ceil(var.model_file_size_gb * 2) : 0) + 10
+  default_root_volume_size_gib = local.ami_root_size_gib + (var.models_on_root_volume ? ceil(var.model_file_size_gb * 2) : 0) + 10 + var.extra_root_volume_gib
 
   root_volume_size_gib = coalesce(var.root_volume_size_gib, local.default_root_volume_size_gib)
 }

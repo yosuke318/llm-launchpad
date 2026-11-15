@@ -311,6 +311,8 @@ export interface LaunchVariables {
   max_lifetime_hours: number;
   // 省くと、インスタンス型を提供しているAZから terraform が選ぶ
   availability_zone?: string;
+  // Open WebUI も入れるか(パブリックなネットワークだけ)
+  open_webui?: boolean;
   // 画面で追加した、一覧にないモデルの定義(terraform の model_definition)
   model_definition?: Partial<Omit<ModelDefinition, "tag" | "added">>;
 }
@@ -393,6 +395,9 @@ export interface Connection {
   status_command: string | null;
   bootstrap_log_path: string | null;
   auto_stop: { idle_stop_minutes: number; stop_at: string | null; schedule_name: string | null } | null;
+  // Open WebUI を入れたときだけ。SSM で 8080 を転送して使う
+  open_webui_url?: string | null;
+  open_webui_port_forward_command?: string | null;
 }
 
 export interface ProgressError {
