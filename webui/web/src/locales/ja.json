@@ -282,7 +282,11 @@
     "zoneAutoUnknown": "自動(インスタンス型を提供しているAZから選ぶ)",
     "zoneSpot": "{{zone}}(スポット{{price}}/時、Spot placement score {{score}}/10)",
     "zoneHelp": "GPUの在庫はAZごとに違います。在庫がないAZでは作成が失敗するので、そのときは別のAZを選んで起動し直してください。",
-    "zoneFixedByVolume": "EBS永続では、ボリュームのある{{zone}}に起動します。"
+    "zoneFixedByVolume": "EBS永続では、ボリュームのある{{zone}}に起動します。",
+    "openWebUI": "チャット画面(Open WebUI)",
+    "openWebUIInstall": "Open WebUI も入れる",
+    "openWebUIHelp": "ブラウザで使うチャット画面を同じインスタンスに入れます。インスタンスの 127.0.0.1:8080 だけで待ち受け、SSM のポートフォワードでだけ使えます。イメージの取得で起動が数分のび、ルートボリュームが 10 GiB 増えます。",
+    "openWebUIPrivate": "閉じたネットワークでは入れられません(イメージを ghcr.io から取得するため)。"
   },
   "progress": {
     "heading": "起動の進み具合",
@@ -375,7 +379,9 @@
     },
     "editorAgent": "VSCode(Cline や Continue)から使う",
     "editorAgentHelp": "拡張機能で「OpenAI 互換」の接続先を選び、次の値を入れます。LAN 内のほかの PC からも使えます(AWS の認証情報は要りません)。SSM で接続する環境では、このサーバーの PC でポートフォワードを動かしたままにしてください。",
-    "editorAgentKey": "WebUI の合言葉(LAUNCHPAD_ACCESS_TOKEN)。決めていなければ任意の文字列(この PC からだけ使えます)"
+    "editorAgentKey": "WebUI の合言葉(LAUNCHPAD_ACCESS_TOKEN)。決めていなければ任意の文字列(この PC からだけ使えます)",
+    "openWebUI": "Open WebUI を開く(ポートフォワードを動かしたままにする)",
+    "openWebUIHelp": "このコマンドを動かしている間、ブラウザで {{url}} を開くと Open WebUI が使えます。Ollama のポートフォワードとは別に動かします。"
   },
   "environments": {
     "heading": "環境の一覧",

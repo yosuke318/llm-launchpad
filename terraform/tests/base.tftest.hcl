@@ -804,3 +804,62 @@ run "private_network_rejects_direct" {
 
   expect_failures = [var.network_mode]
 }
+
+run "open_webui_is_off_by_default" {
+  command = plan
+
+  assert {
+    condition     = !strcontains(module.bootstrap.user_data, "open-webui") && output.open_webui_url == null && output.open_webui_port_forward_command == null
+    error_message = "既定では Open WebUI を入れず、接続のしかたも出さないこと"
+  }
+}
+
+run "open_webui_installs_on_localhost_only" {
+  command = plan
+
+  variables {
+    open_webui         = true
+    open_webui_version = "v0.6.5"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "docker pull --quiet \"ghcr.io/open-webui/open-webui:v0.6.5\"") && strcontains(module.bootstrap.user_data, "\"ghcr.io/open-webui/open-webui:v0.6.5\"\n")
+    error_message = "指定したタグのイメージを取得して動かすこと"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "-e HOST=127.0.0.1") && strcontains(module.bootstrap.user_data, "-e PORT=8080") && strcontains(module.bootstrap.user_data, "OLLAMA_BASE_URL=\"http://127.0.0.1:11434\"")
+    error_message = "Open WebUI は 127.0.0.1:8080 だけで待ち受け、同じインスタンスの Ollama につなぐこと"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "curl -fsS \"http://127.0.0.1:8080/health\"")
+    error_message = "使える状態にする前に、Open WebUI が応えることを確かめること"
+  }
+
+  assert {
+    condition     = length(output.allowed_cidrs) == 0
+    error_message = "Open WebUI のためにインバウンドは開けないこと"
+  }
+
+  assert {
+    condition     = output.open_webui_url == "http://localhost:8080" && strcontains(output.open_webui_port_forward_command, "--parameters '{\"portNumber\":[\"8080\"],\"localPortNumber\":[\"8080\"]}'")
+    error_message = "Open WebUI の URL と、8080 を転送するコマンドを出すこと"
+  }
+
+  assert {
+    condition     = output.root_volume_size_gib == 106
+    error_message = "Open WebUI のイメージの分、ルートボリュームを 10 GiB 足すこと(既定の 96 GiB + 10)"
+  }
+}
+
+run "open_webui_rejected_on_private_network" {
+  command = plan
+
+  variables {
+    open_webui   = true
+    network_mode = "private"
+  }
+
+  expect_failures = [var.open_webui]
+}

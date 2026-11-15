@@ -27,6 +27,12 @@ locals {
 
   private = var.network_mode == "private"
 
+  # Open WebUI(open_webui = true のとき)。インスタンスの 127.0.0.1 だけで待ち受ける
+  open_webui_port  = 8080
+  open_webui_image = "ghcr.io/open-webui/open-webui:${var.open_webui_version}"
+  # Open WebUI のイメージと、それが持つデータ(会話や埋め込みモデル)の分、ルートボリュームを足す
+  open_webui_root_volume_gib = var.open_webui ? 10 : 0
+
   # モデルの置き場所(model_storage)ごとのバケットとボリューム。使わない方式では null
   model_bucket_name = var.model_storage == "s3_cache" ? data.aws_s3_bucket.models[0].bucket : null
 

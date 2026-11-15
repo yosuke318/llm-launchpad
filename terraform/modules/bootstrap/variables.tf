@@ -79,6 +79,24 @@ variable "ollama_install_bucket_name" {
   default     = null
 }
 
+variable "open_webui" {
+  description = "true なら Open WebUI も入れる(Docker で動かし、127.0.0.1 だけで待ち受ける)"
+  type        = bool
+  default     = false
+}
+
+variable "open_webui_image" {
+  description = "Open WebUI のイメージ"
+  type        = string
+  default     = "ghcr.io/open-webui/open-webui:main"
+}
+
+variable "open_webui_port" {
+  description = "Open WebUI が待ち受けるポート(127.0.0.1)"
+  type        = number
+  default     = 8080
+}
+
 variable "tags" {
   description = "追加で付けるタグ"
   type        = map(string)

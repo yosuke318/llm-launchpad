@@ -41,6 +41,8 @@ export interface LaunchSettings {
   maxLifetimeHours: number;
   // null なら、インスタンス型を提供しているAZから terraform が選ぶ
   availabilityZone: string | null;
+  // Open WebUI も入れるか。閉じたネットワークでは入れない
+  openWebUI?: boolean;
 }
 
 // EBS永続で付けるボリューム(terraform の model_volume_name の既定 default)のAZ。EBS はこのAZにしか付けられない
@@ -78,6 +80,7 @@ export function launchVariables(
     // EBS永続はボリュームのAZに起動するので書かない
     ...(settings.availabilityZone && option.id !== "ebs" ? { availability_zone: settings.availabilityZone } : {}),
     ...(estimate.model.added ? { model_definition: modelDefinition(estimate.model) } : {}),
+    ...(settings.openWebUI && openWebUIAllowed(networkMode) ? { open_webui: true } : {}),
   };
 }
 
@@ -112,6 +115,11 @@ export function launchHourly(
   return hourlyTotal(instance, option, networkHourly(plan, networkMode));
 }
 
+// Open WebUI のイメージを ghcr.io から取るので、閉じたネットワークでは入れられない(terraform の open_webui の検証と同じ)
+export function openWebUIAllowed(networkMode: NetworkMode) {
+  return networkMode === "public";
+}
+
 // 閉じたネットワークではインターネットに出られないため、毎回ダウンロードは選べない(terraform の network_mode の検証と同じ)
 export function storageAllowed(storage: StorageOption["id"], networkMode: NetworkMode) {
   return networkMode === "public" || storage !== "download";
@@ -143,6 +151,7 @@ export function presetFromHistory(entry: LaunchRecord): Preset {
       idleStopMinutes: v.idle_stop_minutes,
       maxLifetimeHours: v.max_lifetime_hours,
       availabilityZone: v.availability_zone ?? null,
+      openWebUI: v.open_webui ?? false,
     },
     envId: entry.in_use ? null : entry.workspace,
   };

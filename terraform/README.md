@@ -271,6 +271,22 @@ terraform destroy
 * `0.0.0.0/0` などの全開放は指定できない
 * アウトバウンドは HTTPS(443)と HTTP(80)だけ許可する(SSM、S3、Ollama library、Hugging Face、OSのパッケージミラー)。閉じたネットワークでは HTTPS だけ
 
+### Open WebUI: `open_webui = true` で同じインスタンスに入れる
+
+ブラウザで使うチャット画面([Open WebUI](https://github.com/open-webui/open-webui))を、GPU インスタンスに一緒に入れる。
+
+* Docker で公式のイメージ(`ghcr.io/open-webui/open-webui:<open_webui_version>`、既定は `main`)を動かす。Deep Learning Base AMI に Docker がなければ `docker.io` を入れる
+* インスタンスの `127.0.0.1:8080` だけで待ち受け、セキュリティグループは開けない。`access_mode` に関係なく、SSM のポートフォワード(`open_webui_port_forward_command`)でだけ使える
+* SSM の権限がある人だけが届くので、Open WebUI のログインは切る(`WEBUI_AUTH=False`)。会話は `open-webui` という Docker のボリューム(ルートボリューム)に残る
+* イメージの取得はモデルの用意と並べて進め、使える状態(`ready`)にする前に `/health` が応えるまで待つ(最大10分)。応えなければ起動処理を失敗にする
+* イメージの分、ルートボリュームの既定に 10 GiB 足す
+* 閉じたネットワーク(`network_mode = "private"`)では使えない。イメージを ghcr.io から取得するため
+
+```sh
+terraform output -raw open_webui_port_forward_command | sh   # 別の端末で実行したままにする
+# ブラウザで http://localhost:8080 を開く
+```
+
 ### state: 既定はローカル、1 workspace = 1 環境
 
 * すぐ試せるよう、既定はローカルの state(`terraform.tfstate.d/<workspace名>/`)にする
@@ -408,6 +424,8 @@ terraform test
 | `root_volume_throughput` | `1000` | ルートボリュームのスループット(MiB/s) |
 | `root_volume_iops` | `4000` | ルートボリュームの IOPS(スループットの4倍以上) |
 | `ollama_version` | `null`(最新) | 入れる Ollama のバージョン。閉じたネットワークでは `null` なら `latest` の下に置いたもの |
+| `open_webui` | `false` | Open WebUI も入れる(`network_mode = "public"` だけ) |
+| `open_webui_version` | `main` | Open WebUI のイメージのタグ(例: `v0.6.5`) |
 | `idle_stop_minutes` | `30` | Ollama へのリクエストがこの分数なければ止める(`0` で止めない) |
 | `max_lifetime_hours` | `8` | 起動してからこの時間がたったら止める(`0` で止めない) |
 | `region` | `ap-northeast-1` | リージョン |

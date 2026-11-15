@@ -35,6 +35,11 @@ resource "aws_ssm_parameter" "status" {
     }
 
     precondition {
+      condition     = !(var.offline && var.open_webui)
+      error_message = "offline(閉じたネットワーク)では Open WebUI は入れられません(イメージを ghcr.io から取得するため)。"
+    }
+
+    precondition {
       condition     = var.model_storage != "ebs" || var.model_volume_id != null
       error_message = "model_storage = ebs には model_volume_id が要ります。"
     }
@@ -61,6 +66,9 @@ locals {
     offline            = var.offline
     install_bucket     = var.ollama_install_bucket_name == null ? "" : var.ollama_install_bucket_name
     ollama_install_key = local.ollama_install_key
+    open_webui         = var.open_webui
+    open_webui_image   = var.open_webui_image
+    open_webui_port    = var.open_webui_port
   })
 
   ebs_mount_point = "/mnt/llm-models"

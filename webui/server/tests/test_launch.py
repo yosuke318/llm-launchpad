@@ -196,3 +196,14 @@ def test_old_history_beyond_the_list_can_be_saved(tmp_path):
     with TestClient(create_app(Runner(str(tmp_path)), web_dist=None, history_file=history.path,
                                presets_file=str(tmp_path / "presets.json"))) as c:
         assert c.post("/api/presets", json={"name": "old", "history_id": oldest["id"]}).status_code == 201
+
+
+def test_launch_accepts_open_webui_flag(client, terraform_dir):
+    assert launch(client, variables={**VARIABLES, "open_webui": True}).status_code == 201
+    assert json.loads((terraform_dir / "tfvars" / "qwen3-8b.tfvars.json").read_text())["open_webui"] is True
+
+
+@pytest.mark.parametrize("name, value", [("open_webui", "yes"), ("open_webui", 1), ("context_length", True)])
+def test_launch_rejects_wrong_bool_and_number_types(client, name, value):
+    res = launch(client, variables={**VARIABLES, name: value})
+    assert res.status_code == 422, "bool の変数には bool だけ、数の変数には bool 以外だけを受け付ける"

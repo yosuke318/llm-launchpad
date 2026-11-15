@@ -41,6 +41,8 @@ CONNECTION_OUTPUTS = [
     "status_command",
     "bootstrap_log_path",
     "auto_stop",
+    "open_webui_url",
+    "open_webui_port_forward_command",
 ]
 
 # 失敗したときに出す terraform の出力の行数

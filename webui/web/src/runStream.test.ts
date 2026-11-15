@@ -211,6 +211,13 @@ describe("launch helpers", () => {
     });
   });
 
+  it("writes open_webui only when asked for and on the public network", () => {
+    const settings = { purchaseOption: "spot" as const, idleStopMinutes: 30, maxLifetimeHours: 8, availabilityZone: null, openWebUI: true };
+    expect(launchVariables(estimate, plan, option, settings).open_webui).toBe(true);
+    expect(launchVariables(estimate, plan, option, settings, "private")).not.toHaveProperty("open_webui");
+    expect(launchVariables(estimate, plan, option, { ...settings, openWebUI: false })).not.toHaveProperty("open_webui");
+  });
+
   it("writes the definition of an added model", () => {
     const settings = { purchaseOption: "spot" as const, idleStopMinutes: 30, maxLifetimeHours: 8, availabilityZone: null };
     const model = {

@@ -114,6 +114,17 @@ curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION="${ollama_version}" sh
 %{ endif ~}
 %{ endif ~}
 
+%{ if open_webui ~}
+# Open WebUI のイメージは大きい(数 GB)ので、モデルの用意と並べて取得しておく
+if ! command -v docker > /dev/null; then
+  apt-get update -q
+  apt-get install -y -q docker.io
+  systemctl enable --now docker
+fi
+docker pull --quiet "${open_webui_image}" > /var/log/llm-launchpad-open-webui-pull.log 2>&1 &
+OPEN_WEBUI_PULL_PID=$!
+
+%{ endif ~}
 # モデルの置き場所を用意する(model_storage = ${model_storage})
 stage preparing_storage
 %{ if model_storage == "ebs" ~}
@@ -161,6 +172,29 @@ lp pull "${model}"
 
 stage verifying
 lp verify "${model}"
+%{ if open_webui ~}
+
+# Open WebUI を、Ollama と同じく 127.0.0.1 だけで待ち受けて動かす。セキュリティグループは開けず、
+# SSM のポートフォワード(open_webui_port_forward_command)でだけ使える。SSM の権限がある人だけが届くので、ログインは切る
+wait "$OPEN_WEBUI_PULL_PID"
+docker rm -f open-webui > /dev/null 2>&1 || true
+docker run -d --name open-webui --restart always --network host \
+  -v open-webui:/app/backend/data \
+  -e OLLAMA_BASE_URL="http://127.0.0.1:${ollama_port}" \
+  -e HOST=127.0.0.1 \
+  -e PORT=${open_webui_port} \
+  -e WEBUI_AUTH=False \
+  "${open_webui_image}"
+# 初回は埋め込みモデルの取得などで数分かかる。10分待っても応えなければ失敗にする
+for _ in $(seq 1 120); do
+  if curl -fsS "http://127.0.0.1:${open_webui_port}/health" > /dev/null 2>&1; then
+    break
+  fi
+  sleep 5
+done
+curl -fsS "http://127.0.0.1:${open_webui_port}/health" > /dev/null
+echo "llm-launchpad: Open WebUI is ready on 127.0.0.1:${open_webui_port}"
+%{ endif ~}
 
 lp status ready --state ready
 echo "llm-launchpad: ${model} is ready"

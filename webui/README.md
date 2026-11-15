@@ -161,6 +161,7 @@ cd webui/web && npm run dev    # http://127.0.0.1:5173 。/api はサーバー(8
 * 購入方法(スポット / オンデマンド)を選ぶ。チェックが通らなかった方は選べない。スポットでは、AWS の Spot placement score(1〜10)から中断されやすさを出す(7以上は低い、4以上は中くらい、それより下は高い)。AWS の見立てで、実際とは違うことがある(東京で 1/10 でも起動できた)ので、止めはしない
 * AZ を選べる。既定は自動(サブネットのあるAZのうちインスタンス型を提供しているAZから、名前の昇順で最初のもの)。選べるのは、サブネットのあるAZ(オプトイン不要のAZを名前順に並べた先頭3つ。terraform の `az_count` の既定)のうちインスタンス型を提供しているところ。スポットでは、AZごとの価格と Spot placement score も出す。EBS永続ではボリュームのあるAZに決まるので選べない
 * 自動停止(アイドルで止めるまでの分、最大の稼働時間)と環境ID(既定はモデル名から作る)を変えられる。書き込む tfvars の中身もそのまま見られる
+* 「Open WebUI も入れる」を選ぶと、ブラウザで使うチャット画面も同じインスタンスに入れる(tfvars の `open_webui`。閉じたネットワークでは選べない)。使える状態になると、起動の進み具合の画面に、Open WebUI(8080)を転送するコマンドが出る
 * 「はい」で、表示した内容を `terraform/tfvars/<環境ID>.tfvars.json` に書き、`terraform init` と `terraform apply -auto-approve` を続けて実行する。起動の進み具合のタブに切り替わる。出力は Terraform のタブで見られる。init が失敗したら apply はしない
 * 「いいえ」なら閉じるだけで、何も書かない
 
@@ -271,7 +272,7 @@ terraform のワークスペースのうち、state にリソースがあるも�
 ### terraform の実行
 
 * Terraform のタブから実行できるのは `version` / `init` / `validate` / `plan` だけ。`apply` は起動の確認(`POST /api/launch`)から、`destroy` は環境の一覧(`POST /api/environments/{環境ID}/destroy`)からだけ実行できる
-* 起動では、`default` のワークスペースは使えない。渡せる変数は決めたもの(model、region、context_length、kv_cache_type、model_storage、network_mode、purchase_option、idle_stop_minutes、max_lifetime_hours、instance_type、availability_zone)だけで、型も確かめる。Bedrock の環境では model、region、availability_zone だけ
+* 起動では、`default` のワークスペースは使えない。渡せる変数は決めたもの(model、region、context_length、kv_cache_type、model_storage、network_mode、purchase_option、idle_stop_minutes、max_lifetime_hours、instance_type、availability_zone、open_webui)だけで、型も確かめる(bool の変数には true / false だけ、数の変数には true / false を受け付けない)。Bedrock の環境では model、region、availability_zone だけ
 * 同時に動かすのは1つだけ(`init` は `.terraform` を書き換えるため)。実行中に別のコマンドを頼むと 409 を返す
 * ワークスペース名は、環境IDと同じ規則(`default` か、英小文字・数字・ハイフンの20文字以内)だけを受け付ける
 * 出力は1行ずつ SSE で送る(`event: log`、最後に `event: end` で終了コード)。各行に行番号を `id` として付けるので、接続が切れてもブラウザ(EventSource)が `Last-Event-ID` を送り、続きから受け取れる

@@ -119,6 +119,20 @@ output "ssm_port_forward_command" {
   ])
 }
 
+output "open_webui_url" {
+  description = "Open WebUI の URL(open_webui = true のとき)。open_webui_port_forward_command を実行している間だけ使える"
+  value       = var.open_webui ? "http://localhost:${local.open_webui_port}" : null
+}
+
+output "open_webui_port_forward_command" {
+  description = "Open WebUI(インスタンスの 127.0.0.1:8080)を手元の localhost:8080 に転送するコマンド。access_mode に関係なく SSM で転送する"
+  value = !var.open_webui ? null : join(" ", [
+    "aws ssm start-session --target ${module.instance.instance_id} ${local.aws_cli_options}",
+    "--document-name AWS-StartPortForwardingSession",
+    "--parameters '{\"portNumber\":[\"${local.open_webui_port}\"],\"localPortNumber\":[\"${local.open_webui_port}\"]}'",
+  ])
+}
+
 output "curl_example" {
   description = "Ollama API にプロンプトを送る例"
   value       = "curl ${local.ollama_endpoint}/api/generate -d '{\"model\":\"${var.model}\",\"prompt\":\"こんにちは\",\"stream\":false}'"

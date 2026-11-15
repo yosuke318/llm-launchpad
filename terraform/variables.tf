@@ -256,6 +256,28 @@ variable "ollama_version" {
   }
 }
 
+variable "open_webui" {
+  description = "true なら、GPUインスタンスに Open WebUI(ブラウザで使うチャット画面)も入れる。127.0.0.1 だけで待ち受け、SSM のポートフォワード(open_webui_port_forward_command)でだけ使える"
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.open_webui || var.network_mode == "public"
+    error_message = "open_webui は network_mode = public でだけ使えます(Open WebUI のイメージを ghcr.io から取得するため)。"
+  }
+}
+
+variable "open_webui_version" {
+  description = "Open WebUI のイメージのタグ(ghcr.io/open-webui/open-webui:<タグ>)。main は最新の安定版。決まった版にするときは v0.6.5 のように指定する"
+  type        = string
+  default     = "main"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", var.open_webui_version))
+    error_message = "open_webui_version はイメージのタグ(英数字と . _ -)で指定してください。"
+  }
+}
+
 variable "idle_stop_minutes" {
   description = "Ollama へのリクエストがこの分数なければ、GPUインスタンスを止める(5分ごとに確かめる)。0 なら止めない"
   type        = number

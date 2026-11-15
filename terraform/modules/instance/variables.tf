@@ -50,6 +50,12 @@ variable "user_data_base64" {
   type        = string
 }
 
+variable "extra_root_volume_gib" {
+  description = "ルートボリュームの既定の大きさに足す分(GiB)。Open WebUI を入れるときなど。root_volume_size_gib を指定したときは使わない"
+  type        = number
+  default     = 0
+}
+
 variable "models_on_root_volume" {
   description = "モデルをルートボリュームに置くか。false(EBS永続)ならルートボリュームにモデルの分を足さない"
   type        = bool
