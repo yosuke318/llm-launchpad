@@ -242,6 +242,10 @@ MESSAGES = {
         "ja": "terraform を実行できませんでした: {error}",
         "en": "Could not run terraform: {error}",
     },
+    "terraform.not_found": {
+        "ja": "terraform を実行できませんでした({bin}): {error}。terraform を入れるか、LAUNCHPAD_TERRAFORM_BIN で terraform のパスを指定してください",
+        "en": "Could not run terraform ({bin}): {error}. Install terraform or set LAUNCHPAD_TERRAFORM_BIN to its path",
+    },
     "command.unknown": {
         "ja": "実行できないコマンドです: {command}",
         "en": "This command cannot be run: {command}",

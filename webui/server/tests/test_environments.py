@@ -303,3 +303,19 @@ def test_destroy_needs_tfvars(client):
     res = client.post("/api/environments/manual/destroy")
     assert res.status_code == 422 and "terraform destroy" in res.json()["detail"]
     assert client.post("/api/environments/default/destroy").status_code == 422
+
+
+def test_overview_without_terraform_binary(tmp_path, terraform_dir, aws):
+    """terraform がなくても一覧は 200 で返し、理由を warnings に出す。state も読めないので、起動した環境はその理由と一緒に出す"""
+    missing = str(tmp_path / "no-such-terraform")
+    write_tfvars(terraform_dir, "qwen3-8b")
+    app = create_app(Runner(str(terraform_dir), missing), web_dist=None, aws_info=aws,
+                     bedrock_runner=Runner(str(terraform_dir / "bedrock"), missing))
+    with TestClient(app) as c:
+        res = c.get("/api/environments/overview")
+    assert res.status_code == 200
+    body = res.json()
+    assert any("terraform workspace list" in w and "LAUNCHPAD_TERRAFORM_BIN" in w for w in body["warnings"])
+    [env] = body["environments"]
+    assert env["workspace"] == "qwen3-8b"
+    assert "LAUNCHPAD_TERRAFORM_BIN" in env["state_error"]
