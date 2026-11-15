@@ -139,8 +139,8 @@ output "results" {{
 def test_vllm_uses_bf16_weights_and_90_percent_of_vram(catalog):
     r = estimate(catalog, "qwen3:8b", 8192, engine="vllm")
     e = r["vram_estimate"]
-    # 16.4 GB = 15.27 GiB、KV 1.13 GiB、余裕 2.0 GiB = 18.4 GiB。g6.xlarge(22.5 GiB)x 0.9 = 20.25 GiB に収まる
-    assert (e["weights_gib"], e["kv_cache_gib"], e["overhead_gib"], e["required_gib"]) == (15.27, 1.13, 2.0, 18.4)
+    # 16.38 GB = 15.26 GiB、KV 1.13 GiB、余裕 2.0 GiB = 18.38 GiB。g6.xlarge(22.5 GiB)x 0.9 = 20.25 GiB に収まる
+    assert (e["weights_gib"], e["kv_cache_gib"], e["overhead_gib"], e["required_gib"]) == (15.26, 1.13, 2.0, 18.38)
     assert r["instance_type"] == "g6.xlarge" and e["usable_vram_gib"] == 20.25 and e["engine"] == "vllm"
     assert "g4dn.xlarge" not in r["fitting_instance_types"], "T4(15 GiB)には bf16 の 8B は収まらない"
 

@@ -75,7 +75,7 @@ def test_region_plan_offers_only_download_with_the_bigger_root_volume(client):
     p = client.get("/api/region-plan", params={"model": "qwen3:8b", "engine": "vllm"}).json()
     assert p["instance_type"] == "g6.xlarge"
     assert [o["id"] for o in p["storage_options"]] == ["download"]
-    assert p["storage_options"][0]["root_volume_gib"] == root_volume_size_gib(16.4, True, VLLM["root_volume_extra_gib"]) == 148
+    assert p["storage_options"][0]["root_volume_gib"] == root_volume_size_gib(16.38, True, VLLM["root_volume_extra_gib"]) == 148
 
 
 def test_hf_token_is_saved_without_being_returned(client, aws):

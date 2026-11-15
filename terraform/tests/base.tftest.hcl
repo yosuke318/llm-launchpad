@@ -902,7 +902,12 @@ run "vllm_serves_the_hf_model_on_the_ollama_port" {
     error_message = "推論エンジンをファイルに書き、vLLM が応えるまで待つこと"
   }
 
-  # AMI 75 GiB + 重み 16.4GB x 2 を切り上げた 33 GiB + 余裕 10 GiB + vLLM のイメージ 30 GiB
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "ignore_patterns=['consolidated*', 'original/*']")
+    error_message = "同じ重みの別の形式(consolidated、original/)は取得しないこと"
+  }
+
+  # AMI 75 GiB + 重み 16.38GB x 2 を切り上げた 33 GiB + 余裕 10 GiB + vLLM のイメージ 30 GiB
   assert {
     condition     = output.root_volume_size_gib == 148
     error_message = "ルートボリュームは bf16 の重みと vLLM のイメージの分を見込むこと"

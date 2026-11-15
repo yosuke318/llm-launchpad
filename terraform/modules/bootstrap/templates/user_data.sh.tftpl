@@ -162,12 +162,14 @@ stage pulling_model
 HF_TOKEN="$(aws ssm get-parameter --name "${hf_token_parameter}" --with-decryption --region "${region}" --query Parameter.Value --output text)"
 export HF_TOKEN
 %{ endif ~}
-# 取得の進み具合(キャッシュの大きさ / 重みの大きさ)を、取得している間だけ書く
+# 取得の進み具合(キャッシュの大きさ / 重みの大きさ)を、取得している間だけ書く。
+# Mistral のように同じ重みを別の形式(consolidated.safetensors)でも置いているリポジトリがあるので、vLLM が使う
+# Hugging Face 形式だけを取る(original/ の元の形式も取らない)
 lp track-download "${hf_cache_dir}" ${vllm_weights_bytes} &
 TRACK_PID=$!
 docker run --rm -v "${hf_cache_dir}:/root/.cache/huggingface" %{ if hf_token_parameter != "" }-e HF_TOKEN %{ endif }\
   --entrypoint python3 "${vllm_image}" -c \
-  "from huggingface_hub import snapshot_download; snapshot_download('${vllm_hf_repo}', allow_patterns=['*.json', '*.safetensors', '*.model', '*.txt', '*.jinja', 'tokenizer*'])"
+  "from huggingface_hub import snapshot_download; snapshot_download('${vllm_hf_repo}', allow_patterns=['*.json', '*.safetensors', '*.model', '*.txt', '*.jinja', 'tokenizer*'], ignore_patterns=['consolidated*', 'original/*'])"
 kill "$TRACK_PID" 2> /dev/null || true
 unset HF_TOKEN
 
