@@ -39,6 +39,18 @@ MESSAGES = {
         "ja": "Lambda {function} の呼び出しに失敗しました: {error}",
         "en": "Calling the Lambda function {function} failed: {error}",
     },
+    "aws.hf_token_save_failed": {
+        "ja": "Hugging Face のトークンを SSM パラメータに保存できませんでした: {error}",
+        "en": "Could not save the Hugging Face token to the SSM parameter: {error}",
+    },
+    "hf_token.required": {
+        "ja": "{model}(Hugging Face の {repo})は gated のモデルです。Hugging Face で利用条件に同意したアカウントのトークンを保存してから起動してください",
+        "en": "{model} ({repo} on Hugging Face) is a gated model. Save a token of an account that accepted its terms on Hugging Face before launching",
+    },
+    "hf_token.invalid": {
+        "ja": "Hugging Face のトークンの形が正しくありません(hf_ で始まる文字列)",
+        "en": "The Hugging Face token is not valid (it starts with hf_)",
+    },
     "aws.command_timeout": {
         "ja": "{instance_id} のコマンドが {sec} 秒たっても終わりませんでした",
         "en": "The command on {instance_id} did not finish in {sec} seconds",
@@ -204,6 +216,18 @@ MESSAGES = {
     "model.unknown": {
         "ja": "model \"{model}\" はモデル定義にありません",
         "en": "model \"{model}\" is not in the model definitions",
+    },
+    "engine.invalid": {
+        "ja": "推論エンジンは {choices} のどれかを指定してください",
+        "en": "The inference engine must be one of {choices}",
+    },
+    "engine.vllm_unsupported": {
+        "ja": "{model} は vLLM では動かせません(モデル定義に vllm がありません)",
+        "en": "{model} cannot run on vLLM (the model definition has no vllm entry)",
+    },
+    "engine.vllm_kv_cache": {
+        "ja": "vLLM では KV キャッシュの型は f16 だけです({kv_cache_type} は使えません)",
+        "en": "vLLM supports only the f16 KV cache type ({kv_cache_type} is not available)",
     },
     "kv_cache_type.invalid": {
         "ja": "kv_cache_type は {choices} のどれかを指定してください",

@@ -22,7 +22,9 @@ export default function RegionStoragePicker({ estimate, contextLength, kvCacheTy
   const [regions, setRegions] = useState<Region[]>([]);
   const [defaultRegion, setDefaultRegion] = useState("ap-northeast-1");
   const [region, setRegion] = useState(preset?.entry.variables.region ?? "ap-northeast-1");
-  const [storage, setStorage] = useState<StorageId>(preset?.entry.variables.model_storage ?? "s3_cache");
+  // vLLM はモデルを毎回 Hugging Face から取得する(置き場所は毎回ダウンロードだけ、パブリックなネットワークだけ)
+  const vllm = estimate.vram_estimate.engine === "vllm";
+  const [storage, setStorage] = useState<StorageId>(vllm ? "download" : (preset?.entry.variables.model_storage ?? "s3_cache"));
   const [networkMode, setNetworkMode] = useState<NetworkMode>(preset?.entry.variables.network_mode ?? "public");
   const [plan, setPlan] = useState<RegionPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -58,7 +60,7 @@ export default function RegionStoragePicker({ estimate, contextLength, kvCacheTy
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    getRegionPlan({ model: tag, region, context_length: contextLength, kv_cache_type: kvCacheType })
+    getRegionPlan({ model: tag, region, context_length: contextLength, kv_cache_type: vllm ? "f16" : kvCacheType, engine: vllm ? "vllm" : undefined })
       .then((p) => {
         if (cancelled) return;
         setPlan(p);
@@ -69,7 +71,13 @@ export default function RegionStoragePicker({ estimate, contextLength, kvCacheTy
     return () => {
       cancelled = true;
     };
-  }, [tag, region, contextLength, kvCacheType]);
+  }, [tag, region, contextLength, kvCacheType, vllm]);
+
+  useEffect(() => {
+    if (!vllm) return;
+    setStorage("download");
+    setNetworkMode("public");
+  }, [vllm]);
 
   // 閉じたネットワークで選べない方式(毎回ダウンロード)を選んでいたら、選んでいないことにする
   const selected = plan?.storage_options.find((o) => o.id === storage && storageAllowed(o.id, networkMode)) ?? null;
@@ -145,11 +153,19 @@ export default function RegionStoragePicker({ estimate, contextLength, kvCacheTy
           <fieldset className="storage-options">
             <legend>{t("region.network")}</legend>
             {(["public", "private"] as const).map((mode) => (
-              <label key={mode} className={`storage-option ${networkMode === mode ? "selected" : ""}`}>
-                <input type="radio" name="network" value={mode} checked={networkMode === mode} onChange={() => chooseNetwork(mode)} />
+              <label key={mode} className={`storage-option ${networkMode === mode ? "selected" : ""} ${vllm && mode === "private" ? "disabled" : ""}`}>
+                <input
+                  type="radio"
+                  name="network"
+                  value={mode}
+                  checked={networkMode === mode}
+                  disabled={vllm && mode === "private"}
+                  onChange={() => chooseNetwork(mode)}
+                />
                 <div>
                   <strong>{t(`region.networkNames.${mode}`)}</strong>
                   <p className="muted small">{t(`region.networkHelp.${mode}`)}</p>
+                  {vllm && mode === "private" && <p className="warning small">{t("region.vllmNotPrivate")}</p>}
                   {mode === "private" && (
                     <p className="small">{t("region.privateNetworkHourly", { price: money(plan.prices.private_network_hourly_usd) })}</p>
                   )}

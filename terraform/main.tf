@@ -31,6 +31,7 @@ module "sizing" {
   kv_cache_type       = var.kv_cache_type
   vram_overhead_gib   = var.vram_overhead_gib
   instance_type       = var.instance_type
+  engine              = var.engine
 }
 
 module "network" {
@@ -116,6 +117,13 @@ module "bootstrap" {
   idle_stop_minutes          = var.idle_stop_minutes
   offline                    = local.private
   ollama_install_bucket_name = local.ollama_install_bucket_name
+  engine                     = var.engine
+  vllm_hf_repo               = try(module.sizing.vllm.hf_repo, null)
+  vllm_image                 = "vllm/vllm-openai:${var.vllm_version}"
+  vllm_tensor_parallel_size  = module.sizing.instance.gpu_count
+  vllm_dtype                 = local.vllm_dtype
+  vllm_weights_gb            = try(module.sizing.vllm.weights_gb, 0)
+  hf_token_parameter_name    = var.hf_token_parameter_name
   open_webui                 = var.open_webui
   open_webui_image           = local.open_webui_image
   open_webui_port            = local.open_webui_port
@@ -146,11 +154,11 @@ module "instance" {
   availability_zone      = local.availability_zone
   security_group_id      = module.security.security_group_id
   instance_profile_name  = module.iam.instance_profile_name
-  model_file_size_gb     = module.sizing.model.file_size_gb
+  model_file_size_gb     = local.vllm ? module.sizing.vllm.weights_gb : module.sizing.model.file_size_gb
   models_on_root_volume  = var.model_storage != "ebs"
   model_volume_id        = local.model_volume_id
   root_volume_size_gib   = var.root_volume_size_gib
-  extra_root_volume_gib  = local.open_webui_root_volume_gib
+  extra_root_volume_gib  = local.open_webui_root_volume_gib + local.vllm_root_volume_gib
   root_volume_throughput = var.root_volume_throughput
   root_volume_iops       = var.root_volume_iops
   user_data_base64       = module.bootstrap.user_data_base64

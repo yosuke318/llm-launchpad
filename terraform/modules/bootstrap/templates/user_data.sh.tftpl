@@ -11,12 +11,15 @@ export LAUNCHPAD_REGION="${region}"
 export LAUNCHPAD_STATUS_PARAMETER="${status_parameter}"
 export LAUNCHPAD_STATE_FILE=/var/lib/llm-launchpad/status.json
 export OLLAMA_URL="http://127.0.0.1:${ollama_port}"
+export LAUNCHPAD_ENGINE="${engine}"
 # cloud-init の実行中は HOME が無いことがある。AWS CLI の設定ファイルの置き場所に使う
 export HOME=/root
 
 MODELS_DIR="${models_dir}"
 
 mkdir -p /opt/llm-launchpad /var/lib/llm-launchpad
+# 推論エンジン。あとから SSM の send-command で動かす launchpad.py(計測やアイドル停止)が読む
+echo "${engine}" > /var/lib/llm-launchpad/engine
 cat > /opt/llm-launchpad/launchpad.py <<'PY'
 ${launchpad_py}
 PY
@@ -29,6 +32,10 @@ current_stage=instance_started
 
 # 失敗したら、止まった段階・行番号・ログの場所を書く
 on_error() {
+  # Hugging Face からの取得の進み具合を書いていたら、失敗を上書きしないよう先に止める
+  if [ -n "$${TRACK_PID:-}" ]; then
+    kill "$TRACK_PID" 2> /dev/null || true
+  fi
   lp status "$current_stage" --state failed --error "line $1 exited with $2" --log "$LOG_FILE" || true
 }
 trap 'on_error $LINENO $?' ERR
@@ -76,6 +83,24 @@ systemctl enable --now llm-launchpad-idle-stop.timer
 %{ endif ~}
 
 stage installing_ollama
+%{ if engine == "vllm" ~}
+# vLLM は Docker の公式イメージ(vllm/vllm-openai)で動かす。GPU を使うので NVIDIA Container Toolkit が要る
+# (Deep Learning Base AMI には入っている)。画面では「推論エンジンの導入」の段階として出る
+if ! command -v docker > /dev/null; then
+  apt-get update -q
+  apt-get install -y -q docker.io
+  systemctl enable --now docker
+fi
+if ! docker info 2> /dev/null | grep -qi nvidia && command -v nvidia-ctk > /dev/null; then
+  nvidia-ctk runtime configure --runtime=docker
+  systemctl restart docker
+fi
+if ! docker info 2> /dev/null | grep -qi nvidia; then
+  echo "llm-launchpad: Docker から GPU を使えません(NVIDIA Container Toolkit がありません)"
+  false
+fi
+docker pull --quiet "${vllm_image}"
+%{ else ~}
 %{ if offline ~}
 # 閉じたネットワークでは ollama.com に出られないため、バケットに置いたリリースファイルから
 # install.sh と同じ形で入れる(/usr/local に展開し、ollama ユーザーと systemd のサービスを作る)
@@ -114,6 +139,7 @@ curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION="${ollama_version}" sh
 %{ endif ~}
 %{ endif ~}
 
+%{ endif ~}
 %{ if open_webui ~}
 # Open WebUI のイメージは大きい(数 GB)ので、モデルの用意と並べて取得しておく
 if ! command -v docker > /dev/null; then
@@ -125,6 +151,47 @@ docker pull --quiet "${open_webui_image}" > /var/log/llm-launchpad-open-webui-pu
 OPEN_WEBUI_PULL_PID=$!
 
 %{ endif ~}
+%{ if engine == "vllm" ~}
+# モデルを Hugging Face から取得する(model_storage = download)。重みはルートボリュームのキャッシュに置く
+stage preparing_storage
+mkdir -p "${hf_cache_dir}"
+
+stage pulling_model
+%{ if hf_token_parameter != "" ~}
+# gated のモデルのためのトークン。tfvars や user data には置かず、SSM パラメータ(SecureString)から読む
+HF_TOKEN="$(aws ssm get-parameter --name "${hf_token_parameter}" --with-decryption --region "${region}" --query Parameter.Value --output text)"
+export HF_TOKEN
+%{ endif ~}
+# 取得の進み具合(キャッシュの大きさ / 重みの大きさ)を、取得している間だけ書く
+lp track-download "${hf_cache_dir}" ${vllm_weights_bytes} &
+TRACK_PID=$!
+docker run --rm -v "${hf_cache_dir}:/root/.cache/huggingface" %{ if hf_token_parameter != "" }-e HF_TOKEN %{ endif }\
+  --entrypoint python3 "${vllm_image}" -c \
+  "from huggingface_hub import snapshot_download; snapshot_download('${vllm_hf_repo}', allow_patterns=['*.json', '*.safetensors', '*.model', '*.txt', '*.jinja', 'tokenizer*'])"
+kill "$TRACK_PID" 2> /dev/null || true
+unset HF_TOKEN
+
+# 取得したキャッシュだけで動かす(HF_HUB_OFFLINE)。Ollama と同じポートで OpenAI 互換 API を出すので、
+# ポートフォワードや WebUI の中継はそのまま使える。served-model-name に Ollama のタグも入れ、同じ名前で呼べるようにする
+docker rm -f vllm > /dev/null 2>&1 || true
+docker run -d --name vllm --restart always --gpus all --ipc=host --network host \
+  -v "${hf_cache_dir}:/root/.cache/huggingface" \
+  -e HF_HUB_OFFLINE=1 \
+  "${vllm_image}" \
+  --model "${vllm_hf_repo}" \
+  --served-model-name "${model}" "${vllm_hf_repo}" \
+  --host ${ollama_host} \
+  --port ${ollama_port} \
+  --max-model-len ${context_length} \
+  --gpu-memory-utilization 0.9 \
+  --tensor-parallel-size ${vllm_tp} \
+  --dtype ${vllm_dtype}
+
+# GPU への読み込みと CUDA グラフの用意で数分かかる
+stage verifying
+lp wait-server --timeout 1800
+lp verify "${model}"
+%{ else ~}
 # モデルの置き場所を用意する(model_storage = ${model_storage})
 stage preparing_storage
 %{ if model_storage == "ebs" ~}
@@ -172,6 +239,7 @@ lp pull "${model}"
 
 stage verifying
 lp verify "${model}"
+%{ endif ~}
 %{ if open_webui ~}
 
 # Open WebUI を、Ollama と同じく 127.0.0.1 だけで待ち受けて動かす。セキュリティグループは開けず、
@@ -180,7 +248,13 @@ wait "$OPEN_WEBUI_PULL_PID"
 docker rm -f open-webui > /dev/null 2>&1 || true
 docker run -d --name open-webui --restart always --network host \
   -v open-webui:/app/backend/data \
+%{ if engine == "vllm" ~}
+  -e ENABLE_OLLAMA_API=False \
+  -e OPENAI_API_BASE_URL="http://127.0.0.1:${ollama_port}/v1" \
+  -e OPENAI_API_KEY=none \
+%{ else ~}
   -e OLLAMA_BASE_URL="http://127.0.0.1:${ollama_port}" \
+%{ endif ~}
   -e HOST=127.0.0.1 \
   -e PORT=${open_webui_port} \
   -e WEBUI_AUTH=False \

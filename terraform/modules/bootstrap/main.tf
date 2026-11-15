@@ -35,6 +35,11 @@ resource "aws_ssm_parameter" "status" {
     }
 
     precondition {
+      condition     = var.engine != "vllm" || (var.vllm_hf_repo != null && var.model_storage == "download" && !var.offline)
+      error_message = "engine = vllm には vllm_hf_repo が要り、model_storage = download でパブリックなネットワークだけを使えます。"
+    }
+
+    precondition {
       condition     = !(var.offline && var.open_webui)
       error_message = "offline(閉じたネットワーク)では Open WebUI は入れられません(イメージを ghcr.io から取得するため)。"
     }
@@ -66,6 +71,14 @@ locals {
     offline            = var.offline
     install_bucket     = var.ollama_install_bucket_name == null ? "" : var.ollama_install_bucket_name
     ollama_install_key = local.ollama_install_key
+    engine             = var.engine
+    vllm_hf_repo       = var.vllm_hf_repo == null ? "" : var.vllm_hf_repo
+    vllm_image         = var.vllm_image
+    vllm_tp            = var.vllm_tensor_parallel_size
+    vllm_dtype         = var.vllm_dtype
+    vllm_weights_bytes = floor(var.vllm_weights_gb * 1e9)
+    hf_cache_dir       = "/opt/llm-launchpad/hf-cache"
+    hf_token_parameter = var.hf_token_parameter_name == null ? "" : var.hf_token_parameter_name
     open_webui         = var.open_webui
     open_webui_image   = var.open_webui_image
     open_webui_port    = var.open_webui_port

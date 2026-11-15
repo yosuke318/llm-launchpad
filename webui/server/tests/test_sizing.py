@@ -35,9 +35,11 @@ def test_small_model(catalog):
         "overhead_gib": 1.5,
         "required_gib": 7.47,
         "instance_vram_gib": 15,
+        "usable_vram_gib": 15,
         "headroom_gib": 7.53,
         "context_length": 8192,
         "kv_cache_type": "f16",
+        "engine": "ollama",
     }
     assert r["model"]["vendor"] == "Alibaba" and r["model"]["tag"] == "qwen3:8b"
 
@@ -74,11 +76,17 @@ def test_rejects_invalid_input(catalog, kwargs):
 def test_matches_terraform_sizing_module(catalog, tmp_path):
     """カタログの全モデル x コンテキスト長 x KVキャッシュの型を、terraform の sizing モジュールでも計算して比べる"""
     cases = {
-        f"{model}|{ctx}|{kv}": (model, ctx, kv)
+        f"{model}|{ctx}|{kv}|ollama": (model, ctx, kv, "ollama")
         for model, m in catalog.models.items()
         for ctx in CONTEXT_LENGTHS if ctx <= m["max_context"]
         for kv in KV_CACHE_TYPES
     }
+    # vLLM で動かせるモデルは、f16 で vLLM の見積もりも比べる
+    cases.update({
+        f"{model}|{ctx}|f16|vllm": (model, ctx, "f16", "vllm")
+        for model, m in catalog.models.items() if m.get("vllm")
+        for ctx in CONTEXT_LENGTHS if ctx <= m["max_context"]
+    })
     module = os.path.relpath(SIZING_MODULE, tmp_path)
     (tmp_path / "cases.json").write_text(json.dumps({k: list(v) for k, v in cases.items()}))
     (tmp_path / "main.tf").write_text(f"""
@@ -95,6 +103,7 @@ module "sizing" {{
   model               = each.value[0]
   context_length      = each.value[1]
   kv_cache_type       = each.value[2]
+  engine              = each.value[3]
   vram_overhead_gib   = 1.5
 }}
 
@@ -114,11 +123,34 @@ output "results" {{
 
     assert set(results) == set(cases)
     mismatches = []
-    for key, (model, ctx, kv) in cases.items():
-        py = estimate(catalog, model, ctx, kv)
+    for key, (model, ctx, kv, engine) in cases.items():
+        py = estimate(catalog, model, ctx, kv, engine=engine)
+        if py["instance_type"] is None:
+            # どの型にも収まらない組み合わせは、terraform では precondition で止まる(出力を比べられない)
+            continue
         tf = results[key]
         if (py["instance_type"], py["fitting_instance_types"], py["vram_estimate"]) != (
             tf["instance_type"], tf["fitting_instance_types"], tf["vram_estimate"]
         ):
             mismatches.append((key, py["vram_estimate"], tf["vram_estimate"]))
     assert not mismatches, f"terraform と結果が違う: {mismatches[:3]}"
+
+
+def test_vllm_uses_bf16_weights_and_90_percent_of_vram(catalog):
+    r = estimate(catalog, "qwen3:8b", 8192, engine="vllm")
+    e = r["vram_estimate"]
+    # 16.4 GB = 15.27 GiB、KV 1.13 GiB、余裕 2.0 GiB = 18.4 GiB。g6.xlarge(22.5 GiB)x 0.9 = 20.25 GiB に収まる
+    assert (e["weights_gib"], e["kv_cache_gib"], e["overhead_gib"], e["required_gib"]) == (15.27, 1.13, 2.0, 18.4)
+    assert r["instance_type"] == "g6.xlarge" and e["usable_vram_gib"] == 20.25 and e["engine"] == "vllm"
+    assert "g4dn.xlarge" not in r["fitting_instance_types"], "T4(15 GiB)には bf16 の 8B は収まらない"
+
+
+@pytest.mark.parametrize("kwargs, key", [
+    ({"model": "gemma3:12b", "engine": "vllm"}, "engine.vllm_unsupported"),
+    ({"model": "qwen3:8b", "engine": "vllm", "kv_cache_type": "q8_0"}, "engine.vllm_kv_cache"),
+    ({"model": "qwen3:8b", "engine": "tgi"}, "engine.invalid"),
+])
+def test_vllm_rejects(catalog, kwargs, key):
+    with pytest.raises(SizingError) as e:
+        estimate(catalog, **kwargs)
+    assert e.value.key == key

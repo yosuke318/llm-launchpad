@@ -52,6 +52,9 @@ def launchpad(monkeypatch, tmp_path):
     FakeOllama.requests = []
     monkeypatch.setenv("OLLAMA_URL", f"http://127.0.0.1:{server.server_port}")
     monkeypatch.setenv("LAUNCHPAD_STATE_FILE", str(tmp_path / "status.json"))
+    # 推論エンジンは Ollama(手元のマシンの /var/lib/llm-launchpad/engine を読まない)
+    monkeypatch.delenv("LAUNCHPAD_ENGINE", raising=False)
+    monkeypatch.setenv("LAUNCHPAD_ENGINE_FILE", str(tmp_path / "engine"))
     spec = importlib.util.spec_from_file_location("launchpad", LAUNCHPAD)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

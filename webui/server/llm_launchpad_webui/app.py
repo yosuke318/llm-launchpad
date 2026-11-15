@@ -11,6 +11,7 @@ import dataclasses
 import datetime
 import json
 import os
+import re
 import uuid
 from typing import Literal
 
@@ -79,8 +80,12 @@ HEARTBEAT_SEC = 15
 # 画面で選べるコンテキスト長。モデルの最大コンテキスト長を超えるものは、そのモデルでは最大に合わせる
 CONTEXT_LENGTHS = [4096, 8192, 16384, 32768, 65536, 131072, 262144]
 
-# 推論エンジン。Bedrock は GPUインスタンスを起動せず、terraform/bedrock で環境を作る(vLLM は後続で足す)
-ENGINES = [{"id": "ollama", "available": True}, {"id": "bedrock", "available": True}, {"id": "vllm", "available": False}]
+# 推論エンジン。Bedrock は GPUインスタンスを起動せず、terraform/bedrock で環境を作る。
+# vLLM は Ollama と同じく GPU インスタンスで動かす(モデル定義に vllm があるモデルだけ)
+ENGINES = [{"id": "ollama", "available": True}, {"id": "vllm", "available": True}, {"id": "bedrock", "available": True}]
+
+# vLLM で gated のモデルを取得するときの、Hugging Face のトークンを入れる SSM パラメータ(リージョンごと)
+HF_TOKEN_PARAMETER = "/llm-launchpad/hf-token"
 
 # 閉じたネットワークで作る SSM 接続用のエンドポイントの数(ssm / ec2messages / ssmmessages)
 PRIVATE_NETWORK_ENDPOINTS = 3
@@ -94,6 +99,11 @@ class LaunchRequest(BaseModel):
     workspace: str
     # tfvars に書く値。runner.LAUNCH_VARIABLES のものだけ
     variables: dict[str, object]
+
+
+class HfTokenRequest(BaseModel):
+    region: str = DEFAULT_REGION
+    token: str
 
 
 class LoginRequest(BaseModel):
@@ -285,11 +295,12 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
 
     @app.get("/api/region-plan")
     def region_plan(model: str, region: str = DEFAULT_REGION, context_length: int = DEFAULT_CONTEXT_LENGTH,
-                    kv_cache_type: str = DEFAULT_KV_CACHE_TYPE, instance_type: str | None = None):
+                    kv_cache_type: str = DEFAULT_KV_CACHE_TYPE, instance_type: str | None = None, engine: str = "ollama"):
         """選んだリージョンで、そのモデルの推奨インスタンス型が使えるか、いくらか、ストレージ方式ごとの料金と起動時間の目安。
         料金などは1つ取れなくても止めず、その項目を null にして warnings に理由を残す"""
         try:
-            est = estimate(catalog(), model, min(context_length, catalog().models.get(model, {}).get("max_context", context_length)), kv_cache_type)
+            est = estimate(catalog(), model, min(context_length, catalog().models.get(model, {}).get("max_context", context_length)), kv_cache_type,
+                           engine=engine)
         except SizingError as e:
             raise HTTPException(status_code=422, detail=str(e))
         itype = instance_type or est["instance_type"]
@@ -316,7 +327,8 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
         placement = get(info.spot_placement_scores, region, itype)
         placement_in_offered = {az: v for az, v in (placement or {}).items() if azs is None or az in azs}
         model_store = get(info.model_store, region)
-        file_size_gb = est["model"]["file_size_gb"]
+        # vLLM は bf16 の safetensors を取得する
+        file_size_gb = est["model"]["vllm"]["weights_gb"] if engine == "vllm" else est["model"]["file_size_gb"]
 
         return {
             "region": region,
@@ -338,7 +350,7 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
             # スポットで起動できる見込み(1〜10)。AWS の見立てで、実際の起動のしやすさとは違うことがある
             "spot_placement_scores": placement_in_offered if placement is not None else None,
             "storage_options": storage_options(
-                file_size_gb, get(info.gp3_prices, region), get(info.s3_standard_per_gb_month, region), model_store,
+                file_size_gb, get(info.gp3_prices, region), get(info.s3_standard_per_gb_month, region), model_store, engine,
             ),
             "model_store": model_store,
             "measured": MEASURED,
@@ -424,8 +436,9 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
 
     @app.get("/api/models")
     def models(vendor: str | None = None, context_length: int = DEFAULT_CONTEXT_LENGTH,
-               kv_cache_type: str = DEFAULT_KV_CACHE_TYPE):
-        """モデルの一覧と、それぞれの見積もり。context_length がモデルの最大を超えるときは、最大で見積もる"""
+               kv_cache_type: str = DEFAULT_KV_CACHE_TYPE, engine: str = "ollama"):
+        """モデルの一覧と、それぞれの見積もり。context_length がモデルの最大を超えるときは、最大で見積もる。
+        engine = vllm では、vLLM で動かせるモデル(モデル定義に vllm があるもの)だけを出す"""
         c = catalog()
         if kv_cache_type not in KV_CACHE_BYTES:
             raise HTTPException(status_code=422, detail=t("kv_cache_type.invalid", choices=" / ".join(KV_CACHE_BYTES)))
@@ -435,14 +448,20 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
         for tag, m in c.models.items():
             if vendor and m["vendor"] != vendor:
                 continue
+            if engine == "vllm" and not m.get("vllm"):
+                continue
             ctx = min(context_length, m["max_context"])
-            result.append({**estimate(c, tag, ctx, kv_cache_type), "context_capped": ctx < context_length})
+            try:
+                result.append({**estimate(c, tag, ctx, kv_cache_type, engine=engine), "context_capped": ctx < context_length})
+            except SizingError as e:
+                raise HTTPException(status_code=422, detail=str(e))
         return {"models": result}
 
     @app.get("/api/estimate")
-    def estimate_one(model: str, context_length: int = DEFAULT_CONTEXT_LENGTH, kv_cache_type: str = DEFAULT_KV_CACHE_TYPE):
+    def estimate_one(model: str, context_length: int = DEFAULT_CONTEXT_LENGTH, kv_cache_type: str = DEFAULT_KV_CACHE_TYPE,
+                     engine: str = "ollama"):
         try:
-            return estimate(catalog(), model, context_length, kv_cache_type)
+            return estimate(catalog(), model, context_length, kv_cache_type, engine=engine)
         except SizingError as e:
             raise HTTPException(status_code=422, detail=str(e))
 
@@ -480,6 +499,12 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
         model = req.variables.get("model")
         if not isinstance(model, str) or model not in catalog().models:
             raise HTTPException(status_code=422, detail=t("model.unknown", model=model))
+        vllm = (catalog().models[model].get("vllm") or {}) if req.variables.get("engine") == "vllm" else None
+        if vllm is not None and not vllm:
+            raise HTTPException(status_code=422, detail=t("engine.vllm_unsupported", model=model))
+        # gated のモデルは、トークンがないと取得で失敗する(インスタンスを作ってから数分後に)。先に断る
+        if vllm and vllm.get("gated") and not req.variables.get("hf_token_parameter_name"):
+            raise HTTPException(status_code=422, detail=t("hf_token.required", model=model, repo=vllm["hf_repo"]))
         variables = with_model_definition(req.variables)
         try:
             run = await app.state.runner.launch(req.workspace, variables)
@@ -490,6 +515,14 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
         # 同じ設定でもう一度起動できるよう、tfvars に書いた値を履歴に残す
         app.state.launch_history.append(req.workspace, app.state.runner.read_var_file(req.workspace))
         return run.summary()
+
+    def model_size_gb(model, tfvars):
+        """起動時間の目安に使う、取得するモデルの大きさ。vLLM は bf16 の重み"""
+        if not model:
+            return None
+        if (tfvars or {}).get("engine") == "vllm" and model.get("vllm"):
+            return model["vllm"]["weights_gb"]
+        return model["file_size_gb"]
 
     def with_model_definition(variables):
         """追加したモデルは terraform のモデル定義にないので、定義を tfvars に書いて渡す。画面から来た定義は使わない"""
@@ -571,6 +604,26 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
             "slack_error": n.last_error,
             "interval_sec": notify_interval_sec,
         }
+
+    @app.get("/api/hf-token")
+    def hf_token_status(region: str = DEFAULT_REGION):
+        """vLLM で gated のモデルを取得するためのトークンを、そのリージョンの SSM パラメータに保存してあるか。値は返さない"""
+        try:
+            return {"parameter": HF_TOKEN_PARAMETER, "exists": aws().hf_token_exists(region, HF_TOKEN_PARAMETER)}
+        except AwsInfoError as e:
+            raise HTTPException(status_code=502, detail=str(e))
+
+    @app.post("/api/hf-token")
+    def save_hf_token(req: HfTokenRequest):
+        """トークンを SSM パラメータ(SecureString)に保存する。インスタンスは起動するときにここから読む"""
+        token = req.token.strip()
+        if not re.fullmatch(r"hf_[A-Za-z0-9]{20,100}", token):
+            raise HTTPException(status_code=422, detail=t("hf_token.invalid"))
+        try:
+            aws().save_hf_token(req.region, HF_TOKEN_PARAMETER, token)
+        except AwsInfoError as e:
+            raise HTTPException(status_code=502, detail=str(e))
+        return {"parameter": HF_TOKEN_PARAMETER, "exists": True}
 
     @app.get("/api/launch-history")
     def launch_history():
@@ -801,7 +854,7 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
             "kv_cache_type": tfvars.get("kv_cache_type") or DEFAULT_KV_CACHE_TYPE,
         }
         try:
-            est = estimate(catalog(), model, tfvars["context_length"], tfvars["kv_cache_type"])
+            est = estimate(catalog(), model, tfvars["context_length"], tfvars["kv_cache_type"], engine=tfvars.get("engine", "ollama"))
             vram_estimate = est["vram_estimate"]["required_gib"]
         except SizingError as e:
             warnings.append(e)
@@ -894,7 +947,7 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
                     # 読めなかったときは、次の回にまた読む
                     status = None
             model = catalog().models.get((tfvars or {}).get("model")) or (tfvars or {}).get("model_definition")
-            return build_progress(workspace, tfvars, run, status, model["file_size_gb"] if model else None)
+            return build_progress(workspace, tfvars, run, status, model_size_gb(model, tfvars))
 
         async def benchmark(self, workspace, comparison, config):
             try:
@@ -1025,7 +1078,7 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
         tfvars, outputs, endpoint = await ollama_endpoint(workspace)
         messages = [m.model_dump() for m in req.messages]
         try:
-            return await asyncio.to_thread(chat_once, endpoint, tfvars["model"], messages)
+            return await asyncio.to_thread(chat_once, endpoint, tfvars["model"], messages, engine=tfvars.get("engine", "ollama"))
         except ChatUnreachable as e:
             raise HTTPException(status_code=502, detail=t("chat.unreachable", endpoint=endpoint,
                                                           command=outputs.get("ssm_port_forward_command") or "-", error=e))
@@ -1056,7 +1109,7 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
 
         # 追加したモデルを一覧から外していても、tfvars に書いた定義で見る
         model = catalog().models.get((tfvars or {}).get("model")) or (tfvars or {}).get("model_definition")
-        result = build_progress(workspace, tfvars, run, status, model["file_size_gb"] if model else None)
+        result = build_progress(workspace, tfvars, run, status, model_size_gb(model, tfvars))
 
         error = result["error"]
         if error and error.get("code") == "insufficient_capacity" and result["model_storage"] != "ebs":

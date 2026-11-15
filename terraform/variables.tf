@@ -256,6 +256,49 @@ variable "ollama_version" {
   }
 }
 
+variable "engine" {
+  description = "推論エンジン。ollama: Ollama(GGUF、既定) / vllm: vLLM(Hugging Face の safetensors。モデル定義に vllm があるモデルだけ)。どちらもポート 11434 で OpenAI 互換 API を出す"
+  type        = string
+  default     = "ollama"
+
+  validation {
+    condition     = contains(["ollama", "vllm"], var.engine)
+    error_message = "engine は ollama か vllm を指定してください。"
+  }
+
+  validation {
+    condition     = var.engine != "vllm" || var.network_mode == "public"
+    error_message = "engine = vllm は network_mode = public でだけ使えます(イメージとモデルをインターネットから取得するため)。"
+  }
+
+  validation {
+    condition     = var.engine != "vllm" || var.model_storage == "download"
+    error_message = "engine = vllm では model_storage = download だけを使えます(モデルを毎回 Hugging Face から取得する)。"
+  }
+}
+
+variable "vllm_version" {
+  description = "vLLM のイメージのタグ(vllm/vllm-openai:<タグ>)。latest は最新。決まった版にするときは v0.10.1 のように指定する"
+  type        = string
+  default     = "latest"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", var.vllm_version))
+    error_message = "vllm_version はイメージのタグ(英数字と . _ -)で指定してください。"
+  }
+}
+
+variable "hf_token_parameter_name" {
+  description = "engine = vllm で、Hugging Face のトークンを入れた SSM パラメータ(SecureString)の名前。gated のモデルに要る。トークンは tfvars や state に置かない"
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.hf_token_parameter_name == null || can(regex("^/[A-Za-z0-9_./-]{1,1000}$", var.hf_token_parameter_name))
+    error_message = "hf_token_parameter_name は /llm-launchpad/hf-token のような SSM パラメータの名前で指定してください。"
+  }
+}
+
 variable "open_webui" {
   description = "true なら、GPUインスタンスに Open WebUI(ブラウザで使うチャット画面)も入れる。127.0.0.1 だけで待ち受け、SSM のポートフォワード(open_webui_port_forward_command)でだけ使える"
   type        = bool

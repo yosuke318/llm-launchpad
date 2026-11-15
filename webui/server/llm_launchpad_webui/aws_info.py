@@ -452,6 +452,29 @@ class AwsInfo:
         # 画面は数秒ごとに読むので、同時に開いた画面からの問い合わせをまとめる程度に覚えておく
         return self._cached(("bootstrap_status", region, env_id), fetch, ttl_sec=2)
 
+    # Hugging Face のトークン(推論エンジンが vLLM で、gated のモデルを取得するとき)
+
+    def hf_token_exists(self, region, name):
+        """トークンを入れた SSM パラメータがあるか。値は読まない(画面に返さない)"""
+        ssm = self._client("ssm", region)
+        try:
+            ssm.get_parameter(Name=name, WithDecryption=False)
+        except ssm.exceptions.ParameterNotFound:
+            return False
+        except (BotoCoreError, ClientError) as e:
+            raise AwsInfoError("aws.fetch_failed", what="hf_token", error=e) from e
+        return True
+
+    def save_hf_token(self, region, name, token):
+        """トークンを SSM パラメータ(SecureString、AWS 管理の鍵で暗号化)に入れる。tfvars や terraform の state には置かない"""
+        try:
+            self._client("ssm", region).put_parameter(
+                Name=name, Value=token, Type="SecureString", Overwrite=True,
+                Description="Hugging Face token for llm-launchpad (vLLM gated models)",
+            )
+        except (BotoCoreError, ClientError) as e:
+            raise AwsInfoError("aws.hf_token_save_failed", error=e) from e
+
     # 環境の一覧(environments.py)で使う
 
     def project_instances(self, region):

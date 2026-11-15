@@ -79,6 +79,48 @@ variable "ollama_install_bucket_name" {
   default     = null
 }
 
+variable "engine" {
+  description = "推論エンジン(ollama / vllm)"
+  type        = string
+  default     = "ollama"
+}
+
+variable "vllm_hf_repo" {
+  description = "engine = vllm で動かすモデルの Hugging Face のリポジトリ"
+  type        = string
+  default     = null
+}
+
+variable "vllm_image" {
+  description = "vLLM のイメージ"
+  type        = string
+  default     = "vllm/vllm-openai:latest"
+}
+
+variable "vllm_tensor_parallel_size" {
+  description = "vLLM でモデルを分けて載せる GPU の数(インスタンスの GPU の数)"
+  type        = number
+  default     = 1
+}
+
+variable "vllm_dtype" {
+  description = "vLLM の --dtype。auto か half(bf16 を扱えない T4 のとき)"
+  type        = string
+  default     = "auto"
+}
+
+variable "vllm_weights_gb" {
+  description = "取得する重みの大きさ(GB)。取得の進み具合を出すのに使う"
+  type        = number
+  default     = 0
+}
+
+variable "hf_token_parameter_name" {
+  description = "Hugging Face のトークンを入れた SSM パラメータ(SecureString)の名前。null ならトークンなしで取得する"
+  type        = string
+  default     = null
+}
+
 variable "open_webui" {
   description = "true なら Open WebUI も入れる(Docker で動かし、127.0.0.1 だけで待ち受ける)"
   type        = bool

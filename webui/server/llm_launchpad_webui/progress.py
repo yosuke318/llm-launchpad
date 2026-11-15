@@ -180,13 +180,15 @@ def build_progress(workspace, tfvars, run, status, file_size_gb, now=None, run_l
     elapsed = (end - launch_started).total_seconds() if launch_started else None
 
     pull = (status or {}).get("pull") if current == "pulling_model" else None
-    expected = startup_stage_sec(file_size_gb, storage, cached_model(storage, status)) if file_size_gb else None
+    engine = tfvars.get("engine", "ollama")
+    expected = startup_stage_sec(file_size_gb, storage, cached_model(storage, status), engine) if file_size_gb else None
 
     return {
         "workspace": workspace,
         "region": tfvars.get("region"),
         "model": tfvars.get("model"),
         "model_storage": storage,
+        "engine": engine,
         "purchase_option": tfvars.get("purchase_option"),
         "run": run.summary() if run else None,
         "state": state,

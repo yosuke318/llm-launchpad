@@ -22,7 +22,15 @@ locals {
     kv_heads         = 0
     head_dim         = 0
     license          = ""
+    vllm             = null
   }, try(local.models[var.model], {}))
+
+  vllm = var.engine == "vllm"
+  # vLLM が GPU のメモリのうち使う割合(--gpu-memory-utilization)と、重みと KV キャッシュのほかに見込む分(CUDA グラフなど)
+  vllm_gpu_memory_utilization = 0.9
+  vllm_overhead_gib           = 2.0
+  utilization                 = local.vllm ? local.vllm_gpu_memory_utilization : 1
+  overhead_gib                = local.vllm ? local.vllm_overhead_gib : var.vram_overhead_gib
 
   # Mamba や線形注意を混ぜたモデルは、注意層だけがKVキャッシュを持つ
   attention_layers = coalesce(local.model.attention_layers, local.model.layers)
@@ -36,19 +44,19 @@ locals {
     q4_0 = 0.5
   }
 
-  # 重み: 配布サイズ(GB)を GiB に直す。GGUF はほぼそのままVRAMに載る
-  weights_gib = local.model.file_size_gb * 1e9 / local.gib
+  # 重み: 配布サイズ(GB)を GiB に直す。GGUF はほぼそのままVRAMに載る。vLLM は bf16 の safetensors の大きさ
+  weights_gib = (local.vllm ? try(local.model.vllm.weights_gb, 0) : local.model.file_size_gb) * 1e9 / local.gib
 
   # KVキャッシュ: K と V の2つ x 注意層の数 x KVヘッド数 x ヘッド次元 x コンテキスト長 x 要素のバイト数
   kv_cache_gib = 2 * local.attention_layers * local.model.kv_heads * local.model.head_dim * var.context_length * local.kv_cache_bytes[var.kv_cache_type] / local.gib
 
-  required_gib = local.weights_gib + local.kv_cache_gib + var.vram_overhead_gib
+  required_gib = local.weights_gib + local.kv_cache_gib + local.overhead_gib
 
   # 合計VRAMの昇順に並べる。同じVRAMなら表の順(sort は文字列の昇順なので桁をそろえる)
   sort_keys    = [for i, t in local.instance_types : format("%010.2f-%03d", t.gpu_count * t.vram_gib_per_gpu, i)]
   sorted_types = [for k in sort(local.sort_keys) : local.instance_types[tonumber(split("-", k)[1])]]
 
-  fitting_types = [for t in local.sorted_types : t if t.gpu_count * t.vram_gib_per_gpu >= local.required_gib]
+  fitting_types = [for t in local.sorted_types : t if t.gpu_count * t.vram_gib_per_gpu * local.utilization >= local.required_gib]
 
   override_type = var.instance_type == null ? null : one([for t in local.instance_types : t if t.type == var.instance_type])
 
@@ -60,7 +68,7 @@ locals {
 # instance_type を手で指定したときは、収まらなくても止めずに警告だけ出す(実測で確かめたい場合があるため)
 check "instance_type_override_fits" {
   assert {
-    condition     = var.instance_type == null || local.override_type == null || local.selected_vram_gib >= local.required_gib
+    condition     = var.instance_type == null || local.override_type == null || local.selected_vram_gib * local.utilization >= local.required_gib
     error_message = "指定した instance_type (${coalesce(var.instance_type, "-")}) のVRAM ${local.selected_vram_gib} GiB は、見積もり ${format("%.2f", local.required_gib)} GiB に足りません。"
   }
 }

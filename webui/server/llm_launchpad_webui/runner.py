@@ -41,6 +41,9 @@ LAUNCH_VARIABLES = {
     "instance_type": str,
     # 在庫のないAZを避けたいとき。省くと、インスタンス型を提供しているAZから選ぶ
     "availability_zone": str,
+    # 推論エンジン(ollama / vllm)と、vLLM で gated のモデルを取得するトークンの SSM パラメータの名前
+    "engine": str,
+    "hf_token_parameter_name": str,
     # Open WebUI も入れるか(パブリックなネットワークだけ)
     "open_webui": bool,
     # 一覧(catalog/models.yaml)にないモデルの定義。画面で追加したモデルを起動するときに、サーバーが入れる

@@ -57,3 +57,9 @@ export function editorAgentSettings(origin: string, workspace: string, model: st
     `Model ID: ${model}`,
   ].join("\n");
 }
+
+// 段階の名前の翻訳キー。vLLM では「Ollama の導入」を「vLLM の導入」と出す(段階の ID は同じ)
+export function stageLabelKey(stage: string, engine?: string) {
+  if (engine === "vllm" && stage === "installing_ollama") return "progress.stages.installing_vllm";
+  return `progress.stages.${stage}`;
+}

@@ -134,7 +134,11 @@ export interface ModelDefinition {
   license: string;
   // 画面で追加した、一覧(catalog/models.yaml)にないモデル
   added?: boolean;
+  // vLLM でも動かせるモデルだけ
+  vllm?: { hf_repo: string; gated: boolean; weights_gb: number };
 }
+
+export type EngineId = "ollama" | "vllm";
 
 export interface VramEstimate {
   weights_gib: number;
@@ -142,9 +146,12 @@ export interface VramEstimate {
   overhead_gib: number;
   required_gib: number;
   instance_vram_gib: number;
+  // そのエンジンが使える分(vLLM は合計VRAM x 0.9)
+  usable_vram_gib?: number;
   headroom_gib: number;
   context_length: number;
   kv_cache_type: string;
+  engine?: EngineId;
 }
 
 export interface ModelEstimate {
@@ -212,10 +219,18 @@ export function listRegions() {
 }
 
 // instance_type を省くと、そのモデルの推奨のインスタンス型で出す
-export function getRegionPlan(params: { model: string; region: string; context_length: number; kv_cache_type: string; instance_type?: string }) {
-  const { instance_type, ...rest } = params;
+export function getRegionPlan(params: {
+  model: string;
+  region: string;
+  context_length: number;
+  kv_cache_type: string;
+  instance_type?: string;
+  engine?: EngineId;
+}) {
+  const { instance_type, engine, ...rest } = params;
   const query = new URLSearchParams({ ...rest, context_length: String(params.context_length) });
   if (instance_type) query.set("instance_type", instance_type);
+  if (engine) query.set("engine", engine);
   return request<RegionPlan>(`/api/region-plan?${query}`);
 }
 
@@ -247,9 +262,10 @@ export function getCatalog() {
   return request<Catalog>("/api/catalog");
 }
 
-export function listModels(params: { vendor?: string; context_length: number; kv_cache_type: string }) {
+export function listModels(params: { vendor?: string; context_length: number; kv_cache_type: string; engine?: EngineId }) {
   const query = new URLSearchParams({ context_length: String(params.context_length), kv_cache_type: params.kv_cache_type });
   if (params.vendor) query.set("vendor", params.vendor);
+  if (params.engine) query.set("engine", params.engine);
   return request<{ models: ModelEstimate[] }>(`/api/models?${query}`).then((r) => r.models);
 }
 
@@ -313,6 +329,10 @@ export interface LaunchVariables {
   availability_zone?: string;
   // Open WebUI も入れるか(パブリックなネットワークだけ)
   open_webui?: boolean;
+  // 推論エンジン。省くと ollama
+  engine?: EngineId;
+  // vLLM で gated のモデルを取得するトークンを入れた SSM パラメータの名前
+  hf_token_parameter_name?: string;
   // 画面で追加した、一覧にないモデルの定義(terraform の model_definition)
   model_definition?: Partial<Omit<ModelDefinition, "tag" | "added">>;
 }
@@ -419,6 +439,7 @@ export interface Progress {
   region: string | null;
   model: string | null;
   model_storage: StorageId;
+  engine?: EngineId;
   purchase_option: string | null;
   run: RunSummary | null;
   // unknown は、起動の記録はあるが状態をまだ読めていない
@@ -533,7 +554,7 @@ export interface BenchmarkPromptResult {
 export interface Benchmark {
   id: string;
   // 前からある結果には入っていない(ollama として扱う)
-  engine?: "ollama" | "bedrock";
+  engine?: "ollama" | "vllm" | "bedrock";
   measured_at: string;
   workspace: string;
   model: string;
@@ -770,4 +791,18 @@ export interface NotificationList {
 
 export function listNotifications(after: number) {
   return request<NotificationList>(`/api/notifications?after=${after}`);
+}
+
+// vLLM で gated のモデルを取得するための Hugging Face のトークン(SSM パラメータに保存する。値は返らない)
+export interface HfTokenStatus {
+  parameter: string;
+  exists: boolean;
+}
+
+export function getHfToken(region: string) {
+  return request<HfTokenStatus>(`/api/hf-token?${new URLSearchParams({ region })}`);
+}
+
+export function saveHfToken(region: string, token: string) {
+  return request<HfTokenStatus>("/api/hf-token", { method: "POST", body: JSON.stringify({ region, token }) });
 }
