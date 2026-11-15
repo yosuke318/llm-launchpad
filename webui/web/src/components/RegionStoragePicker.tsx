@@ -196,6 +196,7 @@ export default function RegionStoragePicker({ estimate, contextLength, kvCacheTy
                 />
                 <div>
                   <strong>{t(`region.storageNames.${o.id}`)}</strong>
+                  {o.experimental && <span className="badge added">{t("region.experimental")}</span>}
                   <p className="muted small">{t(`region.storageHelp.${o.id}`)}</p>
                   <dl className="option-figures">
                     <div>
@@ -219,7 +220,7 @@ export default function RegionStoragePicker({ estimate, contextLength, kvCacheTy
                       </dd>
                     </div>
                   </dl>
-                  {!storageAllowed(o.id, networkMode) && <p className="warning small">{t("region.notInPrivateNetwork")}</p>}
+                  {!storageAllowed(o.id, networkMode) && <p className="warning small">{t(o.id === "s3_files" ? "region.notInPrivateNetworkS3Files" : "region.notInPrivateNetwork")}</p>}
                   {!o.ready && <p className="warning small">{t(`region.prerequisite.${o.prerequisite}`, { region })}</p>}
                 </div>
               </label>

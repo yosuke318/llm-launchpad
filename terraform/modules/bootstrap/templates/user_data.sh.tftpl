@@ -199,6 +199,35 @@ stage preparing_storage
 %{ if model_storage == "ebs" ~}
 lp mount-ebs "${volume_id}" "${mount_point}"
 %{ endif ~}
+%{ if model_storage == "s3_files" ~}
+# Amazon S3 Files: バケットの ollama/models/ を NFS でマウントし、コピーせずに Ollama から直接読む。
+# マウントには amazon-efs-utils 3.0 以上が要る(AWS のドキュメントのインストーラーで入れる)
+if ! command -v mount.s3files > /dev/null; then
+  curl -fsSL https://amazon-efs-utils.aws.com/efs-utils-installer.sh | sh -s -- --install
+fi
+mkdir -p "${mount_point}"
+# 止めて再開したとき(アイドル停止など)にもマウントするよう fstab に書く。_netdev でネットワークのあとにマウントし、
+# nofail でマウントできなくても OS の起動は止めない(そのときは Ollama も起動しない。下の RequiresMountsFor)
+if ! grep -q " ${mount_point} s3files " /etc/fstab; then
+  echo "${s3files_fs_id}:/ ${mount_point} s3files _netdev,nofail 0 0" >> /etc/fstab
+fi
+# マウントターゲットは、作ってから使えるようになるまで数分かかることがある
+for _ in $(seq 1 60); do
+  if mountpoint -q "${mount_point}" || mount "${mount_point}"; then
+    break
+  fi
+  sleep 10
+done
+mountpoint -q "${mount_point}"
+# マウントがない状態で Ollama が起動すると、空のディレクトリにモデルを取り直してしまうので、マウントを待たせる
+mkdir -p /etc/systemd/system/ollama.service.d
+cat > /etc/systemd/system/ollama.service.d/llm-launchpad-s3files.conf <<'CONF'
+[Unit]
+RequiresMountsFor=${mount_point}
+CONF
+# バケットにモデルがもうあるか(コールドスタートの比べ方に使う)
+lp record-local "${model}" "$MODELS_DIR"
+%{ endif ~}
 # Ollama は起動時に ~/.ollama に鍵(id_ed25519)を作る。root の mkdir -p で .ollama を先に作ると root の
 # 持ち物になり、Ollama が permission denied で起動できなくなるため、ollama ユーザーの持ち物として作る
 install -d -o ollama -g ollama /usr/share/ollama/.ollama
@@ -208,7 +237,14 @@ mkdir -p "$MODELS_DIR"
 aws configure set default.s3.preferred_transfer_client crt
 lp restore-s3 "${model}" "${bucket}" "$MODELS_DIR"%{ if offline } --offline%{ endif }
 %{ endif ~}
+%{ if model_storage == "s3_files" ~}
+# S3 Files では、ファイルごとに持ち主を書き換えると、そのたびにメタデータの書き込み(料金)になる。
+# Ollama が新しいファイルを置けるよう、ディレクトリだけを ollama の持ち物にする(ファイルは読めればよい)
+mkdir -p "$MODELS_DIR/blobs" "$MODELS_DIR/manifests"
+find "$MODELS_DIR" -type d -exec chown ollama:ollama {} +
+%{ else ~}
 chown -R ollama:ollama "$MODELS_DIR"
+%{ endif ~}
 
 # 見積もりと同じ条件で動かす(コンテキスト長、KVキャッシュの型、同時リクエスト数 1)
 mkdir -p /etc/systemd/system/ollama.service.d

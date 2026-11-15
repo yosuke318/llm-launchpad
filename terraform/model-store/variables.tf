@@ -16,6 +16,12 @@ variable "create_bucket" {
   default     = true
 }
 
+variable "enable_versioning" {
+  description = "バケットのバージョニングを有効にするか。モデルの置き場所 s3_files(Amazon S3 Files)に要る。古い版は1日で消す"
+  type        = bool
+  default     = false
+}
+
 variable "bucket_name" {
   description = "S3キャッシュ用のバケット名。null なら llm-launchpad-models-<アカウントID>-<リージョン>"
   type        = string

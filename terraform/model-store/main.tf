@@ -73,6 +73,17 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "models" {
   }
 }
 
+# S3 Files(モデルの置き場所 s3_files)はバージョニングを前提に、バケットとファイルシステムを同期する
+resource "aws_s3_bucket_versioning" "models" {
+  count = var.create_bucket && var.enable_versioning ? 1 : 0
+
+  bucket = aws_s3_bucket.models[0].id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
 # 保存の途中でインスタンスが止まったときの、途中までのアップロードを消す(残ると保管料金がかかる)
 resource "aws_s3_bucket_lifecycle_configuration" "models" {
   count = var.create_bucket ? 1 : 0
@@ -87,6 +98,18 @@ resource "aws_s3_bucket_lifecycle_configuration" "models" {
 
     abort_incomplete_multipart_upload {
       days_after_initiation = 1
+    }
+  }
+
+  # バージョニングを有効にしたとき、上書きや削除で残る古い版を消す(モデルは大きいので、残ると保管料金がかさむ)
+  rule {
+    id     = "expire-noncurrent-versions"
+    status = "Enabled"
+
+    filter {}
+
+    noncurrent_version_expiration {
+      noncurrent_days = 1
     }
   }
 }

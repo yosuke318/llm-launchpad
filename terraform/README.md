@@ -121,23 +121,47 @@ Ollama は見積もりと同じ条件で動かす(systemd の設定で渡す)。
 
 * user data は初回起動時にしか動かないため、モデルなどを変えたらインスタンスを作り直す(`user_data_replace_on_change`)
 
-### モデルの置き場所: 3つの方式を `model_storage` で切り替える
+### モデルの置き場所: `model_storage` で切り替える
 
 | model_storage | 起動時の動き | 停止中の固定費 | 使う前に |
 |---|---|---|---|
 | `s3_cache`(既定) | S3 からルートボリュームにコピーする。S3 になければ Ollama library から取得し、使える状態になったあとで S3 に保存する | S3 の保管料金(東京の Standard で約 $0.025/GB/月) | model-store でバケットを作る |
 | `ebs` | モデル用の EBS ボリュームを付ける。初めて使うボリュームは初期化し、モデルがなければ取得する | EBS の保管料金(gp3 の東京で $0.096/GB/月 + 上げたスループットの分) | model-store でボリュームを作る |
 | `download` | 毎回 Ollama library から取得する | なし | なし |
+| `s3_files`(試験的) | バケットの `ollama/models/` を Amazon S3 Files でマウントし、コピーせずに Ollama から直接読む。なければ取得してマウントに書き、S3 Files がバケットへ書き戻す | `s3_cache` と同じバケットの保管料金(S3 Files の速いストレージに載るのは小さいファイルだけ) | model-store でバケットを作り、`enable_versioning = true` にする |
 
 * S3 とEBSボリュームは、環境と一緒に destroy すると残せないため、別の構成 `model-store/` で管理する(リージョンごとに1回 apply する)
 * S3 には Ollama の models ディレクトリと同じ構成(`manifests/` と `blobs/`)で、`ollama/models/` の下に置く。blob は内容のハッシュで名前が決まるので、同じ blob を共有するモデルは1回分しか置かない
 * S3 への保存は blob を先に、manifest を最後に置く。manifest があれば、そのモデルは揃っているとみなす
 * S3 からのコピーには AWS CLI の CRT 転送クライアントを使う
-* S3 を直接マウントして読む方式(Mountpoint for Amazon S3 など)は、GPUへの読み込みが遅いため使わない
+* S3 を FUSE でマウントして読む方式(Mountpoint for Amazon S3)は、GPUへの読み込みが遅いため使わない。Amazon S3 Files(NFS)は仕組みが違うため、`s3_files` として試せるようにした(下の「S3 Files」)
 * EBS は作ったAZのインスタンスにしか付けられないため、EBS永続ではボリュームのあるAZに起動する(`availability_zone` を別のAZにすると plan で止める)
 * EBSボリュームは fstab に `nofail` で書くので、スポットの中断で停止・再開しても付いたまま。destroy のときは、インスタンスを止めてから外す(マウントしたまま外すと中身が壊れることがあるため)
 * バケットもボリュームも同じリージョンに置く。リージョンを変えると、そのリージョンの S3 やボリュームにモデルを置き直すことになる
 * `status` の `cache` に、S3 にあったか(`hit`)、コピーや保存にかかった秒数、EBS を初期化したかが入る。コールドスタートを方式ごとに比べるときに使う
+
+### S3 Files: `model_storage = "s3_files"`(試験的)
+
+[Amazon S3 Files](https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-files.html) で、model-store のバケットの `ollama/models/` を NFS としてマウントし、`OLLAMA_MODELS` にする。`s3_cache` が置いたモデルもそのまま使える(同じ構成)。
+
+* 環境ごとに作るもの(`modules/s3files`): S3 Files がバケットと同期する IAM ロール(`elasticfilesystem.amazonaws.com` が引き受ける)、ファイルシステム、AZ ごとのマウントターゲット、マウントターゲットのセキュリティグループ、インスタンスとマウントターゲットの間の NFS(2049/tcp)、インスタンスの権限(`AmazonS3FilesClientFullAccess` と、バケットを直接読む `s3:GetObject*`)。権限と通り道は AWS のドキュメント「Prerequisites for S3 Files」のとおり
+* destroy するとファイルシステムは消えるが、バケットのモデルは残る
+* バケットのバージョニングが要る。`terraform/model-store` を `enable_versioning = true` で apply する(古い版は1日で消す)
+* 起動処理: amazon-efs-utils(3.0 以上)を AWS のインストーラーで入れ、fstab に `_netdev,nofail` で書いてマウントする。マウントターゲットは作ってから使えるまで数分かかるので、最大10分くり返す。止めて再開したときも、マウントしてから Ollama を起動する(`RequiresMountsFor`)
+* マウントの中は、ディレクトリだけ ollama の持ち物にする(ファイルごとに持ち主を書き換えると、そのたびにメタデータの書き込みの料金になる)
+* 1 MiB 以上の読み込みは、S3 Files の料金なしで S3 から直接流れる(S3 の GET の料金はかかる)。Ollama(llama.cpp)は GGUF を mmap で読むので、読み込みの大きさによっては S3 Files の速いストレージを通り、その料金がかかることがある。実機で確かめる
+* 閉じたネットワークでは使えない(amazon-efs-utils をインターネットから入れるため)。Ollama だけ(vLLM は `download` だけ)
+* `status` の `cache.hit` に、マウントにモデルがあったかが入る
+* **まだ実機で確かめていない。** 東京(ap-northeast-1)で使えるかも、ドキュメントに地域の一覧がなく未確認。起動時間の目安(マウントまで 60秒、読み込み 640 MB/s)は、ほかの人の検証からの見込み。見込みでは、モデルが小さいと(5.2GB で約16秒)S3 からのコピーのほうが速く、20〜40GB を超えるあたりから `s3_files` が速くなる
+
+#### s3_cache と比べる(YOSUKE-218 の測り方)
+
+WebUI の比較モードで、同じモデル・同じインスタンス型を `s3_cache` と `s3_files` の2つの構成で起動する。比較表の「使えるまで」がコールドスタート、「この構成の料金」がその間の料金の目安になる。2回目(バケットにモデルがある状態)で比べる。
+
+1. `terraform/model-store` を `enable_versioning = true` で apply する
+2. 一度 `s3_cache` で起動して、モデルをバケットに置く(または `s3_files` で起動して取得させる)
+3. 比較モードで、大きさの違うモデル(例: qwen3:8b と llama3.3:70b)ごとに、`s3_cache` と `s3_files` を並べて測る
+4. S3 Files の料金は、Cost Explorer か請求書の S3 Files の行(データアクセスと保管)で確かめる。CloudWatch の S3 Files のメトリクスでも、速いストレージに載った量と読み書きの量が見られる
 
 ### 自動停止: 使われていなければ止め、長く動かしすぎたら止め、予算を超えそうなら知らせる
 
@@ -437,7 +461,7 @@ terraform test
 | `instance_type` | `null`(自動) | インスタンス型を手で指定する |
 | `purchase_option` | `spot` | `spot` / `on-demand` |
 | `availability_zone` | `null`(自動) | GPUインスタンスを起動するAZ |
-| `model_storage` | `s3_cache` | モデルの置き場所(`s3_cache` / `ebs` / `download`) |
+| `model_storage` | `s3_cache` | モデルの置き場所(`s3_cache` / `ebs` / `download` / `s3_files`) |
 | `model_bucket_name` | `null`(model-store と同じ規則の名前) | S3キャッシュのバケット名 |
 | `model_volume_name` | `default` | EBS永続で付けるボリュームの名前(model-store の `model_volumes` のキー) |
 | `root_volume_size_gib` | `null`(自動) | ルートボリュームの大きさ(GiB) |

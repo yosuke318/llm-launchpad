@@ -247,6 +247,8 @@ def test_unexpected_error_does_not_leave_it_running():
     ({"configs": [{**REQUEST["configs"][0], "purchase_option": "reserved"}, REQUEST["configs"][1]]}, "comparison.purchase_invalid"),
     ({"network_mode": "private", "configs": [{**REQUEST["configs"][0], "model_storage": "download"}, REQUEST["configs"][1]]},
      "comparison.download_private"),
+    ({"network_mode": "private", "configs": [{**REQUEST["configs"][0], "model_storage": "s3_files"}, REQUEST["configs"][1]]},
+     "comparison.download_private"),
 ])
 def test_validate_rejects(change, key):
     with pytest.raises(ComparisonError) as e:

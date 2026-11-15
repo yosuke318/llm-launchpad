@@ -7,6 +7,9 @@ region = "ap-northeast-1"
 create_bucket = true
 
 # EBS永続用のボリューム(model_storage = "ebs" で使う)。停止中も保管料金がかかる
+# モデルの置き場所 s3_files(Amazon S3 Files)を使うときは、バケットのバージョニングを有効にする(古い版は1日で消す)
+# enable_versioning = true
+
 # model_volumes = {
 #   default = {
 #     availability_zone = "ap-northeast-1a"

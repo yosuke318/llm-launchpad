@@ -45,6 +45,11 @@ resource "aws_ssm_parameter" "status" {
     }
 
     precondition {
+      condition     = var.model_storage != "s3_files" || (var.s3files_file_system_id != null && !var.offline && var.engine == "ollama")
+      error_message = "model_storage = s3_files には s3files_file_system_id が要り、パブリックなネットワークと Ollama だけで使えます。"
+    }
+
+    precondition {
       condition     = var.model_storage != "ebs" || var.model_volume_id != null
       error_message = "model_storage = ebs には model_volume_id が要ります。"
     }
@@ -79,6 +84,7 @@ locals {
     vllm_weights_bytes = floor(var.vllm_weights_gb * 1e9)
     hf_cache_dir       = "/opt/llm-launchpad/hf-cache"
     hf_token_parameter = var.hf_token_parameter_name == null ? "" : var.hf_token_parameter_name
+    s3files_fs_id      = var.s3files_file_system_id == null ? "" : var.s3files_file_system_id
     open_webui         = var.open_webui
     open_webui_image   = var.open_webui_image
     open_webui_port    = var.open_webui_port
@@ -89,6 +95,7 @@ locals {
   # 閉じたネットワークで使う Ollama のリリースファイル。バージョンを指定しなければ latest の下に置いたものを使う
   ollama_install_key = "ollama/install/${coalesce(var.ollama_version, "latest")}/ollama-linux-amd64.tar.zst"
 
-  # EBS永続ではボリュームの中に置き、それ以外はルートボリュームの Ollama の既定の場所に置く
-  models_dir = var.model_storage == "ebs" ? "${local.ebs_mount_point}/ollama" : "/usr/share/ollama/.ollama/models"
+  # EBS永続ではボリュームの中に置く。S3 Files ではマウントしたところ(バケットの ollama/models/)をそのまま使う。
+  # それ以外はルートボリュームの Ollama の既定の場所に置く
+  models_dir = var.model_storage == "ebs" ? "${local.ebs_mount_point}/ollama" : (var.model_storage == "s3_files" ? local.ebs_mount_point : "/usr/share/ollama/.ollama/models")
 }

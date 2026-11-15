@@ -348,6 +348,13 @@ class AwsInfo:
                 if e.response.get("Error", {}).get("Code") not in ("404", "NoSuchBucket", "403"):
                     raise
                 exists = False
+            # モデルの置き場所 s3_files(Amazon S3 Files)は、バケットのバージョニングが要る
+            versioning = False
+            if exists:
+                try:
+                    versioning = self._client("s3", region).get_bucket_versioning(Bucket=bucket).get("Status") == "Enabled"
+                except ClientError:
+                    versioning = None
             vols = self._client("ec2", region).describe_volumes(Filters=[
                 {"Name": "tag:Project", "Values": [PROJECT]},
                 {"Name": "tag-key", "Values": ["ModelVolume"]},
@@ -359,7 +366,7 @@ class AwsInfo:
                 "size_gib": v["Size"],
                 "state": v["State"],
             } for v in vols]
-            return {"bucket": bucket, "bucket_exists": exists, "volumes": volumes}
+            return {"bucket": bucket, "bucket_exists": exists, "bucket_versioning": versioning, "volumes": volumes}
 
         # model-store を apply した直後に反映されるよう、1分だけ覚えておく
         return self._cached(("model_store", region), fetch, ttl_sec=60)

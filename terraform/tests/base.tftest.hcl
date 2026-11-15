@@ -981,3 +981,74 @@ run "vllm_rejects_cached_storage" {
 }
 
 # 閉じたネットワークは model_storage = download を断り、vLLM は download だけなので、両方を選ぶ組み合わせはそこで止まる
+
+run "s3_files_mounts_the_bucket_prefix" {
+  # user data にファイルシステムの ID(apply で決まる)が入るので、mock で apply して確かめる
+  command = apply
+
+  variables {
+    model_storage = "s3_files"
+  }
+
+  # S3 Files は role_arn が ARN の形かを確かめるため決めておく
+  override_resource {
+    target = module.s3files[0].aws_iam_role.file_system
+    values = {
+      arn = "arn:aws:iam::123456789012:role/llm-lp-default-s3files-0123"
+    }
+  }
+
+  override_resource {
+    target = module.s3files[0].aws_s3files_file_system.this
+    values = {
+      id = "fs-0123456789abcdef0"
+    }
+  }
+
+  assert {
+    condition     = length(module.s3files) == 1 && length(module.s3files[0].mount_target_ids) == 3
+    error_message = "S3 Files のファイルシステムと、サブネット(AZ)ごとのマウントターゲットを作ること"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "amazon-efs-utils.aws.com/efs-utils-installer.sh") && strcontains(module.bootstrap.user_data, "fs-0123456789abcdef0:/ /mnt/llm-models s3files _netdev,nofail 0 0")
+    error_message = "amazon-efs-utils を入れて、S3 Files をマウントすること"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "RequiresMountsFor=/mnt/llm-models")
+    error_message = "止めて再開したときも、マウントしてから Ollama を起動すること"
+  }
+
+  assert {
+    condition     = output.model_storage.models_dir == "/mnt/llm-models" && strcontains(module.bootstrap.user_data, "OLLAMA_MODELS=/mnt/llm-models")
+    error_message = "マウントしたところを Ollama の models ディレクトリにすること"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "lp record-local \"qwen3:8b\"") && !strcontains(module.bootstrap.user_data, "lp restore-s3") && !strcontains(module.bootstrap.user_data, "lp save-s3")
+    error_message = "S3 からコピーせず、バケットにもうあるかだけを書くこと"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "find \"$MODELS_DIR\" -type d -exec chown ollama:ollama") && !strcontains(module.bootstrap.user_data, "chown -R ollama:ollama")
+    error_message = "マウントの中はディレクトリだけ持ち主を変えること(ファイルごとのメタデータの書き込みを避ける)"
+  }
+
+  # AMI 75 GiB + 余裕 10 GiB(モデルはマウントにあるので、ルートボリュームに置かない)
+  assert {
+    condition     = output.root_volume_size_gib == 85
+    error_message = "S3 Files ではルートボリュームにモデルの分を足さないこと"
+  }
+}
+
+run "s3_files_rejected_on_private_network" {
+  command = plan
+
+  variables {
+    model_storage = "s3_files"
+    network_mode  = "private"
+  }
+
+  expect_failures = [var.network_mode]
+}
