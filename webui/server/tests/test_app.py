@@ -137,3 +137,19 @@ def test_missing_terraform_binary(tmp_path):
         evs = events(c, run["id"])
     assert "terraform を実行できませんでした" in log_lines(evs)[0]
     assert evs[-1] == ("end", {"status": "failed", "exit_code": -1})
+
+
+def test_workspaces_without_terraform_binary(tmp_path):
+    """terraform がない(LAUNCHPAD_TERRAFORM_BIN のパスが違う)ときは 500 ではなく 502 で理由を返す"""
+    missing = str(tmp_path / "no-such-terraform")
+    app = create_app(Runner(str(tmp_path), missing), web_dist=None)
+    with TestClient(app) as c:
+        res = c.get("/api/workspaces")
+        assert res.status_code == 502
+        assert "terraform を実行できませんでした" in res.json()["detail"]
+        assert missing in res.json()["detail"]
+        assert "LAUNCHPAD_TERRAFORM_BIN" in res.json()["detail"]
+        res = c.get("/api/workspaces", headers={"Accept-Language": "en"})
+        assert res.status_code == 502
+        assert res.json()["detail"].startswith("Could not run terraform")
+        assert "LAUNCHPAD_TERRAFORM_BIN" in res.json()["detail"]

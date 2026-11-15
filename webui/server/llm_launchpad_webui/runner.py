@@ -137,10 +137,13 @@ class Runner:
     async def _read_only(self, workspace, *args):
         """state を読むだけのコマンド。ロックを取らないので、ほかのコマンドの実行中でも動かせる"""
         env = {**os.environ, "TF_WORKSPACE": workspace, "TF_IN_AUTOMATION": "1"}
-        proc = await asyncio.create_subprocess_exec(
-            self.terraform_bin, f"-chdir={self.terraform_dir}", *args,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, stdin=asyncio.subprocess.DEVNULL, env=env,
-        )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                self.terraform_bin, f"-chdir={self.terraform_dir}", *args,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, stdin=asyncio.subprocess.DEVNULL, env=env,
+            )
+        except OSError as e:
+            raise RunnerError("terraform.not_found", bin=self.terraform_bin, error=e) from e
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
             text = stderr.decode("utf-8", errors="replace").strip()
@@ -305,10 +308,14 @@ def list_workspaces(terraform_dir, terraform_bin="terraform"):
     """terraform workspace list の結果。今選ばれているものに * が付く"""
     import subprocess
 
-    result = subprocess.run(
-        [terraform_bin, f"-chdir={terraform_dir}", "workspace", "list"],
-        capture_output=True, text=True, timeout=60,
-    )
+    try:
+        result = subprocess.run(
+            [terraform_bin, f"-chdir={terraform_dir}", "workspace", "list"],
+            capture_output=True, text=True, timeout=60,
+        )
+    except OSError as e:
+        # terraform が入っていない、または LAUNCHPAD_TERRAFORM_BIN のパスが違う
+        raise RunnerError("terraform.not_found", bin=terraform_bin, error=e) from e
     if result.returncode != 0:
         raise RunnerError("terraform.stderr", text=result.stderr.strip()) if result.stderr.strip() else RunnerError("terraform.command_failed", command="workspace list")
     workspaces = []
