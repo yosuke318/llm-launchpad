@@ -11,3 +11,8 @@ output "model_volumes" {
     size_gib          = v.size
   } }
 }
+
+output "versioning_enabled" {
+  description = "バケットのバージョニングを有効にしたか(モデルの置き場所 s3_files に要る)"
+  value       = var.create_bucket && var.enable_versioning
+}

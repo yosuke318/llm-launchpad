@@ -6,17 +6,22 @@ from fastapi.testclient import TestClient
 from llm_launchpad_webui.app import create_app
 from llm_launchpad_webui.aws_info import AwsInfoError
 from llm_launchpad_webui.runner import Runner
-from llm_launchpad_webui.storage import gp3_monthly, root_volume_size_gib, startup_sec
+from llm_launchpad_webui.storage import gp3_monthly, root_volume_size_gib, startup_sec, startup_stage_sec
+
+
+def startup_stage_sec_for(storage, size_gb=5.2):
+    return startup_stage_sec(size_gb, storage, cached=True)
 
 GP3 = {"storage_per_gb_month": 0.096, "throughput_per_mibps_month": 0.048, "iops_per_iops_month": 0.006}
 
 
 class FakeAwsInfo:
-    def __init__(self, fail=(), offering=("ap-northeast-1a", "ap-northeast-1c"), bucket_exists=True, volumes=()):
+    def __init__(self, fail=(), offering=("ap-northeast-1a", "ap-northeast-1c"), bucket_exists=True, volumes=(), versioning=False):
         self.fail = set(fail)
         self.offering = list(offering)
         self.bucket_exists = bucket_exists
         self.volumes = list(volumes)
+        self.versioning = versioning
 
     def _maybe_fail(self, name):
         if name in self.fail:
@@ -62,7 +67,8 @@ class FakeAwsInfo:
 
     def model_store(self, region):
         self._maybe_fail("model_store")
-        return {"bucket": f"llm-launchpad-models-123456789012-{region}", "bucket_exists": self.bucket_exists, "volumes": self.volumes}
+        return {"bucket": f"llm-launchpad-models-123456789012-{region}", "bucket_exists": self.bucket_exists,
+                "bucket_versioning": self.versioning, "volumes": self.volumes}
 
 
 def make_client(tmp_path, aws):
@@ -137,7 +143,7 @@ def test_storage_options(tmp_path):
     # S3 にあると取得が速い。EBS にあると取得はいらないが、読み込みは遅い
     assert o["s3_cache"]["startup_cached_sec"] < o["s3_cache"]["startup_first_sec"]
     assert o["download"]["startup_cached_sec"] is None
-    assert all(opt["ready"] for opt in o.values() if opt["id"] != "ebs")
+    assert all(opt["ready"] for opt in o.values() if opt["id"] not in ("ebs", "s3_files"))
     assert o["ebs"]["prerequisite"] == "volume", "EBS ボリュームがなければ、model-store で作る必要がある"
 
 
@@ -188,3 +194,26 @@ def test_private_network_price_failure_is_warning(tmp_path):
     with make_client(tmp_path, FakeAwsInfo(fail={"interface_endpoint_hourly"})) as c:
         p = plan(c)
     assert p["prices"]["private_network_hourly_usd"] is None and len(p["warnings"]) == 1
+
+
+def test_s3_files_needs_bucket_versioning(tmp_path):
+    o = options(plan(make_client(tmp_path, FakeAwsInfo())))
+    assert list(o) == ["s3_cache", "ebs", "s3_files", "download"]
+    f = o["s3_files"]
+    assert f["experimental"] and not f["ready"] and f["prerequisite"] == "versioning"
+    assert f["root_volume_gib"] == root_volume_size_gib(5.2, False), "モデルはマウントにあるので、ルートボリュームに置かない"
+    assert f["storage_monthly_usd"] == o["s3_cache"]["storage_monthly_usd"], "保管は s3_cache と同じバケット"
+    assert f["startup_cached_sec"] < f["startup_first_sec"]
+
+    o = options(plan(make_client(tmp_path, FakeAwsInfo(versioning=True))))
+    assert o["s3_files"]["ready"] and o["s3_files"]["prerequisite"] is None
+    o = options(plan(make_client(tmp_path, FakeAwsInfo(bucket_exists=False))))
+    assert o["s3_files"]["prerequisite"] == "bucket"
+
+
+def test_s3_files_skips_the_copy_but_reads_from_s3():
+    # 大きいモデル(llama3.3:70b、43GB)は、コピーしないぶん用意が速い。小さいモデル(5.2GB)は、コピーが速いので s3_cache が速い
+    assert startup_stage_sec_for("s3_files", 43)["preparing_storage"] < startup_stage_sec_for("s3_cache", 43)["preparing_storage"]
+    assert startup_stage_sec_for("s3_files", 5.2)["preparing_storage"] > startup_stage_sec_for("s3_cache", 5.2)["preparing_storage"]
+    # GPU への読み込みは S3 から読む(約 640 MB/s の見込み)ので、ルートボリューム(1000 MiB/s)より遅い。実機で確かめる
+    assert startup_stage_sec_for("s3_files", 43)["verifying"] > startup_stage_sec_for("s3_cache", 43)["verifying"]

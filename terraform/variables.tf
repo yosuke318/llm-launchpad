@@ -51,6 +51,11 @@ variable "network_mode" {
     condition     = var.network_mode != "private" || var.model_storage != "download"
     error_message = "network_mode = private では model_storage = download は使えません(Ollama library に出られないため)。s3_cache か ebs を指定してください。"
   }
+
+  validation {
+    condition     = var.network_mode != "private" || var.model_storage != "s3_files"
+    error_message = "network_mode = private では model_storage = s3_files は使えません(マウントに使う amazon-efs-utils をインターネットから入れるため)。"
+  }
 }
 
 variable "allowed_cidrs" {
@@ -101,13 +106,13 @@ variable "az_count" {
 }
 
 variable "model_storage" {
-  description = "モデルの置き場所。s3_cache: S3 からコピーし、なければ取得して S3 に保存する / ebs: モデル用の EBS ボリュームを付ける / download: 毎回 Ollama library から取得する"
+  description = "モデルの置き場所。s3_cache: S3 からコピーし、なければ取得して S3 に保存する / ebs: モデル用の EBS ボリュームを付ける / download: 毎回 Ollama library から取得する / s3_files: S3 のバケットを Amazon S3 Files でマウントし、コピーせずに直接読む(試験的)"
   type        = string
   default     = "s3_cache"
 
   validation {
-    condition     = contains(["s3_cache", "ebs", "download"], var.model_storage)
-    error_message = "model_storage は s3_cache / ebs / download のどれかを指定してください。"
+    condition     = contains(["s3_cache", "ebs", "download", "s3_files"], var.model_storage)
+    error_message = "model_storage は s3_cache / ebs / download / s3_files のどれかを指定してください。"
   }
 }
 

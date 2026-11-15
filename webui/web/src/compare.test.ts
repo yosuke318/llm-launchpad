@@ -93,6 +93,11 @@ describe("configProblems", () => {
     expect(problems).toEqual([["notFit"], ["downloadPrivate", "notOffered"]]);
   });
 
+  it("閉じたネットワークでは S3 Files も選べない", () => {
+    expect(configProblems([{ ...A, model_storage: "s3_files" }], ["g4dn.xlarge"], "private", {}, {})).toEqual([["downloadPrivate"]]);
+    expect(configProblems([{ ...A, model_storage: "s3_files" }], ["g4dn.xlarge"], "public", {}, {})).toEqual([[]]);
+  });
+
   it("読み込む前の plan や事前チェックは見ない", () => {
     expect(configProblems([A, B], ["g4dn.xlarge", "g6.xlarge"], "public", {}, {})).toEqual([[], []]);
   });

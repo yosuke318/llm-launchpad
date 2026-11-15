@@ -118,12 +118,14 @@
     "storageNames": {
       "s3_cache": "S3 キャッシュ",
       "ebs": "EBS 永続",
-      "download": "毎回ダウンロード"
+      "download": "毎回ダウンロード",
+      "s3_files": "S3 Files(マウント)"
     },
     "storageHelp": {
       "s3_cache": "S3 からコピーする。S3 になければ取得し、使える状態になったあとで S3 に保存する。止めている間の料金が一番安い",
       "ebs": "モデル用の EBS ボリュームを付ける。モデルの用意はいらないが、ボリュームの読み込みが遅く、保管料金が高い",
-      "download": "毎回 Ollama library から取得する。保管料金はかからない"
+      "download": "毎回 Ollama library から取得する。保管料金はかからない",
+      "s3_files": "S3 のバケットを Amazon S3 Files でマウントし、コピーせずに直接読む。大きいモデルほどコピーの時間が省ける。保管は S3 キャッシュと同じバケット。バケットのバージョニングが要る"
     },
     "storageMonthly": "保管の料金(止めている間も)",
     "ebsThroughput": "(うち {{size}} GiB のボリュームのスループット {{throughput}} MiB/s の分 {{price}})",
@@ -132,7 +134,8 @@
     "startupFirstLater": "初回 約 {{first}} 分 / 2回目から 約 {{later}} 分",
     "prerequisite": {
       "bucket": "{{region}} にはまだバケットがありません。先に terraform/model-store を apply してください。",
-      "volume": "{{region}} にはまだ EBS ボリュームがありません。先に terraform/model-store の model_volumes でボリュームを作ってください。"
+      "volume": "{{region}} にはまだ EBS ボリュームがありません。先に terraform/model-store の model_volumes でボリュームを作ってください。",
+      "versioning": "{{region}} のバケットはバージョニングが有効ではありません。terraform/model-store を enable_versioning = true で apply してください。"
     },
     "notInPrivateNetwork": "閉じたネットワークでは Ollama library に出られないため選べません。",
     "hourlyTotal": "1時間あたりの目安(スポット)",
@@ -141,7 +144,9 @@
     "note": "料金は AWS の Price List API とスポット価格の履歴から取った目安で、実際の請求額とは違います。起動時間は、terraform apply から使える状態になるまでの目安で、実機の測定({{source}})から割り出しています。",
     "confirm": "この内容で起動を確認する",
     "confirmBlocked": "起動前のチェックに通っていないため、進めません。",
-    "vllmNotPrivate": "vLLM はイメージとモデルをインターネットから取得するため、閉じたネットワークでは使えません。"
+    "vllmNotPrivate": "vLLM はイメージとモデルをインターネットから取得するため、閉じたネットワークでは使えません。",
+    "experimental": "試験的",
+    "notInPrivateNetworkS3Files": "閉じたネットワークでは、マウントに使う amazon-efs-utils を入れられないため選べません。"
   },
   "regionCompare": {
     "open": "{{type}} をリージョンごとに比べる(安いリージョンのおすすめ)",
@@ -506,7 +511,7 @@
     "problems": {
       "duplicate": "同じ構成がほかにもあります",
       "storageNotReady": "{{region}} にはこの置き場所の準備(terraform/model-store の apply)がまだありません",
-      "downloadPrivate": "閉じたネットワークでは毎回ダウンロードを選べません",
+      "downloadPrivate": "閉じたネットワークでは毎回ダウンロードと S3 Files を選べません",
       "checkFailed": "起動前のチェック(認証情報や vCPU クォータ)に通っていません。モデルを選ぶ画面で詳しく見られます",
       "notFit": "このコンテキスト長では VRAM に収まりません",
       "notOffered": "{{region}} ではこのインスタンス型を使えません"

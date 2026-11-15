@@ -171,7 +171,7 @@ export interface Region {
   name: string;
 }
 
-export type StorageId = "s3_cache" | "ebs" | "download";
+export type StorageId = "s3_cache" | "ebs" | "download" | "s3_files";
 
 // public: パブリックサブネット / private: インターネットへの経路がない閉じたネットワーク(terraform の network_mode)
 export type NetworkMode = "public" | "private";
@@ -190,7 +190,10 @@ export interface StorageOption {
   startup_cached_sec: number | null;
   // 使う前の準備(model-store の apply)が済んでいるか
   ready: boolean;
-  prerequisite: "bucket" | "volume" | null;
+  // versioning は s3_files(バケットのバージョニングが要る)
+  prerequisite: "bucket" | "volume" | "versioning" | null;
+  // 試験的な方式(s3_files)
+  experimental?: boolean;
 }
 
 export interface RegionPlan {

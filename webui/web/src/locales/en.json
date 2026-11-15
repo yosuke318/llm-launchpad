@@ -118,12 +118,14 @@
     "storageNames": {
       "s3_cache": "S3 cache",
       "ebs": "Persistent EBS",
-      "download": "Download every time"
+      "download": "Download every time",
+      "s3_files": "S3 Files (mount)"
     },
     "storageHelp": {
       "s3_cache": "Copies the model from S3. If it is not in S3 yet, downloads it and saves it to S3 once ready. Cheapest while stopped",
       "ebs": "Attaches an EBS volume that keeps the model. Nothing to download, but loading from the volume is slower and storage costs more",
-      "download": "Downloads from the Ollama library every time. No storage cost"
+      "download": "Downloads from the Ollama library every time. No storage cost",
+      "s3_files": "Mounts the S3 bucket with Amazon S3 Files and reads the model directly without copying it. The larger the model, the more copy time it saves. Stored in the same bucket as the S3 cache. Needs bucket versioning"
     },
     "storageMonthly": "Storage cost (also while stopped)",
     "ebsThroughput": "(of which {{price}} is the {{throughput}} MiB/s throughput of the {{size}} GiB volume)",
@@ -132,7 +134,8 @@
     "startupFirstLater": "first time about {{first}} min / later about {{later}} min",
     "prerequisite": {
       "bucket": "There is no bucket in {{region}} yet. Apply terraform/model-store first.",
-      "volume": "There is no EBS volume in {{region}} yet. Create one with model_volumes in terraform/model-store first."
+      "volume": "There is no EBS volume in {{region}} yet. Create one with model_volumes in terraform/model-store first.",
+      "versioning": "Versioning is not enabled on the bucket in {{region}}. Apply terraform/model-store with enable_versioning = true."
     },
     "notInPrivateNetwork": "Not available in the closed network, which cannot reach the Ollama library.",
     "hourlyTotal": "Hourly estimate (spot)",
@@ -141,7 +144,9 @@
     "note": "Prices are estimates from the AWS Price List API and spot price history, and differ from the actual bill. Startup time is from terraform apply until ready, worked out from a measurement ({{source}}).",
     "confirm": "Review and launch",
     "confirmBlocked": "Some launch checks did not pass, so you cannot continue.",
-    "vllmNotPrivate": "vLLM is not available on the private network because the image and the model are downloaded from the internet."
+    "vllmNotPrivate": "vLLM is not available on the private network because the image and the model are downloaded from the internet.",
+    "experimental": "Experimental",
+    "notInPrivateNetworkS3Files": "Not available on the private network, because amazon-efs-utils (used to mount) cannot be installed there."
   },
   "regionCompare": {
     "open": "Compare {{type}} across regions (cheaper region suggestions)",
@@ -506,7 +511,7 @@
     "problems": {
       "duplicate": "The same configuration is listed more than once",
       "storageNotReady": "This storage is not set up in {{region}} yet (apply terraform/model-store first)",
-      "downloadPrivate": "Download on every launch is not available on the private network",
+      "downloadPrivate": "Download on every launch and S3 Files are not available on the private network",
       "checkFailed": "The pre-launch checks (credentials or vCPU quota) did not pass. See the details on the model screen",
       "notFit": "Not enough VRAM at this context length",
       "notOffered": "This instance type is not available in {{region}}"

@@ -139,8 +139,9 @@ export function openWebUIAllowed(networkMode: NetworkMode) {
 }
 
 // 閉じたネットワークではインターネットに出られないため、毎回ダウンロードは選べない(terraform の network_mode の検証と同じ)
+// S3 Files も、マウントに使う amazon-efs-utils をインターネットから入れるので、閉じたネットワークでは選べない
 export function storageAllowed(storage: StorageOption["id"], networkMode: NetworkMode) {
-  return networkMode === "public" || storage !== "download";
+  return networkMode === "public" || (storage !== "download" && storage !== "s3_files");
 }
 
 // 自動停止の値が terraform の変数の決まりに合うか(idle_stop_minutes は 0 か 10〜1440、max_lifetime_hours は 0〜720)

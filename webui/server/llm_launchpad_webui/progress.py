@@ -90,7 +90,7 @@ def iso(t):
 def cached_model(storage, status):
     """モデルが S3 や EBS にあったか。分からない間は False(取得し直す前提で、長めに見積もる)"""
     cache = (status or {}).get("cache", {})
-    if storage == "s3_cache":
+    if storage in ("s3_cache", "s3_files"):
         return bool(cache.get("hit"))
     if storage == "ebs":
         # 初期化しなかったボリュームでも、モデルがあるとは限らない。取得の段階に入れば、取得の速さで見積もり直す

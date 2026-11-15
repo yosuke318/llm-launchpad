@@ -24,7 +24,7 @@ from .messages import MessageError
 MIN_CONFIGS = 2
 MAX_CONFIGS = 6
 
-STORAGES = ("s3_cache", "ebs", "download")
+STORAGES = ("s3_cache", "ebs", "download", "s3_files")
 PURCHASE_OPTIONS = ("spot", "on-demand")
 NETWORK_MODES = ("public", "private")
 
@@ -86,7 +86,7 @@ def validate(request, catalog_models, fitting_instance_types):
             raise ComparisonError("comparison.instance_type_not_fit", instance_type=c["instance_type"], model=request["model"])
         if c["model_storage"] not in STORAGES:
             raise ComparisonError("comparison.storage_invalid", storage=c["model_storage"])
-        if c["model_storage"] == "download" and request["network_mode"] == "private":
+        if c["model_storage"] in ("download", "s3_files") and request["network_mode"] == "private":
             raise ComparisonError("comparison.download_private")
         if c["purchase_option"] not in PURCHASE_OPTIONS:
             raise ComparisonError("comparison.purchase_invalid", purchase=c["purchase_option"])

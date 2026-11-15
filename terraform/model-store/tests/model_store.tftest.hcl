@@ -62,3 +62,30 @@ run "rejects_invalid_volume_name" {
 
   expect_failures = [var.model_volumes]
 }
+
+run "versioning_is_opt_in" {
+  command = plan
+
+  assert {
+    condition     = length(aws_s3_bucket_versioning.models) == 0 && output.versioning_enabled == false
+    error_message = "既定ではバージョニングを有効にしないこと(古い版の保管料金がかかるため)"
+  }
+}
+
+run "versioning_for_s3_files" {
+  command = plan
+
+  variables {
+    enable_versioning = true
+  }
+
+  assert {
+    condition     = aws_s3_bucket_versioning.models[0].versioning_configuration[0].status == "Enabled" && output.versioning_enabled
+    error_message = "S3 Files のためにバージョニングを有効にすること"
+  }
+
+  assert {
+    condition     = one([for r in aws_s3_bucket_lifecycle_configuration.models[0].rule : r.noncurrent_version_expiration[0].noncurrent_days if r.id == "expire-noncurrent-versions"]) == 1
+    error_message = "古い版は1日で消すこと"
+  }
+}

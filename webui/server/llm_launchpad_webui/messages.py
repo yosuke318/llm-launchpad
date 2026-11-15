@@ -135,8 +135,8 @@ MESSAGES = {
         "en": "The model storage \"{storage}\" is not available",
     },
     "comparison.download_private": {
-        "ja": "閉じたネットワークでは、毎回ダウンロードは選べません",
-        "en": "Download on every launch is not available on the private network",
+        "ja": "閉じたネットワークでは、毎回ダウンロードと S3 Files は選べません",
+        "en": "Download on every launch and S3 Files are not available on the private network",
     },
     "comparison.purchase_invalid": {
         "ja": "購入方法 \"{purchase}\" は選べません(spot か on-demand)",

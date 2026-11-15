@@ -115,6 +115,12 @@ variable "vllm_weights_gb" {
   default     = 0
 }
 
+variable "s3files_file_system_id" {
+  description = "model_storage = s3_files でマウントする S3 Files のファイルシステムの ID"
+  type        = string
+  default     = null
+}
+
 variable "hf_token_parameter_name" {
   description = "Hugging Face のトークンを入れた SSM パラメータ(SecureString)の名前。null ならトークンなしで取得する"
   type        = string

@@ -38,6 +38,14 @@ MEASURED = {
     "load_fixed_sec": 85,
 }
 
+# モデルの置き場所 s3_files(Amazon S3 Files)の目安。実機ではまだ測っていない。
+# 読み込みの速さは、ほかの人の検証(1GB を単純に読んで約 640 MB/s)を使う。公称は1台あたり最大 3 GiB/s
+S3_FILES = {
+    "read_bytes_per_sec": 640e6,
+    # amazon-efs-utils を入れてマウントするまで
+    "mount_sec": 60,
+}
+
 # vLLM(推論エンジン)の目安。実機ではまだ測っていない(Ollama の測定と、イメージの大きさからの見込み)
 VLLM = {
     # イメージ(vllm/vllm-openai)の取得。CUDA を含み 10GB ほど
@@ -90,6 +98,16 @@ def startup_stage_sec(file_size_gb, storage, cached, engine="ollama"):
         }
     download = size / m["download_bytes_per_sec"]
     throughput = MODEL_VOLUME_THROUGHPUT_MIBPS if storage == "ebs" else ROOT_THROUGHPUT_MIBPS
+    if storage == "s3_files":
+        # コピーはしない。モデルがバケットになければ取得してマウントに書き(S3 Files がバケットへ書き戻す)、
+        # GPU への読み込みはマウント(S3)から読む
+        return {
+            "booting": m["boot_sec"],
+            "installing_ollama": m["install_ollama_sec"],
+            "preparing_storage": S3_FILES["mount_sec"],
+            "pulling_model": m["pull_check_sec"] if cached else download,
+            "verifying": m["load_fixed_sec"] + size / S3_FILES["read_bytes_per_sec"],
+        }
     if storage == "s3_cache" and cached:
         prepare, pull = size / m["s3_copy_bytes_per_sec"], m["pull_check_sec"]
     elif storage == "ebs" and cached:
@@ -163,6 +181,19 @@ def storage_options(file_size_gb, gp3_prices, s3_per_gb_month, model_store, engi
             "startup_cached_sec": startup_sec(file_size_gb, "ebs", cached=True),
             "ready": bool(store.get("volumes")),
             "prerequisite": None if store.get("volumes") else "volume",
+        },
+        {
+            # 試験的。保管は s3_cache と同じバケット(S3 Files の速いストレージには小さいファイルだけが載る)
+            "id": "s3_files",
+            "storage_monthly_usd": _round(s3_monthly),
+            "root_volume_gib": root_volume_size_gib(file_size_gb, False),
+            "running_disk_hourly_usd": _round(root_hourly(False)),
+            "startup_first_sec": startup_sec(file_size_gb, "s3_files", cached=False),
+            "startup_cached_sec": startup_sec(file_size_gb, "s3_files", cached=True),
+            "ready": bool(store.get("bucket_exists")) and store.get("bucket_versioning") is True,
+            "prerequisite": None if (store.get("bucket_exists") and store.get("bucket_versioning") is True)
+            else ("bucket" if not store.get("bucket_exists") else "versioning"),
+            "experimental": True,
         },
         {
             "id": "download",

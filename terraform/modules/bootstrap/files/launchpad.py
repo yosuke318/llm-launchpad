@@ -12,6 +12,7 @@ user data(user_data.sh.tftpl)から呼ぶ。標準ライブラリと AWS CLI だ
     launchpad.py restore-s3 <model> <bucket> <models_dir> [--offline]
     launchpad.py save-s3 <model> <bucket> <models_dir>
     launchpad.py mount-ebs <volume_id> <mount_point>
+    launchpad.py record-local <model> <models_dir>
     launchpad.py idle-check --minutes N [--dry-run]
     launchpad.py bench <model> [--runs N] [--num-predict N]
 
@@ -530,6 +531,14 @@ def record_cache(**fields):
     set_status(s.get("stage", "unknown"), s.get("state", "running"), cache=cache)
 
 
+def record_local(model, models_dir):
+    """models ディレクトリ(S3 Files でマウントしたバケット)に、そのモデルがもうあるかを書く。
+    あれば Ollama は取得し直さず、なければ取得してマウントに書く(S3 Files が約60秒後にバケットへ書き戻す)"""
+    hit = os.path.exists(os.path.join(models_dir, manifest_path(model)))
+    log(f"{model} は{'マウントにあります' if hit else 'マウントにないので、取得してバケットに書きます'}")
+    record_cache(hit=hit, storage="s3_files")
+
+
 def restore_s3(model, bucket, models_dir, offline=False):
     """S3 に manifest があれば、manifest と blob を models ディレクトリにコピーする。
     なければ何もしない。offline(閉じたネットワーク)では、あとで取得できないため失敗にする"""
@@ -741,6 +750,10 @@ def main(argv=None):
         if command == "restore-s3":
             p.add_argument("--offline", action="store_true")
 
+    p = sub.add_parser("record-local", help="モデルが models ディレクトリにもうあるかを書く(S3 Files)")
+    p.add_argument("model")
+    p.add_argument("models_dir")
+
     p = sub.add_parser("mount-ebs", help="EBSボリュームを付ける")
     p.add_argument("volume_id")
     p.add_argument("mount_point")
@@ -788,6 +801,8 @@ def main(argv=None):
             restore_s3(args.model, args.bucket, args.models_dir, args.offline)
         elif args.command == "save-s3":
             save_s3(args.model, args.bucket, args.models_dir)
+        elif args.command == "record-local":
+            record_local(args.model, args.models_dir)
         elif args.command == "mount-ebs":
             mount_ebs(args.volume_id, args.mount_point)
     except Exception as e:

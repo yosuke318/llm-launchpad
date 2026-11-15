@@ -41,7 +41,8 @@ locals {
   open_webui_root_volume_gib = var.open_webui ? 10 : 0
 
   # モデルの置き場所(model_storage)ごとのバケットとボリューム。使わない方式では null
-  model_bucket_name = var.model_storage == "s3_cache" ? data.aws_s3_bucket.models[0].bucket : null
+  model_bucket_name = contains(["s3_cache", "s3_files"], var.model_storage) ? data.aws_s3_bucket.models[0].bucket : null
+  s3_files          = var.model_storage == "s3_files"
 
   # 閉じたネットワークでは、Ollama のリリースファイルもモデル用のバケットに置く
   ollama_install_bucket_name = local.private ? data.aws_s3_bucket.models[0].bucket : null

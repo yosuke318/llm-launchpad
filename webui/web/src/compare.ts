@@ -1,5 +1,6 @@
 import type { ComparisonConfig, ComparisonConfigStatus, NetworkMode, Preflight, RegionPlan, StorageId } from "./api";
 import { hourlyTotal, networkHourly } from "./cost";
+import { storageAllowed } from "./launch";
 
 // 比較モードの画面で使う計算。同じモデルを複数の構成で順に起動して測る
 
@@ -16,7 +17,7 @@ export const BENCH_PER_RUN_SEC = 60;
 // terraform destroy にかかる時間の目安
 export const DESTROY_SEC = 180;
 
-export const STORAGES: StorageId[] = ["s3_cache", "ebs", "download"];
+export const STORAGES: StorageId[] = ["s3_cache", "ebs", "download", "s3_files"];
 export const PURCHASE_OPTIONS: ComparisonConfig["purchase_option"][] = ["spot", "on-demand"];
 
 export function configKey(c: ComparisonConfig) {
@@ -45,7 +46,7 @@ export function nextConfig(configs: ComparisonConfig[], fitting: string[], netwo
 }
 
 function storageAllowedFor(storage: StorageId, networkMode: NetworkMode) {
-  return networkMode === "public" || storage !== "download";
+  return storageAllowed(storage, networkMode);
 }
 
 export type ConfigProblem = "duplicate" | "storageNotReady" | "downloadPrivate" | "checkFailed" | "notFit" | "notOffered";

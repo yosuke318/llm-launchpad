@@ -62,7 +62,7 @@ data "aws_caller_identity" "current" {}
 
 # S3キャッシュと閉じたネットワーク: terraform/model-store で作ったバケットがあることを plan で確かめる
 data "aws_s3_bucket" "models" {
-  count = var.model_storage == "s3_cache" || var.network_mode == "private" ? 1 : 0
+  count = contains(["s3_cache", "s3_files"], var.model_storage) || var.network_mode == "private" ? 1 : 0
 
   bucket = coalesce(var.model_bucket_name, "llm-launchpad-models-${data.aws_caller_identity.current.account_id}-${var.region}")
 }
@@ -124,6 +124,7 @@ module "bootstrap" {
   vllm_dtype                 = local.vllm_dtype
   vllm_weights_gb            = try(module.sizing.vllm.weights_gb, 0)
   hf_token_parameter_name    = var.hf_token_parameter_name
+  s3files_file_system_id     = local.s3_files ? module.s3files[0].file_system_id : null
   open_webui                 = var.open_webui
   open_webui_image           = local.open_webui_image
   open_webui_port            = local.open_webui_port
@@ -155,7 +156,7 @@ module "instance" {
   security_group_id      = module.security.security_group_id
   instance_profile_name  = module.iam.instance_profile_name
   model_file_size_gb     = local.vllm ? module.sizing.vllm.weights_gb : module.sizing.model.file_size_gb
-  models_on_root_volume  = var.model_storage != "ebs"
+  models_on_root_volume  = !contains(["ebs", "s3_files"], var.model_storage)
   model_volume_id        = local.model_volume_id
   root_volume_size_gib   = var.root_volume_size_gib
   extra_root_volume_gib  = local.open_webui_root_volume_gib + local.vllm_root_volume_gib
@@ -164,6 +165,23 @@ module "instance" {
   user_data_base64       = module.bootstrap.user_data_base64
   vpc_endpoint_ids       = module.network.vpc_endpoint_ids
   tags                   = local.resource_tags
+}
+
+# モデルの置き場所 s3_files: バケットを Amazon S3 Files でマウントする。
+# インスタンスはマウントターゲットを待たずに作る(module に depends_on を付けると、instance モジュールのデータソースが
+# apply まで読まれず plan で値が決まらないため)。起動処理がマウントを最大10分くり返す
+module "s3files" {
+  source = "./modules/s3files"
+  count  = local.s3_files ? 1 : 0
+
+  name                       = local.name
+  name_prefix                = local.iam_name_prefix
+  bucket_name                = local.model_bucket_name
+  vpc_id                     = module.network.vpc_id
+  subnet_ids                 = module.network.subnet_ids
+  instance_security_group_id = module.security.security_group_id
+  instance_role_name         = module.iam.role_name
+  tags                       = local.resource_tags
 }
 
 module "lifetime" {
