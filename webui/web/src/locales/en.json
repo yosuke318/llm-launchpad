@@ -372,7 +372,10 @@
       "relaunch": "Launch again in this zone",
       "help": "Runs terraform apply with the same settings as before except the zone. You start paying for the instance.",
       "noZones": "No other zone is available. Launch again later or choose another region."
-    }
+    },
+    "editorAgent": "Use from VSCode (Cline or Continue)",
+    "editorAgentHelp": "In the extension, choose an \"OpenAI compatible\" provider and enter these values. This works from other computers on the LAN too (no AWS credentials needed). For environments that connect through SSM, keep the port forward running on this server's computer.",
+    "editorAgentKey": "The WebUI passphrase (LAUNCHPAD_ACCESS_TOKEN). If none is set, any string (works only on this computer)"
   },
   "environments": {
     "heading": "Environments",

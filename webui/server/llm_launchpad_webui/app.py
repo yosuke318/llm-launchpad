@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import access, bedrock
+from . import access, bedrock, openai_relay
 from . import comparison as comparisons
 from .aws_info import AwsInfo, AwsInfoError
 from .benchmark import DEFAULT_RUNS, MAX_RUNS, BenchmarkError, BenchmarkStore, bench_command, parse_output, summarize
@@ -969,24 +969,60 @@ def create_app(runner: Runner | None = None, web_dist: str | None = WEB_DIST, ca
             found["cancel_requested"] = True
         return comparisons.summary(found)
 
-    @app.post("/api/environments/{workspace}/chat")
-    async def chat(workspace: str, req: ChatRequest):
-        """モデルと話す。terraform output の ollama_endpoint に送る(SSM のときは、手元でポートフォワードを動かしておく)"""
+    async def ollama_endpoint(workspace):
+        """環境の tfvars、terraform output、Ollama の送り先。output は起動の実行ごとに1回だけ読む
+        (同じ環境IDで起動し直すと、direct のときはパブリック IP が変わるため)"""
         if not WORKSPACE_PATTERN.match(workspace) or workspace == "default":
             raise HTTPException(status_code=422, detail=t("env.invalid"))
         tfvars = app.state.runner.read_var_file(workspace)
         if not tfvars or not tfvars.get("model"):
             raise HTTPException(status_code=404, detail=t("env.no_record", workspace=workspace))
-        outputs = app.state.chat_outputs.get(workspace)
+        run = app.state.runner.latest_launch(workspace)
+        key = (workspace, run.id if run else None)
+        outputs = app.state.chat_outputs.get(key)
         if outputs is None:
             try:
                 outputs = await app.state.runner.outputs(workspace)
             except RunnerError as e:
                 raise HTTPException(status_code=502, detail=t("chat.no_endpoint", workspace=workspace, error=e))
-            app.state.chat_outputs[workspace] = outputs
+            # 同じ環境の前の起動の分は要らないので消す(起動し直すたびに増え続けないように)
+            for old in [k for k in app.state.chat_outputs if k[0] == workspace]:
+                del app.state.chat_outputs[old]
+            app.state.chat_outputs[key] = outputs
         endpoint = outputs.get("ollama_endpoint")
         if not endpoint:
             raise HTTPException(status_code=502, detail=t("chat.no_endpoint", workspace=workspace, error="ollama_endpoint"))
+        return tfvars, outputs, endpoint
+
+    @app.api_route("/api/environments/{workspace}/openai/v1/{path:path}", methods=["GET", "POST"])
+    async def openai_relay_route(workspace: str, path: str, request: Request):
+        """OpenAI 互換 API の中継(openai_relay.py)。VSCode の Cline や Continue の Base URL に
+        /api/environments/<環境ID>/openai/v1 を、API キーに合言葉を入れて使う"""
+        if not openai_relay.allowed(request.method, path):
+            return JSONResponse(openai_relay.error_body(t("relay.path_not_allowed", path=path), "not_found"), status_code=404)
+        try:
+            _, outputs, endpoint = await ollama_endpoint(workspace)
+        except HTTPException as e:
+            return JSONResponse(openai_relay.error_body(e.detail, "environment_unavailable"), status_code=e.status_code)
+        body = await request.body()
+        if len(body) > openai_relay.MAX_BODY_BYTES:
+            return JSONResponse(openai_relay.error_body(t("relay.body_too_large", mb=openai_relay.MAX_BODY_BYTES // (1024 * 1024)),
+                                                        "invalid_request_error"), status_code=413)
+        try:
+            res = await asyncio.to_thread(openai_relay.open_upstream, endpoint, request.method, path, body,
+                                          request.headers.get("content-type"))
+        except openai_relay.RelayUnreachable as e:
+            message = t("relay.unreachable", endpoint=endpoint, command=outputs.get("ssm_port_forward_command") or "-", error=e)
+            return JSONResponse(openai_relay.error_body(message, "upstream_unreachable"), status_code=502)
+        media_type = res.headers.get("Content-Type") or "application/json"
+        # 届いた分からそのまま流す。StreamingResponse は同期のイテレーターをスレッドで回すので、読むのを待っても止まらない
+        return StreamingResponse(openai_relay.iter_body(res), status_code=res.status, media_type=media_type,
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    @app.post("/api/environments/{workspace}/chat")
+    async def chat(workspace: str, req: ChatRequest):
+        """モデルと話す。terraform output の ollama_endpoint に送る(SSM のときは、手元でポートフォワードを動かしておく)"""
+        tfvars, outputs, endpoint = await ollama_endpoint(workspace)
         messages = [m.model_dump() for m in req.messages]
         try:
             return await asyncio.to_thread(chat_once, endpoint, tfvars["model"], messages)

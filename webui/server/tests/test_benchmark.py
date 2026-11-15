@@ -185,7 +185,7 @@ def test_chat_sends_to_ollama_endpoint(client, monkeypatch):
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         endpoint = f"http://127.0.0.1:{server.server_port}"
-        client.app.state.chat_outputs["qwen3-8b"] = {"ollama_endpoint": endpoint}
+        client.app.state.chat_outputs[("qwen3-8b", None)] = {"ollama_endpoint": endpoint}
         res = client.post("/api/environments/qwen3-8b/chat", json={"messages": [{"role": "user", "content": "Hello"}]}).json()
         assert res["message"] == {"role": "assistant", "content": "Hi!"} and res["output_tokens_per_sec"] == 40.0
         assert FakeOllamaChat.received[-1] == {"model": "qwen3:8b", "messages": [{"role": "user", "content": "Hello"}], "stream": False}
@@ -194,7 +194,7 @@ def test_chat_sends_to_ollama_endpoint(client, monkeypatch):
 
 
 def test_chat_unreachable_tells_port_forward(client):
-    client.app.state.chat_outputs["qwen3-8b"] = {"ollama_endpoint": "http://127.0.0.1:9", "ssm_port_forward_command": "aws ssm start-session ..."}
+    client.app.state.chat_outputs[("qwen3-8b", None)] = {"ollama_endpoint": "http://127.0.0.1:9", "ssm_port_forward_command": "aws ssm start-session ..."}
     res = client.post("/api/environments/qwen3-8b/chat", json={"messages": [{"role": "user", "content": "Hello"}]}, headers={"Accept-Language": "en"})
     assert res.status_code == 502 and "port forward" in res.json()["detail"] and "aws ssm start-session" in res.json()["detail"]
 
@@ -202,5 +202,5 @@ def test_chat_unreachable_tells_port_forward(client):
 def test_chat_reads_endpoint_from_terraform_output(client):
     res = client.post("/api/environments/qwen3-8b/chat", json={"messages": [{"role": "user", "content": "Hello"}]})
     assert res.status_code == 502, "fake_terraform の output の送り先には何もいない"
-    assert client.app.state.chat_outputs["qwen3-8b"]["ollama_endpoint"] == "http://127.0.0.1:9"
+    assert client.app.state.chat_outputs[("qwen3-8b", None)]["ollama_endpoint"] == "http://127.0.0.1:9"
     assert client.post("/api/environments/nothing/chat", json={"messages": []}).status_code == 404

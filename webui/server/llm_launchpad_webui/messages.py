@@ -183,6 +183,19 @@ MESSAGES = {
         "ja": "{endpoint} に接続できませんでした。SSM で接続するときは、別の端末でポートフォワードを動かしたままにしてください({command}): {error}",
         "en": "Could not connect to {endpoint}. When you connect through SSM, keep the port forward running in another terminal ({command}): {error}",
     },
+    # OpenAI 互換 API の中継(openai_relay.py)
+    "relay.unreachable": {
+        "ja": "{endpoint} に接続できませんでした。SSM で接続する環境では、サーバーを動かしている PC でポートフォワードを動かしたままにしてください({command}): {error}",
+        "en": "Could not connect to {endpoint}. For environments that connect through SSM, keep the port forward running on the computer running the server ({command}): {error}",
+    },
+    "relay.path_not_allowed": {
+        "ja": "/v1/{path} は中継しません(使えるのは models、chat/completions、completions、embeddings)",
+        "en": "/v1/{path} is not relayed (available: models, chat/completions, completions, embeddings)",
+    },
+    "relay.body_too_large": {
+        "ja": "送る内容が大きすぎます({mb} MB まで)",
+        "en": "The request is too large (up to {mb} MB)",
+    },
     "chat.failed": {
         "ja": "応答を受け取れませんでした: {error}",
         "en": "Could not get a response: {error}",

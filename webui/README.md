@@ -48,6 +48,26 @@ uv run uvicorn llm_launchpad_webui.app:app --host 0.0.0.0 --port 8000
 * デスクトップ通知は、ブラウザが HTTPS か localhost でしか許さないので、ほかの PC からは出ない(「知らせ」の一覧には出る)
 * 合言葉は1つで、使う人を分けない。誰が操作したかは残らない
 
+### VSCode(Cline や Continue)から使う
+
+WebUI が、立ち上げた環境の Ollama の OpenAI 互換 API を中継する(`server/llm_launchpad_webui/openai_relay.py`)。LAN 内のほかの PC の VSCode からも、AWS の認証情報なしで使える。
+
+| 拡張機能に入れる値 | |
+|---|---|
+| 接続先の種類 | OpenAI 互換(OpenAI Compatible) |
+| Base URL | `http://<サーバーの PC の IP>:8000/api/environments/<環境ID>/openai/v1` |
+| API キー | WebUI の合言葉(`LAUNCHPAD_ACCESS_TOKEN`)。決めていなければ任意の文字列(この PC からだけ) |
+| モデル | 起動したモデルのタグ(例: `qwen3:32b`) |
+
+起動の進み具合の画面で、使える状態になると同じ値が出る。
+
+* 中継するのは `models`、`chat/completions`、`completions`、`embeddings` だけ。ストリーミングは届いた分から流す。合言葉(`Authorization`)は Ollama に渡さない
+* SSM で接続する環境では、サーバーの PC でポートフォワード(`ssm_port_forward_command`)を動かしたままにする。止まっていると 502 で、そのコマンドを返す
+* エージェントは多くのファイルを送るので、コンテキスト長は 32768 以上で起動する。ツール呼び出しのできるモデル(qwen3 や gpt-oss など)を選ぶ
+* Ollama は1つずつ順に答える(`OLLAMA_NUM_PARALLEL=1`)ので、何人かで同時に使うと待ちが出る
+* 送る内容は 32 MB まで
+* AWS の様子や GitHub のリポジトリを、エージェントに読み取りだけで見せる MCP の設定は [docs/mcp.md](../docs/mcp.md)
+
 ### 画面を直しながら動かす
 
 ```sh
@@ -290,6 +310,7 @@ terraform のワークスペースのうち、state にリソースがあるも�
 | GET | `/api/comparisons/{id}` | 比較の状態と、構成ごとの状態と結果 |
 | POST | `/api/comparisons/{id}/cancel` | 比較を取り消す |
 | GET | `/api/comparisons/{id}.csv` | 比較表の CSV |
+| GET, POST | `/api/environments/{環境ID}/openai/v1/{models,chat/completions,completions,embeddings}` | 環境の Ollama の OpenAI 互換 API の中継(Cline や Continue の Base URL) |
 | POST | `/api/environments/{環境ID}/chat` | モデルと話す。`{"messages": [{"role": "user", "content": "..."}]}` |
 | GET | `/api/bedrock/models` | Bedrock のモデルと、100万トークンあたりの料金、エンドポイントの時間課金。`?region=ap-northeast-1` |
 | POST | `/api/bedrock/launch` | `terraform/bedrock` の tfvars を書いて init と apply を実行する。`{"workspace": "br-haiku", "variables": {"model": "jp.anthropic.claude-haiku-4-5-20251001-v1:0", "region": "ap-northeast-1"}}` |

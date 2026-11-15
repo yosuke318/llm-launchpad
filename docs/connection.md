@@ -28,6 +28,7 @@ flowchart LR
     PF -- "④ HTTPS(外向きだけ)" --> SSM
     SSM -- "SSM エージェント" --> EC2
     UI -- "⑤ 計測(send-command)、<br/>起動の進み具合(パラメータ)" --> SSM
+    VS["ほかの PC<br/>(VSCode の Cline / Continue)"] -- "⑥ OpenAI 互換 API + 合言葉" --> UI
 ```
 
 ## つながる順番
@@ -38,6 +39,7 @@ flowchart LR
 | ② | WebUI | AWS | terraform(子プロセス)と boto3 | サーバーの PC の AWS の認証情報(環境変数や `~/.aws`) |
 | ③ | WebUI | サーバーの PC の `localhost:11434` | HTTP(Ollama の `/api/chat`) | サーバーの PC の中だけで閉じる |
 | ④ | SSM のポートフォワード | GPU インスタンスの `localhost:11434` | SSM Session Manager(`AWS-StartPortForwardingSession`)。サーバーの PC からも、インスタンスからも、AWS への外向きの HTTPS だけで張る | IAM。インスタンスのインバウンドは1つも開けない |
+| ⑥ | ほかの PC の VSCode(Cline や Continue) | WebUI の `/api/environments/<環境ID>/openai/v1` | HTTP(OpenAI 互換 API)。WebUI が ③④ を通して Ollama の `/v1` に中継する | ① と同じ合言葉(API キーとして `Authorization: Bearer` で送る)と送り元の制限 |
 | ⑤ | WebUI | GPU インスタンス | SSM Run Command(`send-command` で `launchpad.py bench`)と Parameter Store(`/llm-launchpad/<環境ID>/status`) | IAM。ポートフォワードは要らない |
 
 ## それぞれの役わり
@@ -71,6 +73,13 @@ flowchart LR
 * ポートフォワードが止まっていると、チャットはそのコマンドをエラーに出す
 * ポートフォワードは `localhost` だけで待ち受けるので、ほかの PC から `http://<サーバーの PC>:11434` に直接はつながらない。ほかの PC の Ollama のクライアントから使いたいときは、そのクライアントを動かす PC でポートフォワードを動かす(その PC にも AWS の認証情報が要る)
 
+### ⑥ VSCode から使う(WebUI が中継する)
+
+* VSCode の拡張機能(Cline や Continue)で接続先を「OpenAI 互換」にし、Base URL に `http://<サーバーの PC>:8000/api/environments/<環境ID>/openai/v1`、API キーに合言葉を入れる
+* WebUI は受け取った要求を、③④ と同じ経路でインスタンスの Ollama の `/v1` に送り、応答(ストリーミングを含む)をそのまま返す
+* VSCode の PC に AWS の認証情報もポートフォワードも要らない。要るのは、サーバーの PC でポートフォワードが動いていること
+* もう1つのやり方として、VSCode の PC で自分でポートフォワードを動かし、`http://localhost:11434/v1` を使うこともできる。そのときは、その PC にも AWS の認証情報が要る
+
 ### ⑤ 計測と起動の進み具合(ポートフォワードは要らない)
 
 * ベンチマークと比較モードの計測は、WebUI が SSM の `send-command` で、インスタンスの中の `launchpad.py bench` を動かす。インスタンスの中から Ollama に送るので、ネットワークの遅れは入らない
@@ -99,6 +108,6 @@ flowchart LR
 
 | | ほかの PC | サーバーの PC | GPU インスタンス |
 |---|---|---|---|
-| 要るもの | ブラウザと合言葉 | WebUI、terraform、AWS CLI と Session Manager プラグイン、AWS の認証情報 | (terraform が作る)Ollama、SSM エージェント |
+| 要るもの | ブラウザ(または VSCode の拡張機能)と合言葉 | WebUI、terraform、AWS CLI と Session Manager プラグイン、AWS の認証情報 | (terraform が作る)Ollama、SSM エージェント |
 | 開けるポート | なし | `8000`(LAN の中だけ) | なし(ssm のとき) |
 | 動かし続けるもの | なし | WebUI。チャットするときは SSM のポートフォワード | なし |
