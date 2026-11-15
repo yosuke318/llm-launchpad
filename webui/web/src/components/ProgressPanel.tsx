@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ApiError, getProgress, listEnvironments, relaunch, type Progress, type ProgressStage } from "../api";
-import { editorAgentSettings, isFinished, openaiPythonExample, POLL_MS, splitDuration, stageSec, tailLogCommand, tick } from "../progress";
+import { editorAgentSettings, isFinished, stageLabelKey, openaiPythonExample, POLL_MS, splitDuration, stageSec, tailLogCommand, tick } from "../progress";
 import { useRun } from "../runContext";
 
 const ICON = { done: "✓", active: "●", failed: "✕", pending: "○" } as const;
@@ -175,7 +175,7 @@ function StageRow({ stage, progress, now, duration }: { stage: ProgressStage; pr
       </span>
       <div className="stage-body">
         <div className="stage-title">
-          <strong>{t(`progress.stages.${stage.id}`)}</strong>
+          <strong>{t(stageLabelKey(stage.id, progress.engine))}</strong>
           <span className="sr-only">{t(`progress.stageStatus.${stage.status}`)}</span>
           {sec != null && stage.id !== "ready" && <span className="muted small">{duration(sec)}</span>}
         </div>
@@ -208,7 +208,7 @@ function FailureCard({ progress, onShowTerraform }: { progress: Progress; onShow
 
   return (
     <section className="card failure" aria-live="polite">
-      <h2>{t("progress.failedHeading", { stage: t(`progress.stages.${e.stage}`) })}</h2>
+      <h2>{t("progress.failedHeading", { stage: t(stageLabelKey(e.stage, progress.engine)) })}</h2>
       {e.message && <p className="error">{e.message}</p>}
       {e.code === "insufficient_capacity" && e.zones && <RelaunchForm workspace={progress.workspace} zones={e.zones} />}
       {e.terraform_log ? (

@@ -133,9 +133,14 @@ output "open_webui_port_forward_command" {
   ])
 }
 
+output "engine" {
+  description = "推論エンジン(ollama / vllm)"
+  value       = var.engine
+}
+
 output "curl_example" {
-  description = "Ollama API にプロンプトを送る例"
-  value       = "curl ${local.ollama_endpoint}/api/generate -d '{\"model\":\"${var.model}\",\"prompt\":\"こんにちは\",\"stream\":false}'"
+  description = "推論エンジンにプロンプトを送る例(Ollama は /api/generate、vLLM は OpenAI 互換 API)"
+  value       = local.vllm ? "curl ${local.ollama_endpoint}/v1/completions -H 'Content-Type: application/json' -d '{\"model\":\"${var.model}\",\"prompt\":\"こんにちは\",\"max_tokens\":64}'" : "curl ${local.ollama_endpoint}/api/generate -d '{\"model\":\"${var.model}\",\"prompt\":\"こんにちは\",\"stream\":false}'"
 }
 
 output "openai_api_example" {

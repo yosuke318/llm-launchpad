@@ -12,6 +12,10 @@
 #   kv_heads          注意層の KV ヘッド数(GQA のグループ数)      │
 #   head_dim          注意層のヘッドあたりの次元数                ┘
 #   license           ライセンス
+#   vllm              vLLM でも動かせるモデルだけ書く(推論エンジンに vLLM を選んだとき)
+#     hf_repo         Hugging Face のリポジトリ(safetensors 形式の元のモデル)
+#     gated           true なら、Hugging Face で利用条件に同意したアカウントのトークンが要る
+#     weights_gb      重み(Hugging Face 形式の *.safetensors の合計)の大きさ(GB)。VRAM とディスク容量の見積もりに使う
 #
 # 重みは「パラメータ数 x 0.6」ではなく配布サイズから見積もる。量子化の方式によっては一部の層を高い精度のまま残すため、
 # パラメータ数からの計算は実際のファイルより小さく出ることがある(例: nemotron-3-super は 120B x 0.6 = 72GB に対し 87GB)。
@@ -34,6 +38,10 @@ models:
     kv_heads: 8
     head_dim: 128
     license: Llama 3.2 Community License
+    vllm:
+      hf_repo: meta-llama/Llama-3.2-3B-Instruct
+      gated: true
+      weights_gb: 6.43
   "llama3.1:8b":
     vendor: Meta
     name: Llama 3.1 8B
@@ -45,6 +53,10 @@ models:
     kv_heads: 8
     head_dim: 128
     license: Llama 3.1 Community License
+    vllm:
+      hf_repo: meta-llama/Llama-3.1-8B-Instruct
+      gated: true
+      weights_gb: 16.06
   "llama3.3:70b":
     vendor: Meta
     name: Llama 3.3 70B
@@ -94,6 +106,10 @@ models:
     kv_heads: 8
     head_dim: 128
     license: Apache-2.0
+    vllm:
+      hf_repo: Qwen/Qwen3-8B
+      gated: false
+      weights_gb: 16.38
   "qwen3:14b":
     vendor: Alibaba
     name: Qwen3 14B
@@ -105,6 +121,10 @@ models:
     kv_heads: 8
     head_dim: 128
     license: Apache-2.0
+    vllm:
+      hf_repo: Qwen/Qwen3-14B
+      gated: false
+      weights_gb: 29.54
   "qwen3:32b":
     vendor: Alibaba
     name: Qwen3 32B
@@ -116,6 +136,10 @@ models:
     kv_heads: 8
     head_dim: 128
     license: Apache-2.0
+    vllm:
+      hf_repo: Qwen/Qwen3-32B
+      gated: false
+      weights_gb: 65.52
   # Qwen2.5 72B は Apache-2.0 ではなく Qwen 独自のライセンス(月間アクティブユーザー1億人を超える場合は別途許諾が必要)
   "qwen2.5:72b":
     vendor: Alibaba
@@ -230,6 +254,10 @@ models:
     kv_heads: 8
     head_dim: 128
     license: Apache-2.0
+    vllm:
+      hf_repo: mistralai/Mistral-7B-Instruct-v0.3
+      gated: false
+      weights_gb: 14.5
   "mistral-small3.2:24b":
     vendor: Mistral
     name: Mistral Small 3.2 24B

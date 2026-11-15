@@ -105,7 +105,7 @@ cd webui/web && npm run dev    # http://127.0.0.1:5173 。/api はサーバー(8
 * コンテキスト長と KV キャッシュの型を変えると、必要VRAMと推奨のインスタンス型が変わる。モデルの最大コンテキスト長を超えたら、最大で見積もる
 * モデルを選ぶと、VRAM の内訳(重み / KVキャッシュ / 余裕 / 残り)と、収まるインスタンス型を出す。残りが 1 GiB を切ったら注意を出す
 * データは `catalog/models.yaml` と `catalog/instance_types.yaml` を読む。モデル定義を足したら、サーバーを起動し直す
-* 推論エンジンは Ollama だけ(vLLM は選択欄だけ置いて、選べないようにしてある)
+* 推論エンジンは Ollama(既定)、vLLM、Bedrock から選ぶ。vLLM は下の「vLLM」、Bedrock は「Bedrock」を見る
 
 ### 一覧にないモデルを追加する
 
@@ -252,6 +252,17 @@ terraform のワークスペースのうち、state にリソースがあるも�
 * サーバーが途中で止まっても環境が動き続けないよう、最大の稼働時間は 1〜720 時間(既定は2時間)にする。0(止めない)は選べない
 * 比較の記録はサーバーのメモリにだけ持つ(サーバーを起動し直すと消える)。測った結果はベンチマークの履歴に `comparison_id` を付けて残る
 
+### vLLM
+
+推論エンジンに vLLM を選ぶと、モデルの一覧が vLLM で動かせるもの(`catalog/models.yaml` に `vllm` があるもの)だけになり、見積もりも vLLM 用になる(重みは bf16、KV キャッシュは f16 だけ、GPU のメモリの 0.9 に収まる型)。
+
+* モデルの置き場所は毎回ダウンロードだけ、ネットワークはパブリックだけ。起動の確認には、推論エンジンと Hugging Face のリポジトリを出す
+* gated のモデルでは、起動の確認で Hugging Face のトークンを入れて「保存する」を押す。サーバーが、そのリージョンの SSM パラメータ `/llm-launchpad/hf-token`(SecureString)に保存し、tfvars には名前だけを書く(`hf_token_parameter_name`)。保存するまで起動できない。トークンの値は画面に返さない
+* 起動の進み具合では「Ollama の導入」の段階を「vLLM の導入」と出す。モデルの取得の割合は、キャッシュの大きさを重みの見積もりで割ったもの(終わるまでは 99% で止める)
+* チャットは OpenAI 互換 API(`/v1/chat/completions`)に送る。tok/s は応答全体の時間で割った目安
+* 計測の結果は `engine: vllm` として履歴に入り、計測の履歴に「vLLM」と出る。同じモデルを Ollama と vLLM で起動して計測すると、並べて比べられる
+* サーバーを動かしている端末の AWS の認証情報に、`ssm:PutParameter`(トークンを保存するとき)の権限が要る
+
 ### Bedrock
 
 推論エンジンに Bedrock を選ぶと、モデルの選択の画面が Bedrock 用に変わる。GPUインスタンスは起動せず、`terraform/bedrock` で閉じた VPC と bedrock-runtime のエンドポイントと Lambda を作る。
@@ -272,7 +283,7 @@ terraform のワークスペースのうち、state にリソースがあるも�
 ### terraform の実行
 
 * Terraform のタブから実行できるのは `version` / `init` / `validate` / `plan` だけ。`apply` は起動の確認(`POST /api/launch`)から、`destroy` は環境の一覧(`POST /api/environments/{環境ID}/destroy`)からだけ実行できる
-* 起動では、`default` のワークスペースは使えない。渡せる変数は決めたもの(model、region、context_length、kv_cache_type、model_storage、network_mode、purchase_option、idle_stop_minutes、max_lifetime_hours、instance_type、availability_zone、open_webui)だけで、型も確かめる(bool の変数には true / false だけ、数の変数には true / false を受け付けない)。Bedrock の環境では model、region、availability_zone だけ
+* 起動では、`default` のワークスペースは使えない。渡せる変数は決めたもの(model、region、context_length、kv_cache_type、model_storage、network_mode、purchase_option、idle_stop_minutes、max_lifetime_hours、instance_type、availability_zone、open_webui、engine、hf_token_parameter_name)だけで、型も確かめる(bool の変数には true / false だけ、数の変数には true / false を受け付けない)。Bedrock の環境では model、region、availability_zone だけ
 * 同時に動かすのは1つだけ(`init` は `.terraform` を書き換えるため)。実行中に別のコマンドを頼むと 409 を返す
 * ワークスペース名は、環境IDと同じ規則(`default` か、英小文字・数字・ハイフンの20文字以内)だけを受け付ける
 * 出力は1行ずつ SSE で送る(`event: log`、最後に `event: end` で終了コード)。各行に行番号を `id` として付けるので、接続が切れてもブラウザ(EventSource)が `Last-Event-ID` を送り、続きから受け取れる
@@ -321,6 +332,8 @@ terraform のワークスペースのうち、state にリソースがあるも�
 | POST | `/api/bedrock/environments/{環境ID}/destroy` | `terraform/bedrock` で init と destroy を実行する。成功したら tfvars を消す |
 | POST | `/api/launch` | tfvars を書いて init と apply を実行する。`{"workspace": "qwen3-8b", "variables": {"model": "qwen3:8b", ...}}` |
 | GET | `/api/notifications` | 起動した環境の知らせ(古い順、50件まで)。`after`がなければ新しいほうから、`?after=<最後に見たid>`ならその続きを返す |
+| GET | `/api/hf-token` | Hugging Face のトークンを SSM パラメータに保存してあるか(値は返さない)。`?region=ap-northeast-1` |
+| POST | `/api/hf-token` | トークンを SSM パラメータ(SecureString)に保存する。`{"region": "ap-northeast-1", "token": "hf_..."}` |
 | GET | `/api/launch-history` | 起動した設定の履歴(新しい順、同じ設定は1件)。同じ環境IDの環境が動いていれば `in_use` が true |
 | GET | `/api/presets` | 名前を付けて保存した設定(名前の順)。`model_name`と`in_use`は履歴と同じ |
 | POST | `/api/presets` | 起動の履歴に名前を付けて保存する。本文は`{"name": "...", "history_id": "..."}`。同じ名前があれば置き換える |

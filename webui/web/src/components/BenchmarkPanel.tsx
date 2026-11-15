@@ -198,6 +198,7 @@ export default function BenchmarkPanel() {
                         <>
                           <code>{b.instance_type}</code>
                           {b.purchase_option && ` · ${t(`progress.purchase.${b.purchase_option}`)}`}
+                          {b.engine === "vllm" && " · vLLM"}
                         </>
                       )}
                     </td>

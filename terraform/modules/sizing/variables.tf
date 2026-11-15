@@ -41,6 +41,17 @@ variable "kv_cache_type" {
   type        = string
 }
 
+variable "engine" {
+  description = "推論エンジン(ollama / vllm)。vllm では重みを bf16 の safetensors(モデル定義の vllm.weights_gb)で見積もり、GPU のメモリの 0.9 に収まる型を選ぶ"
+  type        = string
+  default     = "ollama"
+
+  validation {
+    condition     = contains(["ollama", "vllm"], var.engine)
+    error_message = "engine は ollama か vllm を指定してください。"
+  }
+}
+
 variable "vram_overhead_gib" {
   description = "重みとKVキャッシュのほかに見込む余裕(GiB)。CUDAコンテキストや計算用バッファの分"
   type        = number

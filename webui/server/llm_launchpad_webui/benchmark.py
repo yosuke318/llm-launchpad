@@ -70,7 +70,8 @@ def summarize(raw, workspace, tfvars, instance, hourly_usd, vram_estimate_gib):
     total = round(sum(g["memory_total_mib"] for g in gpus) * GIB_PER_MIB, 2) if gpus else None
     return {
         "id": uuid.uuid4().hex[:12],
-        "engine": "ollama",
+        # インスタンスの launchpad.py が書いた推論エンジン(ollama / vllm)。古い launchpad.py は書かない
+        "engine": raw.get("engine") or "ollama",
         "measured_at": raw.get("measured_at"),
         "workspace": workspace,
         "model": raw.get("model"),

@@ -863,3 +863,121 @@ run "open_webui_rejected_on_private_network" {
 
   expect_failures = [var.open_webui]
 }
+
+run "vllm_serves_the_hf_model_on_the_ollama_port" {
+  command = plan
+
+  variables {
+    engine        = "vllm"
+    model_storage = "download"
+  }
+
+  assert {
+    condition     = output.instance_type == "g6.xlarge" && output.vram_estimate.engine == "vllm"
+    error_message = "bf16 の qwen3:8b は T4 に収まらないので、L4(GPU のメモリの 0.9 で 20.25 GiB)を選ぶこと"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "--model \"Qwen/Qwen3-8B\"") && strcontains(module.bootstrap.user_data, "--served-model-name \"qwen3:8b\" \"Qwen/Qwen3-8B\"")
+    error_message = "Hugging Face のリポジトリを動かし、Ollama のタグの名前でも呼べるようにすること"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "--host 127.0.0.1") && strcontains(module.bootstrap.user_data, "--port 11434") && strcontains(module.bootstrap.user_data, "--max-model-len 8192")
+    error_message = "ssm モードでは 127.0.0.1:11434 で待ち受け、コンテキスト長を max-model-len にすること"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "--tensor-parallel-size 1") && strcontains(module.bootstrap.user_data, "--dtype auto")
+    error_message = "GPU 1枚の L4 では分けずに、bf16 のまま動かすこと"
+  }
+
+  assert {
+    condition     = !strcontains(module.bootstrap.user_data, "ollama.com/install.sh") && !strcontains(module.bootstrap.user_data, "lp pull") && !strcontains(module.bootstrap.user_data, "HF_TOKEN=\"$(aws ssm")
+    error_message = "vLLM では Ollama を入れず、トークンを決めていなければ読まないこと"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "echo \"vllm\" > /var/lib/llm-launchpad/engine") && strcontains(module.bootstrap.user_data, "lp wait-server --timeout 1800")
+    error_message = "推論エンジンをファイルに書き、vLLM が応えるまで待つこと"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "ignore_patterns=['consolidated*', 'original/*']")
+    error_message = "同じ重みの別の形式(consolidated、original/)は取得しないこと"
+  }
+
+  # AMI 75 GiB + 重み 16.38GB x 2 を切り上げた 33 GiB + 余裕 10 GiB + vLLM のイメージ 30 GiB
+  assert {
+    condition     = output.root_volume_size_gib == 148
+    error_message = "ルートボリュームは bf16 の重みと vLLM のイメージの分を見込むこと"
+  }
+
+  assert {
+    condition     = strcontains(output.curl_example, "/v1/completions") && output.engine == "vllm"
+    error_message = "vLLM では OpenAI 互換 API の curl の例を出すこと"
+  }
+}
+
+run "vllm_reads_the_hf_token_from_ssm" {
+  command = plan
+
+  variables {
+    engine                  = "vllm"
+    model                   = "llama3.1:8b"
+    model_storage           = "download"
+    hf_token_parameter_name = "/llm-launchpad/hf-token"
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "aws ssm get-parameter --name \"/llm-launchpad/hf-token\" --with-decryption") && strcontains(module.bootstrap.user_data, "-e HF_TOKEN \\")
+    error_message = "gated のモデルのトークンは SSM パラメータから読み、取得のコンテナにだけ渡すこと"
+  }
+
+  assert {
+    condition     = !strcontains(module.bootstrap.user_data, "hf_") || !can(regex("hf_[A-Za-z0-9]{20,}", module.bootstrap.user_data))
+    error_message = "user data にトークンそのものを書かないこと"
+  }
+}
+
+run "vllm_uses_fp16_on_t4" {
+  command = plan
+
+  variables {
+    engine        = "vllm"
+    model         = "llama3.2:3b"
+    model_storage = "download"
+  }
+
+  assert {
+    condition     = output.instance_type == "g4dn.xlarge" && strcontains(module.bootstrap.user_data, "--dtype half")
+    error_message = "T4(bf16 を扱えない)では fp16 で動かすこと"
+  }
+}
+
+run "vllm_with_open_webui_uses_the_openai_api" {
+  command = plan
+
+  variables {
+    engine        = "vllm"
+    model_storage = "download"
+    open_webui    = true
+  }
+
+  assert {
+    condition     = strcontains(module.bootstrap.user_data, "OPENAI_API_BASE_URL=\"http://127.0.0.1:11434/v1\"") && strcontains(module.bootstrap.user_data, "ENABLE_OLLAMA_API=False")
+    error_message = "vLLM では Open WebUI を OpenAI 互換 API でつなぐこと"
+  }
+}
+
+run "vllm_rejects_cached_storage" {
+  command = plan
+
+  variables {
+    engine = "vllm"
+  }
+
+  expect_failures = [var.engine]
+}
+
+# 閉じたネットワークは model_storage = download を断り、vLLM は download だけなので、両方を選ぶ組み合わせはそこで止まる

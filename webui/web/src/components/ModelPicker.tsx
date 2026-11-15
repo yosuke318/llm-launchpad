@@ -40,7 +40,13 @@ export default function ModelPicker() {
     if (!catalog) return;
     let cancelled = false;
     setLoading(true);
-    listModels({ vendor: vendor || undefined, context_length: contextLength, kv_cache_type: kvCacheType })
+    // vLLM の KV キャッシュは f16 だけ
+    listModels({
+      vendor: vendor || undefined,
+      context_length: contextLength,
+      kv_cache_type: engine === "vllm" ? "f16" : kvCacheType,
+      engine: engine === "vllm" ? "vllm" : undefined,
+    })
       .then((list) => {
         if (cancelled) return;
         setModels(list);
@@ -51,7 +57,7 @@ export default function ModelPicker() {
     return () => {
       cancelled = true;
     };
-  }, [catalog, vendor, contextLength, kvCacheType]);
+  }, [catalog, vendor, contextLength, kvCacheType, engine]);
 
   function selectModel(tag: string) {
     setSelectedTag(tag);
@@ -62,7 +68,7 @@ export default function ModelPicker() {
   function choosePreset(entry: LaunchRecord) {
     if (!catalog) return;
     const v = entry.variables;
-    setEngine("ollama");
+    setEngine(v.engine ?? "ollama");
     setVendor("");
     setContextLength(presetContextLength(catalog.context_lengths, v.context_length));
     setKvCacheType(v.kv_cache_type);
@@ -139,7 +145,7 @@ export default function ModelPicker() {
             </label>
             <label className="field">
               <span>{t("models.kvCacheType")}</span>
-              <select value={kvCacheType} onChange={(e) => setKvCacheType(e.target.value)}>
+              <select value={engine === "vllm" ? "f16" : kvCacheType} disabled={engine === "vllm"} onChange={(e) => setKvCacheType(e.target.value)}>
                 {catalog.kv_cache_types.map((k) => (
                   <option key={k} value={k}>
                     {k}
@@ -150,6 +156,8 @@ export default function ModelPicker() {
             </label>
           </div>
   
+          {engine === "vllm" && <p className="muted small">{t("models.vllmHelp")}</p>}
+
           <div className="vendors" role="radiogroup" aria-label={t("models.vendor")}>
             {["", ...catalog.vendors].map((v) => (
               <button key={v || "all"} role="radio" aria-checked={vendor === v} className={vendor === v ? "chip active" : "chip"} onClick={() => setVendor(v)}>
@@ -158,7 +166,7 @@ export default function ModelPicker() {
             ))}
           </div>
   
-          <AddModel onAdded={modelAdded} />
+          {engine !== "vllm" && <AddModel onAdded={modelAdded} />}
 
           {error && <p className="error">{t("models.loadFailed", { error })}</p>}
   
@@ -190,7 +198,7 @@ export default function ModelPicker() {
                         </div>
                       </td>
                       <td className="num">{num.format(m.model.params_b)}B</td>
-                      <td className="num">{num.format(m.model.file_size_gb)} GB</td>
+                      <td className="num">{num.format(engine === "vllm" && m.model.vllm ? m.model.vllm.weights_gb : m.model.file_size_gb)} GB</td>
                       <td className="num">
                         {num.format(e.required_gib)} GiB
                         {m.context_capped && <div className="muted small">{t("models.cappedAt", { context: num.format(e.context_length) })}</div>}

@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { ApiError, launch, type ModelEstimate, type NetworkMode, type Preflight, type RegionPlan, type StorageOption } from "../api";
+import { ApiError, getHfToken, launch, saveHfToken, type HfTokenStatus, type ModelEstimate, type NetworkMode, type Preflight, type RegionPlan, type StorageOption } from "../api";
 import { minutes } from "../cost";
 import {
   defaultEnvId,
   ebsVolumeZone,
   isValidEnvId,
   launchHourly,
+  isVllm,
   launchVariables,
+  needsHfToken,
   openWebUIAllowed,
   validIdleStop,
   validMaxLifetime,
@@ -51,6 +53,31 @@ export default function LaunchDialog({ estimate, plan, option, networkMode, pref
     return wanted && zones.includes(wanted) ? wanted : null;
   });
   const [openWebUI, setOpenWebUI] = useState(initial?.settings.openWebUI ?? false);
+  // vLLM で gated のモデルを取得するトークン。SSM パラメータに保存してあるかだけを見る(値は返らない)
+  const tokenNeeded = needsHfToken(estimate);
+  const [hfStatus, setHfStatus] = useState<HfTokenStatus | null>(null);
+  const [hfToken, setHfToken] = useState("");
+  const [hfSaving, setHfSaving] = useState(false);
+  const [hfError, setHfError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!tokenNeeded) return;
+    getHfToken(plan.region)
+      .then(setHfStatus)
+      .catch((err: Error) => setHfError(err.message));
+  }, [tokenNeeded, plan.region]);
+
+  async function saveToken() {
+    setHfSaving(true);
+    setHfError(null);
+    try {
+      setHfStatus(await saveHfToken(plan.region, hfToken));
+      setHfToken("");
+    } catch (err) {
+      setHfError((err as Error).message);
+    } finally {
+      setHfSaving(false);
+    }
+  }
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -91,7 +118,8 @@ export default function LaunchDialog({ estimate, plan, option, networkMode, pref
   const envIdOk = isValidEnvId(envId);
   const idleOk = validIdleStop(idleStopMinutes);
   const lifetimeOk = validMaxLifetime(maxLifetimeHours);
-  const ready = allowed && envIdOk && idleOk && lifetimeOk && !submitting;
+  const tokenOk = !tokenNeeded || !!hfStatus?.exists;
+  const ready = allowed && envIdOk && idleOk && lifetimeOk && tokenOk && !submitting;
 
   async function yes() {
     setSubmitting(true);
@@ -127,6 +155,14 @@ export default function LaunchDialog({ estimate, plan, option, networkMode, pref
             {estimate.model.name} <code>{estimate.model.tag}</code>
           </dd>
         </div>
+        {isVllm(estimate) && estimate.model.vllm && (
+          <div>
+            <dt>{t("launch.engine")}</dt>
+            <dd>
+              vLLM · <code>{estimate.model.vllm.hf_repo}</code>
+            </dd>
+          </div>
+        )}
         <div>
           <dt>{t("launch.license")}</dt>
           <dd>{estimate.model.license}</dd>
@@ -226,6 +262,37 @@ export default function LaunchDialog({ estimate, plan, option, networkMode, pref
           </label>
         )}
       </fieldset>
+
+      {tokenNeeded && estimate.model.vllm && (
+        <fieldset className="launch-options">
+          <legend>{t("launch.hfToken")}</legend>
+          <p className="small">
+            {t("launch.hfTokenGated", { repo: estimate.model.vllm.hf_repo })}{" "}
+            <a href={`https://huggingface.co/${estimate.model.vllm.hf_repo}`} target="_blank" rel="noreferrer">
+              huggingface.co/{estimate.model.vllm.hf_repo}
+            </a>
+          </p>
+          {hfStatus?.exists ? (
+            <p className="ok-text small">{t("launch.hfTokenSaved", { parameter: hfStatus.parameter, region: plan.region })}</p>
+          ) : (
+            <div className="hf-token">
+              <input
+                type="password"
+                autoComplete="off"
+                placeholder="hf_..."
+                aria-label={t("launch.hfToken")}
+                value={hfToken}
+                onChange={(ev) => setHfToken(ev.target.value.trim())}
+              />
+              <button className="secondary" onClick={saveToken} disabled={hfSaving || !hfToken}>
+                {t("launch.hfTokenSave")}
+              </button>
+            </div>
+          )}
+          <p className="muted small">{t("launch.hfTokenHelp")}</p>
+          {hfError && <p className="error small">{hfError}</p>}
+        </fieldset>
+      )}
 
       <fieldset className="launch-options">
         <legend>{t("launch.openWebUI")}</legend>

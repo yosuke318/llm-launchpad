@@ -76,7 +76,8 @@
       "hybridLayers": "{{layers}} ({{attention}} attention)",
       "kvHeads": "KV heads × head dim"
     },
-    "estimateNote": "Estimates are approximate. They assume Ollama serves one request at a time."
+    "estimateNote": "Estimates are approximate. They assume Ollama serves one request at a time.",
+    "vllmHelp": "vLLM runs the original Hugging Face model (bf16 safetensors). It uses more VRAM than Ollama's quantized GGUF, and the instance type is chosen so the model fits in 90% of GPU memory. The KV cache is f16 only, and the model is downloaded on every launch. It suits serving many requests at once."
   },
   "addModel": {
     "open": "Add a model that is not in the list",
@@ -139,7 +140,8 @@
     "hourlyTotalDetailPrivate": "{{onDemand}}/hour on-demand. Instance, root volume ({{disk}} GiB), storage and VPC endpoints added together",
     "note": "Prices are estimates from the AWS Price List API and spot price history, and differ from the actual bill. Startup time is from terraform apply until ready, worked out from a measurement ({{source}}).",
     "confirm": "Review and launch",
-    "confirmBlocked": "Some launch checks did not pass, so you cannot continue."
+    "confirmBlocked": "Some launch checks did not pass, so you cannot continue.",
+    "vllmNotPrivate": "vLLM is not available on the private network because the image and the model are downloaded from the internet."
   },
   "regionCompare": {
     "open": "Compare {{type}} across regions (cheaper region suggestions)",
@@ -286,7 +288,13 @@
     "openWebUI": "Chat screen (Open WebUI)",
     "openWebUIInstall": "Also install Open WebUI",
     "openWebUIHelp": "Installs a browser chat screen on the same instance. It listens only on the instance's 127.0.0.1:8080 and is reachable only through an SSM port forward. Pulling the image adds a few minutes to the launch, and the root volume grows by 10 GiB.",
-    "openWebUIPrivate": "Not available on the private network (the image is pulled from ghcr.io)."
+    "openWebUIPrivate": "Not available on the private network (the image is pulled from ghcr.io).",
+    "engine": "Inference engine",
+    "hfToken": "Hugging Face token",
+    "hfTokenGated": "{{repo}} is a gated model. It needs a (read) token of an account that accepted its terms on Hugging Face.",
+    "hfTokenSaved": "Saved (SSM parameter {{parameter}} in {{region}}).",
+    "hfTokenSave": "Save",
+    "hfTokenHelp": "The token is saved as an SSM parameter (SecureString) and read by the instance when it starts. It is not written to tfvars or the terraform state."
   },
   "progress": {
     "heading": "Launch progress",
@@ -320,7 +328,8 @@
       "preparing_storage": "Prepare model storage",
       "pulling_model": "Pull the model",
       "verifying": "Check a response",
-      "ready": "Ready"
+      "ready": "Ready",
+      "installing_vllm": "Installing vLLM"
     },
     "stageStatus": {
       "done": "done",

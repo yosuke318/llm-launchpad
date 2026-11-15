@@ -21,6 +21,9 @@ def iso(ts):
 @pytest.fixture
 def launchpad(monkeypatch, tmp_path):
     monkeypatch.setenv("LAUNCHPAD_STATE_FILE", str(tmp_path / "status.json"))
+    # 推論エンジンは Ollama(手元のマシンの /var/lib/llm-launchpad/engine を読まない)
+    monkeypatch.delenv("LAUNCHPAD_ENGINE", raising=False)
+    monkeypatch.setenv("LAUNCHPAD_ENGINE_FILE", str(tmp_path / "engine"))
     monkeypatch.setenv("LAUNCHPAD_UPTIME_FILE", str(tmp_path / "uptime"))
     monkeypatch.delenv("LAUNCHPAD_STATUS_PARAMETER", raising=False)
     spec = importlib.util.spec_from_file_location("launchpad", LAUNCHPAD)

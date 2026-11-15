@@ -76,7 +76,8 @@
       "hybridLayers": "{{layers}}(うち注意層 {{attention}})",
       "kvHeads": "KVヘッド数 × ヘッド次元"
     },
-    "estimateNote": "見積もりは目安です。Ollama の同時リクエスト数は 1 を前提にしています。"
+    "estimateNote": "見積もりは目安です。Ollama の同時リクエスト数は 1 を前提にしています。",
+    "vllmHelp": "vLLM は Hugging Face の元のモデル(bf16 の safetensors)を動かします。量子化した GGUF を使う Ollama より VRAM を多く使い、GPU のメモリの 9割の中に収まる型を選びます。KV キャッシュは f16 だけ、モデルの置き場所は毎回ダウンロードだけです。同時に多くのリクエストを処理するのに向いています。"
   },
   "addModel": {
     "open": "一覧にないモデルを追加する",
@@ -139,7 +140,8 @@
     "hourlyTotalDetailPrivate": "オンデマンドなら {{onDemand}}/時。インスタンス、ルートボリューム({{disk}} GiB)、保管、VPC エンドポイントの料金を足した値",
     "note": "料金は AWS の Price List API とスポット価格の履歴から取った目安で、実際の請求額とは違います。起動時間は、terraform apply から使える状態になるまでの目安で、実機の測定({{source}})から割り出しています。",
     "confirm": "この内容で起動を確認する",
-    "confirmBlocked": "起動前のチェックに通っていないため、進めません。"
+    "confirmBlocked": "起動前のチェックに通っていないため、進めません。",
+    "vllmNotPrivate": "vLLM はイメージとモデルをインターネットから取得するため、閉じたネットワークでは使えません。"
   },
   "regionCompare": {
     "open": "{{type}} をリージョンごとに比べる(安いリージョンのおすすめ)",
@@ -286,7 +288,13 @@
     "openWebUI": "チャット画面(Open WebUI)",
     "openWebUIInstall": "Open WebUI も入れる",
     "openWebUIHelp": "ブラウザで使うチャット画面を同じインスタンスに入れます。インスタンスの 127.0.0.1:8080 だけで待ち受け、SSM のポートフォワードでだけ使えます。イメージの取得で起動が数分のび、ルートボリュームが 10 GiB 増えます。",
-    "openWebUIPrivate": "閉じたネットワークでは入れられません(イメージを ghcr.io から取得するため)。"
+    "openWebUIPrivate": "閉じたネットワークでは入れられません(イメージを ghcr.io から取得するため)。",
+    "engine": "推論エンジン",
+    "hfToken": "Hugging Face のトークン",
+    "hfTokenGated": "{{repo}} は gated のモデルです。Hugging Face で利用条件に同意したアカウントのトークン(Read)が要ります。",
+    "hfTokenSaved": "保存済みです({{region}} の SSM パラメータ {{parameter}})。",
+    "hfTokenSave": "保存する",
+    "hfTokenHelp": "トークンは SSM パラメータ(SecureString)に保存し、インスタンスが起動するときに読みます。tfvars や terraform の state には入りません。"
   },
   "progress": {
     "heading": "起動の進み具合",
@@ -320,7 +328,8 @@
       "preparing_storage": "モデルの置き場所の用意",
       "pulling_model": "モデルの取得",
       "verifying": "応答の確認",
-      "ready": "使える状態"
+      "ready": "使える状態",
+      "installing_vllm": "vLLM の導入"
     },
     "stageStatus": {
       "done": "完了",

@@ -4,7 +4,8 @@
 user data(user_data.sh.tftpl)から呼ぶ。標準ライブラリと AWS CLI だけを使う。
 
     launchpad.py status <stage> [--state running|ready|failed] [--error MSG] [--log PATH]
-    launchpad.py wait-server
+    launchpad.py wait-server [--timeout SEC]
+    launchpad.py track-download <dir> <expected_bytes>
     launchpad.py pull <model>
     launchpad.py check-local <model>
     launchpad.py verify <model>
@@ -20,7 +21,11 @@ user data(user_data.sh.tftpl)から呼ぶ。標準ライブラリと AWS CLI だ
     LAUNCHPAD_STATE_FILE         手元の状態ファイル(既定 /var/lib/llm-launchpad/status.json)
     LAUNCHPAD_FSTAB              EBSボリュームを書く fstab(既定 /etc/fstab)
     LAUNCHPAD_UPTIME_FILE        起動からの秒数を読むファイル(既定 /proc/uptime)
-    OLLAMA_URL                   Ollama API(既定 http://127.0.0.1:11434)
+    OLLAMA_URL                   推論エンジンの API(既定 http://127.0.0.1:11434。vLLM も同じポートで動かす)
+    LAUNCHPAD_ENGINE             推論エンジン(ollama / vllm)。なければ LAUNCHPAD_ENGINE_FILE を読む
+    LAUNCHPAD_ENGINE_FILE        起動処理が推論エンジンを書いたファイル(既定 /var/lib/llm-launchpad/engine)
+
+推論エンジンが vLLM のときは、Ollama の API(/api/...)の代わりに OpenAI 互換 API(/v1/...)を使う。
 """
 
 import argparse
@@ -40,6 +45,19 @@ STATE_FILE = os.environ.get("LAUNCHPAD_STATE_FILE", "/var/lib/llm-launchpad/stat
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
 FSTAB = os.environ.get("LAUNCHPAD_FSTAB", "/etc/fstab")
 UPTIME_FILE = os.environ.get("LAUNCHPAD_UPTIME_FILE", "/proc/uptime")
+ENGINE_FILE = os.environ.get("LAUNCHPAD_ENGINE_FILE", "/var/lib/llm-launchpad/engine")
+
+
+def engine():
+    """推論エンジン。SSM の send-command で動かすとき(計測)は環境変数がないので、起動処理が書いたファイルを読む"""
+    value = os.environ.get("LAUNCHPAD_ENGINE")
+    if not value:
+        try:
+            with open(ENGINE_FILE, encoding="utf-8") as f:
+                value = f.read().strip()
+        except FileNotFoundError:
+            value = ""
+    return value or "ollama"
 
 # 取得中の進み具合は、この秒数か、この割合(%)だけ進むごとに書く。PutParameter の回数を抑えるため
 PUBLISH_INTERVAL_SEC = 10
@@ -130,6 +148,8 @@ def request(path, body=None, timeout=30):
 
 
 def wait_server(timeout_sec=300):
+    if engine() == "vllm":
+        return wait_vllm(timeout_sec)
     deadline = time.monotonic() + timeout_sec
     while True:
         try:
@@ -208,6 +228,50 @@ def check_local(model):
     log(f"{model} は手元にあります")
 
 
+def wait_vllm(timeout_sec):
+    """vLLM は、モデルを GPU に載せて CUDA グラフを用意し終えると /health が 200 を返す。コンテナが止まっていたら失敗にする"""
+    deadline = time.monotonic() + timeout_sec
+    while True:
+        try:
+            with request("/health", timeout=5):
+                pass
+            with request("/version", timeout=5) as res:
+                version = json.load(res).get("version", "")
+            log(f"vLLM {version} が応答しました")
+            s = load_state()
+            set_status(s.get("stage", "verifying"), s.get("state", "running"), vllm_version=version)
+            return
+        except (urllib.error.URLError, ConnectionError, TimeoutError, json.JSONDecodeError):
+            pass
+        state = subprocess.run(["docker", "inspect", "-f", "{{.State.Status}}", "vllm"], capture_output=True, text=True).stdout.strip()
+        if state in ("exited", "dead"):
+            tail = subprocess.run(["docker", "logs", "--tail", "20", "vllm"], capture_output=True, text=True)
+            raise RuntimeError(f"vLLM のコンテナが止まりました: {(tail.stdout + tail.stderr).strip()[-1500:]}")
+        if time.monotonic() > deadline:
+            raise RuntimeError(f"vLLM が {timeout_sec} 秒以内に応答しませんでした")
+        time.sleep(5)
+
+
+def track_download(directory, expected_bytes, interval_sec=PUBLISH_INTERVAL_SEC):
+    """Hugging Face からの取得の進み具合を、キャッシュの大きさから出して書く。起動処理がバックグラウンドで動かし、
+    取得が終わると止める。ほかの段階に進んだか失敗したら、状態を上書きしないよう自分で止まる"""
+    while True:
+        s = load_state()
+        if s.get("stage") != "pulling_model" or s.get("state") != "running":
+            return
+        completed = 0
+        for root, _, files in os.walk(directory):
+            for name in files:
+                try:
+                    completed += os.lstat(os.path.join(root, name)).st_size
+                except FileNotFoundError:
+                    pass
+        # 重みの大きさは見積もりなので、取得が終わるまでは 100% にしない
+        percent = min(round(completed * 100 / expected_bytes, 1), 99.0) if expected_bytes else 0.0
+        set_status("pulling_model", pull={"percent": percent, "completed_bytes": completed, "total_bytes": expected_bytes, "message": "downloading"})
+        time.sleep(interval_sec)
+
+
 def gpu_memory():
     """nvidia-smi で GPU ごとのメモリを取る。見積もりと実測の比較に使う"""
     try:
@@ -229,11 +293,19 @@ def gpu_memory():
 def verify(model):
     """短いプロンプトを1回送り、応答が返るかを確かめる。大きいモデルはGPUへの読み込みに数分かかる"""
     started = time.monotonic()
-    body = {"model": model, "prompt": "Reply with OK.", "stream": False, "options": {"num_predict": 8}}
-    with request("/api/generate", body, timeout=1800) as res:
-        result = json.load(res)
-    if "response" not in result:
-        raise RuntimeError(f"応答の形式が想定と違います: {result}")
+    if engine() == "vllm":
+        with request("/v1/completions", {"model": model, "prompt": "Reply with OK.", "max_tokens": 8}, timeout=1800) as res:
+            result = json.load(res)
+        choices = result.get("choices") or []
+        if not choices or "text" not in choices[0]:
+            raise RuntimeError(f"応答の形式が想定と違います: {result}")
+        result = {"response": choices[0]["text"]}
+    else:
+        body = {"model": model, "prompt": "Reply with OK.", "stream": False, "options": {"num_predict": 8}}
+        with request("/api/generate", body, timeout=1800) as res:
+            result = json.load(res)
+        if "response" not in result:
+            raise RuntimeError(f"応答の形式が想定と違います: {result}")
 
     loaded = loaded_model(model)
 
@@ -257,6 +329,8 @@ BENCH_NUM_PREDICT = 256
 
 def generate_timed(model, prompt, num_predict):
     """/api/generate をストリームで送り、最初のトークンまでの時間(TTFT)と、Ollama が数えたトークン数と時間を返す"""
+    if engine() == "vllm":
+        return generate_timed_vllm(model, prompt, num_predict)
     body = {
         "model": model,
         "prompt": prompt,
@@ -303,8 +377,79 @@ def generate_timed(model, prompt, num_predict):
     }
 
 
+def generate_timed_vllm(model, prompt, num_predict):
+    """vLLM の /v1/chat/completions をストリームで送る。Ollama と同じく、温度 0、seed 0、出力は num_predict トークンまで。
+    出力の tok/s は「出力トークン数 / 最初のトークンから最後までの時間」(Ollama の eval_duration に近いもの)。
+    vLLM は読み込みの時間とプロンプトの処理時間を別に返さないので、prompt_tokens_per_sec と load_sec は出さない"""
+    body = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": True,
+        "stream_options": {"include_usage": True},
+        "max_tokens": num_predict,
+        "temperature": 0,
+        "seed": 0,
+    }
+    started = time.monotonic()
+    ttft = None
+    first_response = None
+    thinking = False
+    usage = None
+    last_token = None
+    with request("/v1/chat/completions", body, timeout=1800) as res:
+        for raw in res:
+            line = raw.decode("utf-8", errors="replace").strip()
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                break
+            event = json.loads(data)
+            if "error" in event:
+                raise RuntimeError(f"生成に失敗しました: {event['error']}")
+            if event.get("usage"):
+                usage = event["usage"]
+            for choice in event.get("choices") or []:
+                delta = choice.get("delta") or {}
+                # 考えてから答えるモデルは、考えている間の出力を reasoning_content に入れて返すことがある
+                reasoning = delta.get("reasoning_content") or delta.get("reasoning")
+                content = delta.get("content")
+                if reasoning:
+                    thinking = True
+                if reasoning or content:
+                    last_token = time.monotonic()
+                    if ttft is None:
+                        ttft = last_token - started
+                if content and first_response is None:
+                    first_response = time.monotonic() - started
+    if usage is None:
+        raise RuntimeError("生成がトークン数の通知なしで終わりました")
+    output_tokens = usage.get("completion_tokens", 0)
+    decode_sec = (last_token - started - ttft) if (last_token is not None and ttft is not None) else 0
+    return {
+        "ttft_sec": None if ttft is None else round(ttft, 3),
+        "first_response_sec": None if first_response is None else round(first_response, 3),
+        "thinking": thinking,
+        "total_sec": round(time.monotonic() - started, 3),
+        "prompt_tokens": usage.get("prompt_tokens", 0),
+        "prompt_tokens_per_sec": None,
+        "output_tokens": output_tokens,
+        "output_tokens_per_sec": round((output_tokens - 1) / decode_sec, 2) if decode_sec > 0 and output_tokens > 1 else None,
+        "load_sec": None,
+    }
+
+
 def loaded_model(model):
-    """/api/ps にある、そのモデルの大きさと、そのうち GPU に載った大きさ"""
+    """/api/ps にある、そのモデルの大きさと、そのうち GPU に載った大きさ。vLLM では、使えるコンテキスト長(max_model_len)"""
+    if engine() == "vllm":
+        try:
+            with request("/v1/models") as res:
+                for m in json.load(res).get("data", []):
+                    if m.get("id") == model:
+                        return {"context_length": m.get("max_model_len")}
+        except (urllib.error.URLError, json.JSONDecodeError):
+            pass
+        return {}
     try:
         with request("/api/ps") as res:
             for m in json.load(res).get("models", []):
@@ -330,6 +475,7 @@ def bench(model, runs=1, num_predict=BENCH_NUM_PREDICT):
 
     out = {
         "model": model,
+        "engine": engine(),
         "measured_at": now(),
         "num_predict": num_predict,
         "runs": runs,
@@ -506,6 +652,22 @@ def ollama_request_times(minutes):
     return times
 
 
+# vLLM のログで数えないリクエスト(死活の確認やモデルの一覧)
+VLLM_IGNORED_PATHS = ("/health", "/metrics", "/version", "/v1/models", "/ping")
+
+
+def vllm_request_times(minutes):
+    """vLLM のコンテナのログにある、直近 minutes 分のリクエストの時刻(エポック秒)。
+    ログは「2026-11-15T06:00:00.123456789Z INFO: 127.0.0.1:50000 - "POST /v1/chat/completions HTTP/1.1" 200 OK」の形(--timestamps)"""
+    result = subprocess.run(["docker", "logs", "--since", f"{minutes}m", "--timestamps", "vllm"], capture_output=True, text=True, check=True)
+    times = []
+    for line in (result.stdout + result.stderr).splitlines():
+        m = re.match(r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?Z .*"(?:GET|POST) (/[^ "]*) HTTP', line)
+        if m and not m.group(2).startswith(VLLM_IGNORED_PATHS):
+            times.append(float(calendar.timegm(time.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S"))))
+    return times
+
+
 def bootstrap_running():
     """user data(cloud-init)がまだ動いているか。S3 への保存は ready のあとも続くため、終わるまでは止めない"""
     result = subprocess.run(["cloud-init", "status"], capture_output=True, text=True)
@@ -525,7 +687,7 @@ def idle_check(minutes, dry_run=False):
         uptime = float(f.read().split()[0])
     # 起動処理が終わってから、また今回の起動(停止からの再開を含む)から minutes 分は止めない
     finished_at = parse_time(s.get("ready_at") or s["updated_at"])
-    times = ollama_request_times(minutes)
+    times = vllm_request_times(minutes) if engine() == "vllm" else ollama_request_times(minutes)
     stop_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(max([time.time() - uptime, finished_at, *times]) + window))
     if stop_at != s.get("idle_stop_at"):
         # set_status は updated_at を変え、ready_at がないときの止める時刻の数え始めがずれるので、この項目だけ書く
@@ -555,7 +717,12 @@ def main(argv=None):
     p.add_argument("--error")
     p.add_argument("--log")
 
-    sub.add_parser("wait-server", help="Ollama が応答するまで待つ")
+    p = sub.add_parser("wait-server", help="推論エンジンが応答するまで待つ")
+    p.add_argument("--timeout", type=int, default=300)
+
+    p = sub.add_parser("track-download", help="Hugging Face からの取得の進み具合を書く(vLLM)")
+    p.add_argument("directory")
+    p.add_argument("expected_bytes", type=int)
 
     p = sub.add_parser("pull", help="モデルを取得する")
     p.add_argument("model")
@@ -596,6 +763,13 @@ def main(argv=None):
         # 起動処理とは別に動くので、失敗しても状態を failed にしない
         idle_check(args.minutes, args.dry_run)
         return 0
+    if args.command == "track-download":
+        # 進み具合を書くだけなので、失敗しても起動処理を止めない
+        try:
+            track_download(args.directory, args.expected_bytes)
+        except Exception as e:  # noqa: BLE001
+            log(f"取得の進み具合を書けませんでした: {e}")
+        return 0
     if args.command == "bench":
         # 起動処理とは別に動くので、失敗しても状態を failed にしない
         bench(args.model, args.runs, args.num_predict)
@@ -603,7 +777,7 @@ def main(argv=None):
 
     try:
         if args.command == "wait-server":
-            wait_server()
+            wait_server(args.timeout)
         elif args.command == "pull":
             pull(args.model)
         elif args.command == "check-local":

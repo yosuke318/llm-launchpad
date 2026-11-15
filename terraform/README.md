@@ -271,6 +271,26 @@ terraform destroy
 * `0.0.0.0/0` などの全開放は指定できない
 * アウトバウンドは HTTPS(443)と HTTP(80)だけ許可する(SSM、S3、Ollama library、Hugging Face、OSのパッケージミラー)。閉じたネットワークでは HTTPS だけ
 
+### 推論エンジン: `engine = "vllm"` で vLLM を使う
+
+既定は Ollama(量子化した GGUF)。`engine = "vllm"` にすると、[vLLM](https://github.com/vllm-project/vllm) で Hugging Face の元のモデル(bf16 の safetensors)を動かす。同時に多くのリクエストを処理するのに向いている。
+
+* 使えるのは、`catalog/models.yaml` に `vllm`(Hugging Face のリポジトリ、gated か、重みの大きさ)を書いたモデルだけ
+* VRAM の見積もりは、重みを bf16(`vllm.weights_gb`、おおよそパラメータ数 x 2)、KV キャッシュを f16 で数え、余裕を 2 GiB 見込む。vLLM は GPU のメモリの 0.9 を先に確保するので、「合計VRAM x 0.9 >= 必要VRAM」の型を選ぶ(`terraform/modules/sizing` と `webui/server/llm_launchpad_webui/sizing.py` が同じ計算をする)
+* Docker で公式のイメージ(`vllm/vllm-openai:<vllm_version>`、既定は `latest`)を動かす。**Ollama と同じポート(11434)**で OpenAI 互換 API(`/v1/...`)を出すので、SSM のポートフォワード、WebUI の OpenAI 互換 API の中継、Open WebUI(OpenAI 互換 API でつなぐ)はそのまま使える。Ollama の API(`/api/...`)はない
+* モデルは起動のたびに Hugging Face から取得する(`model_storage = "download"` だけ)。取得は vLLM のイメージに入っている `huggingface_hub` で行い、取得の進み具合をキャッシュの大きさから出す。動かすときは `HF_HUB_OFFLINE=1` で、取得したものだけを使う
+* `--served-model-name` に Ollama のタグ(例: `qwen3:8b`)とリポジトリ名の両方を入れる。どちらの名前でも呼べる
+* `--max-model-len` はコンテキスト長、`--tensor-parallel-size` はインスタンスの GPU の数。T4(g4dn)は bf16 を扱えないので `--dtype half` にする
+* gated のモデル(Llama、Mistral など)は、Hugging Face で利用条件に同意したアカウントのトークンが要る。トークンは SSM パラメータ(SecureString)に入れて `hf_token_parameter_name` に名前を渡す。インスタンスは起動するときにそこから読む(`AmazonSSMManagedInstanceCore` に `ssm:GetParameter` が含まれる)。tfvars、user data、state にはトークンを置かない
+
+  ```sh
+  aws ssm put-parameter --name /llm-launchpad/hf-token --type SecureString --value 'hf_...' --region ap-northeast-1
+  ```
+
+* イメージの分、ルートボリュームの既定に 30 GiB 足す。閉じたネットワークでは使えない
+* 計測(`launchpad.py bench`)は OpenAI 互換 API にストリームで送り、TTFT と出力の tok/s(最初のトークンから最後までの速さ)を測る。vLLM はプロンプトの処理時間と読み込みの時間を返さないので、その2つは出さない。アイドル停止は vLLM のコンテナのログ(`docker logs`)でリクエストを数える
+* 起動時間の目安(イメージの取得 240秒、読み込みのほかの分 180秒)は、まだ実機で測っていない
+
 ### Open WebUI: `open_webui = true` で同じインスタンスに入れる
 
 ブラウザで使うチャット画面([Open WebUI](https://github.com/open-webui/open-webui))を、GPU インスタンスに一緒に入れる。
@@ -424,6 +444,9 @@ terraform test
 | `root_volume_throughput` | `1000` | ルートボリュームのスループット(MiB/s) |
 | `root_volume_iops` | `4000` | ルートボリュームの IOPS(スループットの4倍以上) |
 | `ollama_version` | `null`(最新) | 入れる Ollama のバージョン。閉じたネットワークでは `null` なら `latest` の下に置いたもの |
+| `engine` | `ollama` | 推論エンジン(`ollama` / `vllm`)。`vllm` は `model_storage = "download"` とパブリックなネットワークだけ |
+| `vllm_version` | `latest` | vLLM のイメージのタグ(例: `v0.10.1`) |
+| `hf_token_parameter_name` | `null` | vLLM で gated のモデルを取得するトークンを入れた SSM パラメータ(SecureString)の名前 |
 | `open_webui` | `false` | Open WebUI も入れる(`network_mode = "public"` だけ) |
 | `open_webui_version` | `main` | Open WebUI のイメージのタグ(例: `v0.6.5`) |
 | `idle_stop_minutes` | `30` | Ollama へのリクエストがこの分数なければ止める(`0` で止めない) |

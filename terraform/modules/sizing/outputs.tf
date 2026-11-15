@@ -3,10 +3,11 @@ locals {
   round2 = { for k, v in {
     weights_gib       = local.weights_gib
     kv_cache_gib      = local.kv_cache_gib
-    overhead_gib      = var.vram_overhead_gib
+    overhead_gib      = local.overhead_gib
     required_gib      = local.required_gib
     instance_vram_gib = local.selected_vram_gib
-    headroom_gib      = local.selected_vram_gib - local.required_gib
+    usable_vram_gib   = local.selected_vram_gib * local.utilization
+    headroom_gib      = local.selected_vram_gib * local.utilization - local.required_gib
   } : k => floor(v * 100 + 0.5) / 100 }
 }
 
@@ -17,6 +18,16 @@ output "instance_type" {
   precondition {
     condition     = local.model_found
     error_message = "model \"${var.model}\" はモデル定義にありません。使えるモデル: ${join(", ", sort(keys(local.catalog.models)))}"
+  }
+
+  precondition {
+    condition     = !local.model_found || !local.vllm || local.model.vllm != null
+    error_message = "${var.model} は vLLM では動かせません(モデル定義に vllm がありません)。"
+  }
+
+  precondition {
+    condition     = !local.vllm || var.kv_cache_type == "f16"
+    error_message = "vLLM では kv_cache_type は f16 だけです。"
   }
 
   precondition {
@@ -50,10 +61,21 @@ output "vram_estimate" {
   value = merge(local.round2, {
     context_length = var.context_length
     kv_cache_type  = var.kv_cache_type
+    engine         = var.engine
   })
 }
 
 output "fitting_instance_types" {
   description = "見積もりが収まるインスタンス型(選ばれる順)"
   value       = [for t in local.fitting_types : t.type]
+}
+
+output "engine" {
+  description = "推論エンジン"
+  value       = var.engine
+}
+
+output "vllm" {
+  description = "vLLM で動かすときのモデル(Hugging Face のリポジトリなど)。ollama では null"
+  value       = local.vllm ? local.model.vllm : null
 }

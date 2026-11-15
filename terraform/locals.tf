@@ -27,6 +27,13 @@ locals {
 
   private = var.network_mode == "private"
 
+  # vLLM(engine = vllm のとき)。Ollama と同じポートで OpenAI 互換 API を出すので、接続のしかたは変わらない
+  vllm = var.engine == "vllm"
+  # T4(g4dn)は bf16 を扱えない(compute capability 7.5)ので fp16 で動かす
+  vllm_dtype = strcontains(module.sizing.instance.gpu_model, "T4") ? "half" : "auto"
+  # vLLM のイメージ(CUDA を含み大きい)の分、ルートボリュームを足す
+  vllm_root_volume_gib = local.vllm ? 30 : 0
+
   # Open WebUI(open_webui = true のとき)。インスタンスの 127.0.0.1 だけで待ち受ける
   open_webui_port  = 8080
   open_webui_image = "ghcr.io/open-webui/open-webui:${var.open_webui_version}"

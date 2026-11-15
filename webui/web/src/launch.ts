@@ -81,6 +81,7 @@ export function launchVariables(
     ...(settings.availabilityZone && option.id !== "ebs" ? { availability_zone: settings.availabilityZone } : {}),
     ...(estimate.model.added ? { model_definition: modelDefinition(estimate.model) } : {}),
     ...(settings.openWebUI && openWebUIAllowed(networkMode) ? { open_webui: true } : {}),
+    ...vllmVariables(estimate),
   };
 }
 
@@ -113,6 +114,23 @@ export function launchHourly(
   const spot = availabilityZone ? plan.prices.spot_hourly_usd_by_az[availabilityZone] : plan.prices.spot_min?.hourly_usd;
   const instance = purchaseOption === "spot" ? spot : plan.prices.on_demand_hourly_usd;
   return hourlyTotal(instance, option, networkHourly(plan, networkMode));
+}
+
+// vLLM で gated のモデルを取得するトークンを入れる SSM パラメータ(サーバーの HF_TOKEN_PARAMETER と同じ)
+export const HF_TOKEN_PARAMETER = "/llm-launchpad/hf-token";
+
+export function isVllm(estimate: ModelEstimate) {
+  return estimate.vram_estimate.engine === "vllm";
+}
+
+// gated のモデルは、Hugging Face で利用条件に同意したアカウントのトークンが要る
+export function needsHfToken(estimate: ModelEstimate) {
+  return isVllm(estimate) && !!estimate.model.vllm?.gated;
+}
+
+function vllmVariables(estimate: ModelEstimate): Partial<LaunchVariables> {
+  if (!isVllm(estimate)) return {};
+  return { engine: "vllm", ...(needsHfToken(estimate) ? { hf_token_parameter_name: HF_TOKEN_PARAMETER } : {}) };
 }
 
 // Open WebUI のイメージを ghcr.io から取るので、閉じたネットワークでは入れられない(terraform の open_webui の検証と同じ)

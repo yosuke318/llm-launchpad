@@ -211,6 +211,20 @@ describe("launch helpers", () => {
     });
   });
 
+  it("writes the engine for vLLM, and the token parameter only for gated models", () => {
+    const settings = { purchaseOption: "spot" as const, idleStopMinutes: 30, maxLifetimeHours: 8, availabilityZone: null };
+    const vllmEstimate = {
+      ...estimate,
+      model: { ...estimate.model, vllm: { hf_repo: "Qwen/Qwen3-8B", gated: false, weights_gb: 16.4 } },
+      vram_estimate: { ...estimate.vram_estimate, engine: "vllm" as const },
+    };
+    expect(launchVariables(vllmEstimate, plan, option, settings)).toMatchObject({ engine: "vllm" });
+    expect(launchVariables(vllmEstimate, plan, option, settings)).not.toHaveProperty("hf_token_parameter_name");
+    const gated = { ...vllmEstimate, model: { ...vllmEstimate.model, vllm: { ...vllmEstimate.model.vllm, gated: true } } };
+    expect(launchVariables(gated, plan, option, settings)).toMatchObject({ engine: "vllm", hf_token_parameter_name: "/llm-launchpad/hf-token" });
+    expect(launchVariables(estimate, plan, option, settings)).not.toHaveProperty("engine");
+  });
+
   it("writes open_webui only when asked for and on the public network", () => {
     const settings = { purchaseOption: "spot" as const, idleStopMinutes: 30, maxLifetimeHours: 8, availabilityZone: null, openWebUI: true };
     expect(launchVariables(estimate, plan, option, settings).open_webui).toBe(true);
